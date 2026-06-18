@@ -1,0 +1,66 @@
+schema_version: 1
+name: rocket_nozzle_entry
+description: Structured nozzle-entry chamber with a converging shell, stiffener ribs, and sensor bosses.
+
+builder:
+  shell_approx_sides: 32
+  shell_axial_slices: 6
+  wall_thickness_m: 0.004
+  geom_group: 0
+  shell_rgba: [0.25, 0.34, 0.38, 0.34]
+  obstacle_rgba: [0.92, 0.48, 0.18, 1.0]
+  target_rgba: [0.10, 0.85, 0.50, 1.0]
+  target_radius_m: 0.003
+  contype: 1
+  conaffinity: 1
+
+scene:
+  primitives:
+    - id: nozzle_entry_shell
+      type: frustum_shell_segment
+      z_min_m: 0.025
+      z_max_m: 0.150
+      radius_start_m: 0.080
+      radius_end_m: 0.045
+      rgba: [0.25, 0.34, 0.38, 0.28]
+    - id: injector_lip_boss
+      type: cylinder_obstacle
+      center_m: [0.0, 0.052, 0.045]
+      radius_m: 0.006
+      half_length_m: 0.014
+      axis: y
+      rgba: [0.82, 0.30, 0.10, 1.0]
+    - id: axial_stiffener_rib_pos_x
+      type: box_obstacle
+      center_m: [0.047, 0.0, 0.095]
+      half_size_m: [0.004, 0.010, 0.040]
+      rgba: [0.92, 0.48, 0.18, 1.0]
+    - id: axial_stiffener_rib_neg_y
+      type: box_obstacle
+      center_m: [0.0, -0.047, 0.095]
+      half_size_m: [0.010, 0.004, 0.040]
+      rgba: [0.92, 0.48, 0.18, 1.0]
+    - id: sensor_boss_obstacle
+      type: cylinder_obstacle
+      center_m: [-0.038, 0.025, 0.105]
+      radius_m: 0.008
+      half_length_m: 0.012
+      axis: x
+      rgba: [0.95, 0.64, 0.22, 1.0]
+
+  inspection_targets:
+    - id: entry_wall_30deg
+      type: wall_point
+      section_id: nozzle_entry_shell
+      theta_deg: 30.0
+      z_m: 0.075
+      inward_offset_m: 0.018
+    - id: rib_gap_center
+      type: point
+      pos_m: [0.025, -0.022, 0.095]
+    - id: throat_wall_210deg
+      type: wall_point
+      section_id: nozzle_entry_shell
+      theta_deg: 210.0
+      z_m: 0.110
+      inward_offset_m: 0.016

@@ -1,0 +1,67 @@
+<mujoco model="segmented_visuals_template">
+  <!--
+    Template only: do not include this file in the default model until the
+    split STL files exist. Collision remains in three_segment_arm.xml capsule
+    geoms; these visual geoms are non-collision display meshes.
+  -->
+  <asset>
+    <mesh name="base_visual_mesh" file="../meshes/mujoco_visual_segments/base_visual.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="segment_1_link_1_visual_mesh" file="../meshes/mujoco_visual_segments/segment_1_link_1_visual.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="segment_1_link_2_visual_mesh" file="../meshes/mujoco_visual_segments/segment_1_link_2_visual.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="segment_1_link_3_visual_mesh" file="../meshes/mujoco_visual_segments/segment_1_link_3_visual.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="segment_1_link_4_visual_mesh" file="../meshes/mujoco_visual_segments/segment_1_link_4_visual.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="segment_2_link_1_visual_mesh" file="../meshes/mujoco_visual_segments/segment_2_link_1_visual.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="segment_2_link_2_visual_mesh" file="../meshes/mujoco_visual_segments/segment_2_link_2_visual.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="segment_2_link_3_visual_mesh" file="../meshes/mujoco_visual_segments/segment_2_link_3_visual.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="segment_2_link_4_visual_mesh" file="../meshes/mujoco_visual_segments/segment_2_link_4_visual.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="segment_3_link_1_visual_mesh" file="../meshes/mujoco_visual_segments/segment_3_link_1_visual.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="segment_3_link_2_visual_mesh" file="../meshes/mujoco_visual_segments/segment_3_link_2_visual.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="segment_3_link_3_visual_mesh" file="../meshes/mujoco_visual_segments/segment_3_link_3_visual.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="segment_3_link_4_visual_mesh" file="../meshes/mujoco_visual_segments/segment_3_link_4_visual.stl" scale="0.001 0.001 0.001"/>
+  </asset>
+
+  <worldbody>
+    <body name="base">
+      <geom name="base_visual_geom" type="mesh" mesh="base_visual_mesh" contype="0" conaffinity="0" density="0" group="1"/>
+
+      <body name="segment_1_link_1">
+        <geom name="segment_1_link_1_visual_geom" type="mesh" mesh="segment_1_link_1_visual_mesh" contype="0" conaffinity="0" density="0" group="1"/>
+        <body name="segment_1_link_2">
+          <geom name="segment_1_link_2_visual_geom" type="mesh" mesh="segment_1_link_2_visual_mesh" contype="0" conaffinity="0" density="0" group="1"/>
+          <body name="segment_1_link_3">
+            <geom name="segment_1_link_3_visual_geom" type="mesh" mesh="segment_1_link_3_visual_mesh" contype="0" conaffinity="0" density="0" group="1"/>
+            <body name="segment_1_link_4">
+              <geom name="segment_1_link_4_visual_geom" type="mesh" mesh="segment_1_link_4_visual_mesh" contype="0" conaffinity="0" density="0" group="1"/>
+
+              <body name="segment_2_link_1">
+                <geom name="segment_2_link_1_visual_geom" type="mesh" mesh="segment_2_link_1_visual_mesh" contype="0" conaffinity="0" density="0" group="1"/>
+                <body name="segment_2_link_2">
+                  <geom name="segment_2_link_2_visual_geom" type="mesh" mesh="segment_2_link_2_visual_mesh" contype="0" conaffinity="0" density="0" group="1"/>
+                  <body name="segment_2_link_3">
+                    <geom name="segment_2_link_3_visual_geom" type="mesh" mesh="segment_2_link_3_visual_mesh" contype="0" conaffinity="0" density="0" group="1"/>
+                    <body name="segment_2_link_4">
+                      <geom name="segment_2_link_4_visual_geom" type="mesh" mesh="segment_2_link_4_visual_mesh" contype="0" conaffinity="0" density="0" group="1"/>
+
+                      <body name="segment_3_link_1">
+                        <geom name="segment_3_link_1_visual_geom" type="mesh" mesh="segment_3_link_1_visual_mesh" contype="0" conaffinity="0" density="0" group="1"/>
+                        <body name="segment_3_link_2">
+                          <geom name="segment_3_link_2_visual_geom" type="mesh" mesh="segment_3_link_2_visual_mesh" contype="0" conaffinity="0" density="0" group="1"/>
+                          <body name="segment_3_link_3">
+                            <geom name="segment_3_link_3_visual_geom" type="mesh" mesh="segment_3_link_3_visual_mesh" contype="0" conaffinity="0" density="0" group="1"/>
+                            <body name="segment_3_link_4">
+                              <geom name="segment_3_link_4_visual_geom" type="mesh" mesh="segment_3_link_4_visual_mesh" contype="0" conaffinity="0" density="0" group="1"/>
+                            </body>
+                          </body>
+                        </body>
+                      </body>
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

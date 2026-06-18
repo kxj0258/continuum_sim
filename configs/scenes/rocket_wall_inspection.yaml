@@ -1,0 +1,60 @@
+schema_version: 1
+name: rocket_wall_inspection
+description: Cylindrical combustion-chamber wall segment with cooling-channel-like ribs.
+
+builder:
+  shell_approx_sides: 40
+  shell_axial_slices: 5
+  wall_thickness_m: 0.004
+  geom_group: 0
+  shell_rgba: [0.22, 0.33, 0.37, 0.30]
+  obstacle_rgba: [0.85, 0.40, 0.14, 1.0]
+  target_rgba: [0.10, 0.85, 0.50, 1.0]
+  target_radius_m: 0.003
+  contype: 1
+  conaffinity: 1
+
+scene:
+  primitives:
+    - id: chamber_wall_shell
+      type: cylindrical_shell_segment
+      z_min_m: 0.030
+      z_max_m: 0.155
+      radius_m: 0.070
+      rgba: [0.22, 0.33, 0.37, 0.28]
+    - id: cooling_rib_0deg
+      type: box_obstacle
+      center_m: [0.057, 0.0, 0.090]
+      half_size_m: [0.004, 0.008, 0.050]
+    - id: cooling_rib_120deg
+      type: box_obstacle
+      center_m: [-0.028, 0.050, 0.095]
+      half_size_m: [0.008, 0.004, 0.045]
+    - id: cooling_rib_240deg
+      type: box_obstacle
+      center_m: [-0.028, -0.050, 0.095]
+      half_size_m: [0.008, 0.004, 0.045]
+    - id: inspection_port_boss
+      type: cylinder_obstacle
+      center_m: [0.0, 0.056, 0.125]
+      radius_m: 0.007
+      half_length_m: 0.014
+      axis: y
+      rgba: [0.95, 0.64, 0.22, 1.0]
+
+  inspection_targets:
+    - id: wall_patch_15deg
+      type: wall_point
+      section_id: chamber_wall_shell
+      theta_deg: 15.0
+      z_m: 0.070
+      inward_offset_m: 0.020
+    - id: channel_gap
+      type: point
+      pos_m: [-0.018, 0.030, 0.105]
+    - id: wall_patch_230deg
+      type: wall_point
+      section_id: chamber_wall_shell
+      theta_deg: 230.0
+      z_m: 0.135
+      inward_offset_m: 0.020

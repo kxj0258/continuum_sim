@@ -1,0 +1,8 @@
+schema_version: 1
+robot_config: configs/robot_3seg.yaml
+pcc_backend_config: configs/pcc.yaml
+mujoco_backend_config: configs/mujoco.yaml
+pcc_tracking_config: configs/tasks/pcc_trajectory_tracking.yaml
+mujoco_tracking_config: configs/tasks/mujoco_trajectory_tracking.yaml
+mujoco_navigation_config: configs/tasks/mujoco_navigation_rocket.yaml
+mujoco_wiping_config: configs/tasks/mujoco_wiping_board.yaml

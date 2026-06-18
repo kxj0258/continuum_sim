@@ -1,0 +1,178 @@
+<mujoco model="three_segment_2dof_follower_arm">
+  <compiler angle="radian" />
+  <option timestep="0.001" integrator="implicitfast" iterations="50" gravity="0 0 0" />
+  <visual>
+    <global azimuth="315" elevation="-25" offwidth="640" offheight="480" />
+    <headlight ambient="0.35 0.35 0.35" diffuse="0.75 0.75 0.75" specular="0.2 0.2 0.2" />
+    <map znear="0.001" zfar="2" />
+    <quality shadowsize="2048" />
+  </visual>
+  <default>
+    <joint damping="0.05" armature="0.0001" limited="true" range="-0.25 0.25" stiffness="0.02" springref="0" />
+    <geom type="capsule" size="0.004" density="1100" rgba="0.2 0.45 0.85 1" group="0" />
+    <site size="0.003" rgba="0.95 0.25 0.2 1" />
+    <position kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+  </default>
+  <worldbody>
+    <body name="base" pos="0 0 0">
+      <geom name="base_geom" type="cylinder" size="0.012 0.004" pos="0 0 -0.004" rgba="0.12 0.12 0.12 1" group="0" contype="0" conaffinity="0" />
+      <site name="base_site" pos="0 0 0" quat="1 0 0 0" />
+      <body name="segment_1" pos="0 0 0">
+        <joint name="segment_1_x" type="hinge" axis="1 0 0" />
+        <joint name="segment_1_y" type="hinge" axis="0 1 0" />
+        <geom name="segment_1_backbone_geom" fromto="0 0 0 0 0 0.04" size="0.005" group="0" contype="0" conaffinity="0" />
+        <site name="segment_1_tip" pos="0 0 0.04" quat="1 0 0 0" />
+        <body name="segment_1_tip_frame" pos="0 0 0.04">
+          <body name="segment_2" pos="0 0 0">
+            <joint name="segment_2_x" type="hinge" axis="1 0 0" />
+            <joint name="segment_2_y" type="hinge" axis="0 1 0" />
+            <geom name="segment_2_backbone_geom" fromto="0 0 0 0 0 0.04" size="0.005" group="0" contype="0" conaffinity="0" />
+            <site name="segment_2_tip" pos="0 0 0.04" quat="1 0 0 0" />
+            <body name="segment_2_tip_frame" pos="0 0 0.04">
+              <body name="segment_3" pos="0 0 0">
+                <joint name="segment_3_x" type="hinge" axis="1 0 0" />
+                <joint name="segment_3_y" type="hinge" axis="0 1 0" />
+                <geom name="segment_3_backbone_geom" fromto="0 0 0 0 0 0.04" size="0.005" group="0" contype="0" conaffinity="0" />
+                <site name="segment_3_tip" pos="0 0 0.04" quat="1 0 0 0" />
+                <site name="tip" pos="0 0 0.04" quat="1 0 0 0" />
+                <body name="segment_3_tip_frame" pos="0 0 0.04" />
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+    <body name="follower_segment_1_sample_1" mocap="true" pos="0 0 0.005">
+      <geom name="follower_segment_1_sample_1_collision" type="capsule" fromto="0 0 -0.005 0 0 0.005" size="0.005" rgba="0.15 0.45 0.85 0.28" group="0" contype="1" conaffinity="1" />
+    </body>
+    <body name="follower_segment_1_sample_2" mocap="true" pos="0 0 0.015">
+      <geom name="follower_segment_1_sample_2_collision" type="capsule" fromto="0 0 -0.005 0 0 0.005" size="0.005" rgba="0.15 0.45 0.85 0.28" group="0" contype="1" conaffinity="1" />
+    </body>
+    <body name="follower_segment_1_sample_3" mocap="true" pos="0 0 0.025">
+      <geom name="follower_segment_1_sample_3_collision" type="capsule" fromto="0 0 -0.005 0 0 0.005" size="0.005" rgba="0.15 0.45 0.85 0.28" group="0" contype="1" conaffinity="1" />
+    </body>
+    <body name="follower_segment_1_sample_4" mocap="true" pos="0 0 0.035">
+      <geom name="follower_segment_1_sample_4_collision" type="capsule" fromto="0 0 -0.005 0 0 0.005" size="0.005" rgba="0.15 0.45 0.85 0.28" group="0" contype="1" conaffinity="1" />
+    </body>
+    <body name="follower_segment_2_sample_1" mocap="true" pos="0 0 0.045">
+      <geom name="follower_segment_2_sample_1_collision" type="capsule" fromto="0 0 -0.005 0 0 0.005" size="0.005" rgba="0.15 0.45 0.85 0.28" group="0" contype="1" conaffinity="1" />
+    </body>
+    <body name="follower_segment_2_sample_2" mocap="true" pos="0 0 0.055">
+      <geom name="follower_segment_2_sample_2_collision" type="capsule" fromto="0 0 -0.005 0 0 0.005" size="0.005" rgba="0.15 0.45 0.85 0.28" group="0" contype="1" conaffinity="1" />
+    </body>
+    <body name="follower_segment_2_sample_3" mocap="true" pos="0 0 0.065">
+      <geom name="follower_segment_2_sample_3_collision" type="capsule" fromto="0 0 -0.005 0 0 0.005" size="0.005" rgba="0.15 0.45 0.85 0.28" group="0" contype="1" conaffinity="1" />
+    </body>
+    <body name="follower_segment_2_sample_4" mocap="true" pos="0 0 0.075">
+      <geom name="follower_segment_2_sample_4_collision" type="capsule" fromto="0 0 -0.005 0 0 0.005" size="0.005" rgba="0.15 0.45 0.85 0.28" group="0" contype="1" conaffinity="1" />
+    </body>
+    <body name="follower_segment_3_sample_1" mocap="true" pos="0 0 0.085">
+      <geom name="follower_segment_3_sample_1_collision" type="capsule" fromto="0 0 -0.005 0 0 0.005" size="0.005" rgba="0.15 0.45 0.85 0.28" group="0" contype="1" conaffinity="1" />
+    </body>
+    <body name="follower_segment_3_sample_2" mocap="true" pos="0 0 0.095">
+      <geom name="follower_segment_3_sample_2_collision" type="capsule" fromto="0 0 -0.005 0 0 0.005" size="0.005" rgba="0.15 0.45 0.85 0.28" group="0" contype="1" conaffinity="1" />
+    </body>
+    <body name="follower_segment_3_sample_3" mocap="true" pos="0 0 0.105">
+      <geom name="follower_segment_3_sample_3_collision" type="capsule" fromto="0 0 -0.005 0 0 0.005" size="0.005" rgba="0.15 0.45 0.85 0.28" group="0" contype="1" conaffinity="1" />
+    </body>
+    <body name="follower_segment_3_sample_4" mocap="true" pos="0 0 0.115">
+      <geom name="follower_segment_3_sample_4_collision" type="capsule" fromto="0 0 -0.005 0 0 0.005" size="0.005" rgba="0.15 0.45 0.85 0.28" group="0" contype="1" conaffinity="1" />
+    </body>
+  </worldbody>
+  <tendon>
+    <fixed name="tendon_1" limited="true" range="-0.02 0.02" damping="0" stiffness="0">
+      <joint joint="segment_1_x" coef="0" />
+      <joint joint="segment_1_y" coef="-0.005" />
+    </fixed>
+    <fixed name="tendon_2" limited="true" range="-0.02 0.02" damping="0" stiffness="0">
+      <joint joint="segment_1_x" coef="0.00433012701892" />
+      <joint joint="segment_1_y" coef="0.0025" />
+    </fixed>
+    <fixed name="tendon_3" limited="true" range="-0.02 0.02" damping="0" stiffness="0">
+      <joint joint="segment_1_x" coef="-0.00433012701892" />
+      <joint joint="segment_1_y" coef="0.0025" />
+    </fixed>
+    <fixed name="tendon_4" limited="true" range="-0.02 0.02" damping="0" stiffness="0">
+      <joint joint="segment_1_x" coef="0.00433012701892" />
+      <joint joint="segment_1_y" coef="-0.0025" />
+      <joint joint="segment_2_x" coef="0.00433012701892" />
+      <joint joint="segment_2_y" coef="-0.0025" />
+    </fixed>
+    <fixed name="tendon_5" limited="true" range="-0.02 0.02" damping="0" stiffness="0">
+      <joint joint="segment_1_x" coef="6.12323399574e-19" />
+      <joint joint="segment_1_y" coef="0.005" />
+      <joint joint="segment_2_x" coef="6.12323399574e-19" />
+      <joint joint="segment_2_y" coef="0.005" />
+    </fixed>
+    <fixed name="tendon_6" limited="true" range="-0.02 0.02" damping="0" stiffness="0">
+      <joint joint="segment_1_x" coef="-0.00433012701892" />
+      <joint joint="segment_1_y" coef="-0.0025" />
+      <joint joint="segment_2_x" coef="-0.00433012701892" />
+      <joint joint="segment_2_y" coef="-0.0025" />
+    </fixed>
+    <fixed name="tendon_7" limited="true" range="-0.02 0.02" damping="0" stiffness="0">
+      <joint joint="segment_1_x" coef="0.005" />
+      <joint joint="segment_1_y" coef="-3.06161699787e-19" />
+      <joint joint="segment_2_x" coef="0.005" />
+      <joint joint="segment_2_y" coef="-3.06161699787e-19" />
+      <joint joint="segment_3_x" coef="0.005" />
+      <joint joint="segment_3_y" coef="-3.06161699787e-19" />
+    </fixed>
+    <fixed name="tendon_8" limited="true" range="-0.02 0.02" damping="0" stiffness="0">
+      <joint joint="segment_1_x" coef="-0.0025" />
+      <joint joint="segment_1_y" coef="0.00433012701892" />
+      <joint joint="segment_2_x" coef="-0.0025" />
+      <joint joint="segment_2_y" coef="0.00433012701892" />
+      <joint joint="segment_3_x" coef="-0.0025" />
+      <joint joint="segment_3_y" coef="0.00433012701892" />
+    </fixed>
+    <fixed name="tendon_9" limited="true" range="-0.02 0.02" damping="0" stiffness="0">
+      <joint joint="segment_1_x" coef="-0.0025" />
+      <joint joint="segment_1_y" coef="-0.00433012701892" />
+      <joint joint="segment_2_x" coef="-0.0025" />
+      <joint joint="segment_2_y" coef="-0.00433012701892" />
+      <joint joint="segment_3_x" coef="-0.0025" />
+      <joint joint="segment_3_y" coef="-0.00433012701892" />
+    </fixed>
+  </tendon>
+  <actuator>
+    <position name="act_tendon_1" tendon="tendon_1" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position name="act_tendon_2" tendon="tendon_2" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position name="act_tendon_3" tendon="tendon_3" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position name="act_tendon_4" tendon="tendon_4" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position name="act_tendon_5" tendon="tendon_5" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position name="act_tendon_6" tendon="tendon_6" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position name="act_tendon_7" tendon="tendon_7" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position name="act_tendon_8" tendon="tendon_8" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position name="act_tendon_9" tendon="tendon_9" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+  </actuator>
+  <sensor>
+    <tendonpos name="sensor_tendon_1_length" tendon="tendon_1" />
+    <tendonvel name="sensor_tendon_1_velocity" tendon="tendon_1" />
+    <actuatorfrc name="sensor_tendon_1_actuator_force" actuator="act_tendon_1" />
+    <tendonpos name="sensor_tendon_2_length" tendon="tendon_2" />
+    <tendonvel name="sensor_tendon_2_velocity" tendon="tendon_2" />
+    <actuatorfrc name="sensor_tendon_2_actuator_force" actuator="act_tendon_2" />
+    <tendonpos name="sensor_tendon_3_length" tendon="tendon_3" />
+    <tendonvel name="sensor_tendon_3_velocity" tendon="tendon_3" />
+    <actuatorfrc name="sensor_tendon_3_actuator_force" actuator="act_tendon_3" />
+    <tendonpos name="sensor_tendon_4_length" tendon="tendon_4" />
+    <tendonvel name="sensor_tendon_4_velocity" tendon="tendon_4" />
+    <actuatorfrc name="sensor_tendon_4_actuator_force" actuator="act_tendon_4" />
+    <tendonpos name="sensor_tendon_5_length" tendon="tendon_5" />
+    <tendonvel name="sensor_tendon_5_velocity" tendon="tendon_5" />
+    <actuatorfrc name="sensor_tendon_5_actuator_force" actuator="act_tendon_5" />
+    <tendonpos name="sensor_tendon_6_length" tendon="tendon_6" />
+    <tendonvel name="sensor_tendon_6_velocity" tendon="tendon_6" />
+    <actuatorfrc name="sensor_tendon_6_actuator_force" actuator="act_tendon_6" />
+    <tendonpos name="sensor_tendon_7_length" tendon="tendon_7" />
+    <tendonvel name="sensor_tendon_7_velocity" tendon="tendon_7" />
+    <actuatorfrc name="sensor_tendon_7_actuator_force" actuator="act_tendon_7" />
+    <tendonpos name="sensor_tendon_8_length" tendon="tendon_8" />
+    <tendonvel name="sensor_tendon_8_velocity" tendon="tendon_8" />
+    <actuatorfrc name="sensor_tendon_8_actuator_force" actuator="act_tendon_8" />
+    <tendonpos name="sensor_tendon_9_length" tendon="tendon_9" />
+    <tendonvel name="sensor_tendon_9_velocity" tendon="tendon_9" />
+    <actuatorfrc name="sensor_tendon_9_actuator_force" actuator="act_tendon_9" />
+  </sensor>
+</mujoco>

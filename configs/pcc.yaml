@@ -1,0 +1,23 @@
+schema_version: 1
+backend: pcc
+enabled: true
+robot_config_path: robot_3seg.yaml
+model:
+  assumption: piecewise_constant_curvature
+  segment_count: 3
+  state_variables:
+    - curvature_x
+    - curvature_y
+    - elongation
+  integration:
+    samples_per_segment: 20
+    method: exponential_coordinates
+solver:
+  mode: quasi_static
+  tolerance: 1.0e-8
+  max_iterations: 100
+output:
+  save_centerline: true
+  save_tip_pose: true
+runtime:
+  timestep: 1.0

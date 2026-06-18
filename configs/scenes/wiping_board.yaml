@@ -1,0 +1,59 @@
+schema_version: 1
+name: wiping_board
+description: Flat board work surface for hybrid force-position wiping tests.
+
+builder:
+  geom_group: 0
+  obstacle_rgba: [0.18, 0.24, 0.26, 1.0]
+  target_rgba: [0.1, 0.85, 0.5, 1.0]
+  target_radius_m: 0.003
+  contype: 1
+  conaffinity: 1
+
+scene:
+  primitives:
+    - id: board_surface_geom
+      type: box_surface
+      center_m: [0.040, 0.0, 0.095]
+      half_size_m: [0.0025, 0.035, 0.030]
+      rgba: [0.12, 0.16, 0.17, 1.0]
+
+    - id: board_frame_top
+      type: box_obstacle
+      center_m: [0.0365, 0.0, 0.127]
+      half_size_m: [0.0015, 0.038, 0.001]
+      rgba: [0.85, 0.82, 0.72, 1.0]
+
+    - id: board_frame_bottom
+      type: box_obstacle
+      center_m: [0.0365, 0.0, 0.063]
+      half_size_m: [0.0015, 0.038, 0.001]
+      rgba: [0.85, 0.82, 0.72, 1.0]
+
+    - id: board_frame_left
+      type: box_obstacle
+      center_m: [0.0365, -0.038, 0.095]
+      half_size_m: [0.0015, 0.001, 0.032]
+      rgba: [0.85, 0.82, 0.72, 1.0]
+
+    - id: board_frame_right
+      type: box_obstacle
+      center_m: [0.0365, 0.038, 0.095]
+      half_size_m: [0.0015, 0.001, 0.032]
+      rgba: [0.85, 0.82, 0.72, 1.0]
+
+  work_surfaces:
+    - id: board_surface
+      primitive_id: board_surface_geom
+      center_m: [0.0375, 0.0, 0.095]
+      normal: [-1.0, 0.0, 0.0]
+      tangent_u: [0.0, 1.0, 0.0]
+      width_m: 0.060
+      height_m: 0.050
+
+  wipe_patches:
+    - id: center_patch
+      surface_id: board_surface
+      center_m: [0.0375, 0.0, 0.095]
+      width_m: 0.040
+      height_m: 0.025

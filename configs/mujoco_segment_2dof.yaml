@@ -1,0 +1,120 @@
+schema_version: 1
+backend: mujoco
+enabled: true
+robot_config_path: robot_3seg.yaml
+xml_path: ../assets/mujoco/three_segment_arm_2dof_tendon.xml
+tendon_xml_path: ../assets/mujoco/three_segment_arm_2dof_tendon.xml
+generated_xml_path: ../assets/mujoco/three_segment_arm_2dof_tendon_with_visuals.xml
+tendon_generated_xml_path: ../assets/mujoco/three_segment_arm_2dof_tendon_with_visuals.xml
+asset_scale: 0.001
+links_per_segment: 1
+control_mode: tendon_position
+model:
+  type: segment_2dof_followers
+  pose_source: mujoco_site
+  follower_samples_per_segment: 4
+  follower_collision: true
+  follower_visuals: true
+  contact_force_projection: true
+  apply_projected_qfrc: false
+visuals:
+  enabled: false
+  frame_mode: body_local
+  cad_origin_mm: [0.0, 0.0, 0.0]
+  mesh_unit: mm
+  mesh_scale: 0.001
+  directory: ../assets/meshes/mujoco_visual_segments
+  template_path: ../assets/mujoco/segmented_visuals_template.xml
+  collision_mode: capsule
+  visual_geom_group: 1
+  collision_geom_group: 0
+  expected_meshes:
+    - base_visual.stl
+viewer:
+  show: true
+  steps: 1000
+  use_segment_visuals: true
+  show_collision_geoms: true
+  sync_interval_steps: 1
+  realtime: true
+  realtime_factor: 1.0
+  camera:
+    lookat: [0.025, 0.0, 0.095]
+    distance: 0.20
+    azimuth: 315.0
+    elevation: -25.0
+  overlays:
+    target_marker: true
+    target_marker_radius: 0.004
+    target_marker_rgba: [1.0, 0.12, 0.08, 1.0]
+    tip_trail: true
+    target_trail: true
+    trail_max_points: 250
+    trail_stride: 1
+    tip_trail_radius: 0.0012
+    target_trail_radius: 0.001
+    tip_trail_rgba: [0.05, 0.65, 1.0, 0.75]
+    target_trail_rgba: [1.0, 0.35, 0.08, 0.45]
+    tendon_paths: false
+    tendon_path_radius: 0.0004
+    tendon_path_stride: 1
+solver:
+  timestep: 0.001
+  integrator: implicitfast
+  iterations: 50
+gravity:
+  enabled: false
+  vector_m_s2: [0.0, 0.0, -9.81]
+joints:
+  hinge:
+    damping: 0.05
+    armature: 0.0001
+    limited: true
+    range_rad: [-0.25, 0.25]
+    stiffness: 0.02
+    springref: 0.0
+tendon_model:
+  enabled: true
+  type: fixed
+  count: 9
+  limited: true
+  length_range_m: [-0.020, 0.020]
+  damping: 0.0
+  stiffness: 0.0
+  coefficient_source: robot_physical_tendons
+  include_axial_strain: false
+actuators:
+  tendon_position:
+    kp: 500000.0
+    ctrllimited: true
+    ctrlrange_m: [-0.020, 0.020]
+    forcelimited: true
+    forcerange_n: [-20.0, 20.0]
+  joint_position:
+    kp: 2.0
+    ctrllimited: true
+    ctrlrange_rad: [-0.25, 0.25]
+    forcelimited: true
+    forcerange_nm: [-0.5, 0.5]
+sensors:
+  tendon_length: true
+  tendon_velocity: true
+  actuator_force: true
+smoke_tests:
+  duration_s: 0.25
+  zero_command_tolerance_m: 0.002
+  single_tendon_delta_m: -0.003
+  symmetric_tendon_delta_m: -0.003
+rendering:
+  offscreen_width: 640
+  offscreen_height: 480
+site_names:
+  base: base_site
+  segments:
+    - segment_1_tip
+    - segment_2_tip
+    - segment_3_tip
+  tip: tip
+notes:
+  - 2DOF q is ordered as segment_i_x, segment_i_y hinge angles.
+  - Follower bodies are runtime-updated mocap bodies and add no physics DOF.

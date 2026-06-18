@@ -1,0 +1,13 @@
+name: continuum_sim
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - pyyaml
+  - matplotlib
+  - pytest
+  - pip
+  - pip:
+      - -e .
+      - imageio[ffmpeg]

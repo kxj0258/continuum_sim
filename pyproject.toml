@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "continuum-sim"
+version = "0.1.0"
+description = "Simulation framework scaffold for a three-segment tendon-driven continuum arm."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "pyyaml",
+    "matplotlib",
+    "imageio[ffmpeg]",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+mujoco = [
+    "mujoco",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "baseline: Stable regression gate for the repository's supported workflows.",
+    "core: Fast library-level checks that do not require script orchestration.",
+    "cli_smoke: Headless subprocess checks for command-line entry points.",
+    "stable_cli: User-accepted command entry points that should remain compatible.",
+    "mujoco: Coverage for MuJoCo-related configs, assets, and runtime paths.",
+    "slow: Higher-latency tests that are useful for fuller regression passes.",
+    "known_issue: Tracked failures that remain visible but are not treated as regressions.",
+]

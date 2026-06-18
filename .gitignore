@@ -1,0 +1,63 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python packaging artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Test and coverage artifacts
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Type checker / linter caches
+.mypy_cache/
+.ruff_cache/
+.pyre/
+
+# Conda / virtual environments
+.conda/
+.venv/
+venv/
+env/
+ENV/
+conda-bld/
+
+# Local notebooks and scratch work
+.ipynb_checkpoints/
+scratch/
+tmp/
+temp/
+tmp_pytest_verify/
+
+# Simulation outputs
+outputs/
+output/runs/
+output/acceptance/
+runs/
+results/
+artifacts/
+checkpoints/
+assets/mujoco/three_segment_arm_with_visuals.xml
+assets/mujoco/generated/
+
+# Logs
+*.log
+
+# IDE and editor files
+.vscode/
+.idea/
+*.code-workspace
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

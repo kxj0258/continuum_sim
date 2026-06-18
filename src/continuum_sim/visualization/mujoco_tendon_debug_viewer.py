@@ -1,0 +1,679 @@
+"""Interactive matplotlib controls for the MuJoCo tendon-position backend."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.widgets import Button, RadioButtons, Slider
+
+from continuum_sim.backends import BackendState
+from continuum_sim.config import MujocoConfig
+from continuum_sim.model import PhysicalTendonPath, ThreeSegmentRobotParams
+from continuum_sim.model.tendon_coupling import physical_tendon_delta_to_q
+
+
+TENDON_DEBUG_NAMED_COMMANDS = (
+    "zero",
+    "tendon_1_pull",
+    "tendon_4_pull",
+    "tendon_7_pull",
+    "segment_1_triplet",
+    "segment_2_triplet",
+    "segment_3_triplet",
+    "all_triplets",
+)
+
+_NONINTERACTIVE_MATPLOTLIB_BACKENDS = frozenset(
+    {
+        "agg",
+        "cairo",
+        "pdf",
+        "pgf",
+        "ps",
+        "svg",
+        "template",
+        "module://matplotlib_inline.backend_inline",
+    }
+)
+
+
+@dataclass(frozen=True)
+class MujocoTendonDebugViewData:
+    """Live command and state readback for the tendon debug UI."""
+
+    time_s: float
+    commanded_tendon_delta: np.ndarray
+    actual_tendon_length: np.ndarray
+    actuator_force: np.ndarray
+    tip_position: np.ndarray
+    q_est: np.ndarray
+    tendon_error: np.ndarray
+
+
+def compute_mujoco_tendon_debug_view_data(
+    commanded_tendon_delta: np.ndarray,
+    state: BackendState,
+    params: ThreeSegmentRobotParams,
+    physical_tendons: tuple[PhysicalTendonPath, ...],
+) -> MujocoTendonDebugViewData:
+    """Assemble UI readbacks from a MuJoCo tendon backend state."""
+
+    tendon_count = len(physical_tendons)
+    command = _as_tendon_vector(
+        commanded_tendon_delta,
+        "commanded_tendon_delta",
+        expected_size=tendon_count,
+    )
+    actual_tendon_length = _as_tendon_vector(
+        state.tendon_length,
+        "state.tendon_length",
+        expected_size=tendon_count,
+    )
+    actuator_force = _as_tendon_vector(
+        state.actuator_force,
+        "state.actuator_force",
+        expected_size=tendon_count,
+    )
+    if state.tip_pose.shape != (4, 4):
+        raise ValueError(f"Expected state.tip_pose with shape (4, 4), got {state.tip_pose.shape}.")
+
+    q_est = physical_tendon_delta_to_q(actual_tendon_length, params, physical_tendons)
+    tip_position = np.asarray(state.tip_pose[:3, 3], dtype=float).copy()
+    tendon_error = command - actual_tendon_length
+    return MujocoTendonDebugViewData(
+        time_s=float(state.time),
+        commanded_tendon_delta=command.copy(),
+        actual_tendon_length=actual_tendon_length.copy(),
+        actuator_force=actuator_force.copy(),
+        tip_position=tip_position,
+        q_est=q_est,
+        tendon_error=tendon_error,
+    )
+
+
+def named_tendon_command(name: str, config: MujocoConfig) -> np.ndarray:
+    """Return a named tendon command vector using the existing YAML parameters."""
+
+    count = config.tendon_model.count
+    command = np.zeros(count, dtype=float)
+    single_pull = float(config.smoke_tests.single_tendon_delta_m)
+    triplet_pull = float(config.smoke_tests.symmetric_tendon_delta_m)
+
+    if name == "zero":
+        return command
+    if name == "tendon_1_pull":
+        command[0] = single_pull
+    elif name == "tendon_4_pull":
+        command[3] = single_pull
+    elif name == "tendon_7_pull":
+        command[6] = single_pull
+    elif name == "segment_1_triplet":
+        command[0:3] = triplet_pull
+    elif name == "segment_2_triplet":
+        command[3:6] = triplet_pull
+    elif name == "segment_3_triplet":
+        command[6:9] = triplet_pull
+    elif name == "all_triplets":
+        command[:] = triplet_pull
+    else:
+        raise ValueError(
+            f"Unknown named tendon command {name!r}. Choose one of {TENDON_DEBUG_NAMED_COMMANDS}."
+        )
+    return clip_tendon_command(command, config.actuators.tendon_position.ctrlrange_m)
+
+
+def clip_tendon_command(
+    tendon_command: np.ndarray,
+    ctrlrange_m: tuple[float, float],
+) -> np.ndarray:
+    """Clip tendon commands to the configured actuator control range."""
+
+    lower, upper = ctrlrange_m
+    return np.clip(np.asarray(tendon_command, dtype=float), lower, upper)
+
+
+def _is_noninteractive_matplotlib_backend(backend_name: str) -> bool:
+    """Return True when the active matplotlib backend cannot open a live GUI window."""
+
+    return backend_name.strip().lower() in _NONINTERACTIVE_MATPLOTLIB_BACKENDS
+
+
+class MujocoTendonMonitorPanel:
+    """Read-only matplotlib panel for live tendon command/state monitoring."""
+
+    def __init__(
+        self,
+        config: MujocoConfig,
+        params: ThreeSegmentRobotParams,
+        physical_tendons: tuple[PhysicalTendonPath, ...],
+        *,
+        title: str = "continuum_sim MuJoCo tendon monitor",
+    ) -> None:
+        if config.control_mode != "tendon_position":
+            raise ValueError(
+                "MujocoTendonMonitorPanel requires control_mode 'tendon_position'."
+            )
+        if len(physical_tendons) != config.tendon_model.count:
+            raise ValueError(
+                "physical_tendons length must match tendon_model.count, got "
+                f"{len(physical_tendons)} and {config.tendon_model.count}."
+            )
+
+        self.config = config
+        self.params = params
+        self.physical_tendons = physical_tendons
+        self.command_limit = config.actuators.tendon_position.ctrlrange_m
+        self.force_limit = config.actuators.tendon_position.forcerange_n
+
+        self.fig = plt.figure(figsize=(15.5, 9.0))
+        manager = getattr(self.fig.canvas, "manager", None)
+        if manager is not None:
+            manager.set_window_title(title)
+        self.length_ax = self.fig.add_axes((0.06, 0.57, 0.40, 0.34))
+        self.force_ax = self.fig.add_axes((0.54, 0.57, 0.40, 0.34))
+        self.info_ax = self.fig.add_axes((0.54, 0.18, 0.40, 0.33))
+        self.info_ax.axis("off")
+        self._info_text = self.info_ax.text(
+            0.0,
+            1.0,
+            "",
+            va="top",
+            ha="left",
+            family="monospace",
+            fontsize=8.5,
+        )
+
+    def update_from_state(
+        self,
+        commanded_tendon_delta: np.ndarray,
+        state: BackendState,
+        *,
+        redraw: bool = True,
+    ) -> MujocoTendonDebugViewData:
+        view_data = compute_mujoco_tendon_debug_view_data(
+            commanded_tendon_delta,
+            state,
+            self.params,
+            self.physical_tendons,
+        )
+        return self.update_from_view_data(view_data, redraw=redraw)
+
+    def update_from_view_data(
+        self,
+        view_data: MujocoTendonDebugViewData,
+        *,
+        redraw: bool = True,
+    ) -> MujocoTendonDebugViewData:
+        self._draw_length_chart(view_data)
+        self._draw_force_chart(view_data)
+        self._info_text.set_text(_format_debug_info_text(view_data))
+        if redraw:
+            self.fig.canvas.draw_idle()
+        return view_data
+
+    def show(self, *, block: bool = True) -> None:
+        """Show the monitor figure."""
+
+        if _is_noninteractive_matplotlib_backend(plt.get_backend()):
+            return
+        plt.show(block=block)
+        if not block:
+            self.flush_events()
+
+    def flush_events(self) -> None:
+        """Process pending GUI events for the monitor figure."""
+
+        if not plt.fignum_exists(self.fig.number):
+            return
+        canvas = getattr(self.fig, "canvas", None)
+        if canvas is None:
+            return
+        flush = getattr(canvas, "flush_events", None)
+        if callable(flush):
+            flush()
+
+    def close(self) -> None:
+        """Close the monitor figure."""
+
+        plt.close(self.fig)
+
+    def _draw_length_chart(self, view_data: MujocoTendonDebugViewData) -> None:
+        self.length_ax.cla()
+        indices = np.arange(1, self.config.tendon_model.count + 1, dtype=float)
+        self.length_ax.bar(
+            indices - 0.18,
+            1000.0 * view_data.commanded_tendon_delta,
+            width=0.34,
+            color="tab:orange",
+            alpha=0.55,
+            label="command",
+        )
+        self.length_ax.bar(
+            indices + 0.18,
+            1000.0 * view_data.actual_tendon_length,
+            width=0.34,
+            color="tab:blue",
+            alpha=0.75,
+            label="actual",
+        )
+        lower_mm = 1000.0 * min(
+            self.command_limit[0],
+            float(np.min(view_data.actual_tendon_length)),
+            float(np.min(view_data.commanded_tendon_delta)),
+        )
+        upper_mm = 1000.0 * max(
+            self.command_limit[1],
+            float(np.max(view_data.actual_tendon_length)),
+            float(np.max(view_data.commanded_tendon_delta)),
+        )
+        margin_mm = max(0.5, 0.1 * max(abs(lower_mm), abs(upper_mm), 1.0))
+        self.length_ax.set_xlim(0.3, self.config.tendon_model.count + 0.7)
+        self.length_ax.set_ylim(lower_mm - margin_mm, upper_mm + margin_mm)
+        self.length_ax.set_xticks(
+            indices,
+            [str(index) for index in range(1, self.config.tendon_model.count + 1)],
+        )
+        self.length_ax.set_ylabel("tendon delta [mm]")
+        self.length_ax.set_title("Commanded vs actual tendon length")
+        self.length_ax.grid(True, axis="y", alpha=0.25)
+        self.length_ax.legend(loc="upper right", fontsize=8)
+
+    def _draw_force_chart(self, view_data: MujocoTendonDebugViewData) -> None:
+        self.force_ax.cla()
+        indices = np.arange(1, self.config.tendon_model.count + 1, dtype=float)
+        self.force_ax.bar(
+            indices,
+            view_data.actuator_force,
+            width=0.56,
+            color="tab:red",
+            alpha=0.75,
+        )
+        lower = min(0.0, float(np.min(view_data.actuator_force)))
+        upper = max(float(np.max(view_data.actuator_force)), 0.0)
+        reference = max(abs(lower), abs(upper), 1.0e-3)
+        margin = max(0.01, 0.15 * reference)
+        self.force_ax.set_xlim(0.3, self.config.tendon_model.count + 0.7)
+        self.force_ax.set_ylim(lower - margin, upper + margin)
+        self.force_ax.set_xticks(
+            indices,
+            [str(index) for index in range(1, self.config.tendon_model.count + 1)],
+        )
+        self.force_ax.set_ylabel("actuator force [N]")
+        self.force_ax.set_title("Actual tendon pull force")
+        self.force_ax.grid(True, axis="y", alpha=0.25)
+        self.force_ax.axhline(0.0, color="0.35", linewidth=0.9, linestyle="--")
+
+
+class MujocoTendonDebugViewer:
+    """Matplotlib control panel for tendon-position MuJoCo experiments."""
+
+    def __init__(
+        self,
+        backend,
+        config: MujocoConfig,
+        params: ThreeSegmentRobotParams,
+        physical_tendons: tuple[PhysicalTendonPath, ...],
+        *,
+        control_dt: float = 0.02,
+        state_update_callback: Callable[[BackendState], None] | None = None,
+    ) -> None:
+        if config.control_mode != "tendon_position":
+            raise ValueError(
+                "MujocoTendonDebugViewer requires control_mode 'tendon_position'."
+            )
+        if control_dt <= 0.0:
+            raise ValueError(f"control_dt must be positive, got {control_dt}.")
+        if len(physical_tendons) != config.tendon_model.count:
+            raise ValueError(
+                "physical_tendons length must match tendon_model.count, got "
+                f"{len(physical_tendons)} and {config.tendon_model.count}."
+            )
+
+        self.backend = backend
+        self.config = config
+        self.params = params
+        self.physical_tendons = physical_tendons
+        self.control_dt = float(control_dt)
+        self.n_substeps = max(1, round(self.control_dt / self.config.solver.timestep))
+        self.command_limit = config.actuators.tendon_position.ctrlrange_m
+        self.force_limit = config.actuators.tendon_position.forcerange_n
+        self.state_update_callback = state_update_callback
+
+        self.commanded_tendon_delta = np.zeros(self.config.tendon_model.count, dtype=float)
+        self.state = self.backend.reset()
+        self._running = False
+        self._updating_controls = False
+
+        self.fig = plt.figure(figsize=(15.5, 9.0))
+        manager = getattr(self.fig.canvas, "manager", None)
+        if manager is not None:
+            manager.set_window_title("continuum_sim MuJoCo tendon debug viewer")
+        self.length_ax = self.fig.add_axes((0.06, 0.57, 0.40, 0.34))
+        self.force_ax = self.fig.add_axes((0.54, 0.57, 0.40, 0.34))
+        self.info_ax = self.fig.add_axes((0.54, 0.40, 0.40, 0.13))
+        self.info_ax.axis("off")
+        self._info_text = self.info_ax.text(
+            0.0,
+            1.0,
+            "",
+            va="top",
+            ha="left",
+            family="monospace",
+            fontsize=8.5,
+        )
+
+        self.command_sliders = self._build_command_sliders()
+        self.reset_button, self.run_button, self.step_button, self.zero_button = (
+            self._build_buttons()
+        )
+        self.radio = self._build_preset_radio()
+        self.timer = self.fig.canvas.new_timer(
+            interval=max(1, int(self.control_dt * 1000.0))
+        )
+        self.timer.add_callback(self._on_timer)
+        self._connect_controls()
+        self._notify_state_updated()
+        self.update_view(redraw=False)
+
+    def _build_command_sliders(self) -> list[Slider]:
+        sliders: list[Slider] = []
+        lower, upper = self.command_limit
+        y0 = 0.335
+        dy = 0.029
+        for index in range(self.config.tendon_model.count):
+            axis = self.fig.add_axes((0.08, y0 - index * dy, 0.84, 0.018))
+            slider = Slider(
+                ax=axis,
+                label=f"tendon_{index + 1} cmd [m]",
+                valmin=lower,
+                valmax=upper,
+                valinit=float(self.commanded_tendon_delta[index]),
+                valfmt="% .4f",
+            )
+            sliders.append(slider)
+        return sliders
+
+    def _build_buttons(self) -> tuple[Button, Button, Button, Button]:
+        reset_axis = self.fig.add_axes((0.08, 0.375, 0.12, 0.04))
+        run_axis = self.fig.add_axes((0.22, 0.375, 0.12, 0.04))
+        step_axis = self.fig.add_axes((0.36, 0.375, 0.12, 0.04))
+        zero_axis = self.fig.add_axes((0.50, 0.375, 0.14, 0.04))
+        return (
+            Button(reset_axis, "Reset Sim"),
+            Button(run_axis, "Run"),
+            Button(step_axis, "Step"),
+            Button(zero_axis, "Zero Cmd"),
+        )
+
+    def _build_preset_radio(self) -> RadioButtons:
+        axis = self.fig.add_axes((0.08, 0.44, 0.38, 0.10))
+        return RadioButtons(axis, TENDON_DEBUG_NAMED_COMMANDS, active=0)
+
+    def _connect_controls(self) -> None:
+        for slider in self.command_sliders:
+            slider.on_changed(self._on_command_slider_changed)
+        self.reset_button.on_clicked(lambda _event: self.reset())
+        self.run_button.on_clicked(lambda _event: self.toggle_run())
+        self.step_button.on_clicked(lambda _event: self.step())
+        self.zero_button.on_clicked(lambda _event: self.zero_command())
+        self.radio.on_clicked(lambda name: self.apply_named_command(str(name)))
+
+    def _on_command_slider_changed(self, _value: float) -> None:
+        if self._updating_controls:
+            return
+        self.commanded_tendon_delta = clip_tendon_command(
+            np.array([slider.val for slider in self.command_sliders], dtype=float),
+            self.command_limit,
+        )
+        if self._running:
+            self.update_view()
+            return
+        self.step()
+
+    def reset(self) -> MujocoTendonDebugViewData:
+        """Reset the simulation and clear all tendon commands."""
+
+        self.pause()
+        self.state = self.backend.reset()
+        self.commanded_tendon_delta = np.zeros(self.config.tendon_model.count, dtype=float)
+        self._sync_command_sliders()
+        self._notify_state_updated()
+        return self.update_view()
+
+    def zero_command(self) -> MujocoTendonDebugViewData:
+        """Zero tendon commands without resetting the current MuJoCo state."""
+
+        return self.set_command(np.zeros(self.config.tendon_model.count, dtype=float))
+
+    def set_command(
+        self,
+        tendon_command: np.ndarray,
+        *,
+        simulate: bool = True,
+    ) -> MujocoTendonDebugViewData:
+        """Set tendon command, synchronize sliders, and optionally step MuJoCo."""
+
+        self.commanded_tendon_delta = clip_tendon_command(tendon_command, self.command_limit)
+        self._sync_command_sliders()
+        if simulate:
+            return self.step()
+        return self.update_view()
+
+    def apply_named_command(self, name: str) -> MujocoTendonDebugViewData:
+        """Apply a named tendon command."""
+
+        return self.set_command(named_tendon_command(name, self.config))
+
+    def toggle_run(self) -> None:
+        """Toggle timer-driven MuJoCo stepping under the current tendon command."""
+
+        if self._running:
+            self.pause()
+            return
+        self._running = True
+        self.run_button.label.set_text("Pause")
+        self.timer.start()
+
+    def pause(self) -> None:
+        """Pause timer-driven MuJoCo stepping."""
+
+        self._running = False
+        self.timer.stop()
+        self.run_button.label.set_text("Run")
+
+    def step(self, redraw: bool = True) -> MujocoTendonDebugViewData:
+        """Advance MuJoCo by one control step under the current tendon command."""
+
+        self.state = self.backend.step(
+            self.commanded_tendon_delta,
+            n_substeps=self.n_substeps,
+        )
+        self._notify_state_updated()
+        return self.update_view(redraw=redraw)
+
+    def update_view(self, redraw: bool = True) -> MujocoTendonDebugViewData:
+        """Refresh charts and text from the latest MuJoCo backend state."""
+
+        view_data = compute_mujoco_tendon_debug_view_data(
+            self.commanded_tendon_delta,
+            self.state,
+            self.params,
+            self.physical_tendons,
+        )
+        self._draw_length_chart(view_data)
+        self._draw_force_chart(view_data)
+        self._info_text.set_text(_format_debug_info_text(view_data))
+        if redraw:
+            self.fig.canvas.draw_idle()
+        return view_data
+
+    def _draw_length_chart(self, view_data: MujocoTendonDebugViewData) -> None:
+        self.length_ax.cla()
+        indices = np.arange(1, self.config.tendon_model.count + 1, dtype=float)
+        self.length_ax.bar(
+            indices - 0.18,
+            1000.0 * view_data.commanded_tendon_delta,
+            width=0.34,
+            color="tab:orange",
+            alpha=0.55,
+            label="command",
+        )
+        self.length_ax.bar(
+            indices + 0.18,
+            1000.0 * view_data.actual_tendon_length,
+            width=0.34,
+            color="tab:blue",
+            alpha=0.75,
+            label="actual",
+        )
+        lower_mm = 1000.0 * min(
+            self.command_limit[0],
+            float(np.min(view_data.actual_tendon_length)),
+            float(np.min(view_data.commanded_tendon_delta)),
+        )
+        upper_mm = 1000.0 * max(
+            self.command_limit[1],
+            float(np.max(view_data.actual_tendon_length)),
+            float(np.max(view_data.commanded_tendon_delta)),
+        )
+        margin_mm = max(0.5, 0.1 * max(abs(lower_mm), abs(upper_mm), 1.0))
+        self.length_ax.set_xlim(0.3, self.config.tendon_model.count + 0.7)
+        self.length_ax.set_ylim(lower_mm - margin_mm, upper_mm + margin_mm)
+        self.length_ax.set_xticks(indices, [str(index) for index in range(1, self.config.tendon_model.count + 1)])
+        self.length_ax.set_ylabel("tendon delta [mm]")
+        self.length_ax.set_title("Commanded vs actual tendon length")
+        self.length_ax.grid(True, axis="y", alpha=0.25)
+        self.length_ax.legend(loc="upper right", fontsize=8)
+
+    def _draw_force_chart(self, view_data: MujocoTendonDebugViewData) -> None:
+        self.force_ax.cla()
+        indices = np.arange(1, self.config.tendon_model.count + 1, dtype=float)
+        self.force_ax.bar(
+            indices,
+            view_data.actuator_force,
+            width=0.56,
+            color="tab:red",
+            alpha=0.75,
+        )
+        lower = min(0.0, float(np.min(view_data.actuator_force)))
+        upper = max(float(np.max(view_data.actuator_force)), 0.0)
+        reference = max(abs(lower), abs(upper), 1.0e-3)
+        margin = max(0.01, 0.15 * reference)
+        self.force_ax.set_xlim(0.3, self.config.tendon_model.count + 0.7)
+        self.force_ax.set_ylim(lower - margin, upper + margin)
+        self.force_ax.set_xticks(indices, [str(index) for index in range(1, self.config.tendon_model.count + 1)])
+        self.force_ax.set_ylabel("actuator force [N]")
+        self.force_ax.set_title("Actual tendon pull force")
+        self.force_ax.grid(True, axis="y", alpha=0.25)
+        self.force_ax.axhline(self.force_limit[0], color="0.35", linewidth=0.9, linestyle="--")
+        self.force_ax.axhline(self.force_limit[1], color="0.35", linewidth=0.9, linestyle="--")
+
+    def _sync_command_sliders(self) -> None:
+        self._updating_controls = True
+        try:
+            for slider, value in zip(
+                self.command_sliders,
+                self.commanded_tendon_delta,
+                strict=True,
+            ):
+                slider.set_val(float(value))
+        finally:
+            self._updating_controls = False
+
+    def _notify_state_updated(self) -> None:
+        if self.state_update_callback is not None:
+            self.state_update_callback(self.state)
+
+    def _on_timer(self) -> bool:
+        if self._running:
+            self.step()
+        return True
+
+    def show(self) -> None:
+        """Start the matplotlib event loop."""
+
+        plt.show()
+
+    def close(self) -> None:
+        """Close the viewer and release timer resources."""
+
+        self.pause()
+        plt.close(self.fig)
+
+
+def _as_tendon_vector(
+    values: np.ndarray,
+    name: str,
+    *,
+    expected_size: int,
+) -> np.ndarray:
+    array = np.asarray(values, dtype=float)
+    if array.shape != (expected_size,):
+        raise ValueError(
+            f"Expected {name} with shape ({expected_size},), got {array.shape}."
+        )
+    return array
+
+
+def _format_debug_info_text(view_data: MujocoTendonDebugViewData) -> str:
+    tip = view_data.tip_position
+    lines = [
+        f"time_s: {view_data.time_s: .4f}",
+        "tip_position [m]",
+        f"  x={tip[0]: .5f}  y={tip[1]: .5f}  z={tip[2]: .5f}",
+        "",
+        "tendon error [mm]",
+        *_format_vector_rows(view_data.tendon_error, scale=1000.0),
+        "",
+        "actuator force [N]",
+        *_format_vector_rows(view_data.actuator_force, scale=1.0),
+        "",
+        "q_est [kx ky eps] x3",
+        *_format_segment_rows(view_data.q_est),
+    ]
+    return "\n".join(lines)
+
+
+def _format_vector_rows(values: np.ndarray, *, scale: float) -> list[str]:
+    scaled = np.asarray(values, dtype=float) * scale
+    rows = []
+    for start in range(0, scaled.size, 3):
+        chunk = scaled[start : start + 3]
+        if chunk.size < 3:
+            break
+        rows.append(
+            "  {}-{}: [{: .3f}, {: .3f}, {: .3f}]".format(
+                start + 1,
+                start + 3,
+                *chunk,
+            )
+        )
+    return rows
+
+
+def _format_segment_rows(values: np.ndarray) -> list[str]:
+    rows = []
+    for index, segment_values in enumerate(np.asarray(values, dtype=float).reshape(3, 3), start=1):
+        rows.append(
+            "  seg{}: {: .4f}, {: .4f}, {: .5f}".format(
+                index,
+                segment_values[0],
+                segment_values[1],
+                segment_values[2],
+            )
+        )
+    return rows
+
+
+__all__ = [
+    "MujocoTendonDebugViewData",
+    "MujocoTendonDebugViewer",
+    "MujocoTendonMonitorPanel",
+    "TENDON_DEBUG_NAMED_COMMANDS",
+    "clip_tendon_command",
+    "compute_mujoco_tendon_debug_view_data",
+    "named_tendon_command",
+]

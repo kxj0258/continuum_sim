@@ -1,0 +1,120 @@
+<mujoco model="three_segment_reduced_order_arm">
+  <compiler angle="radian"/>
+  <option timestep="0.001" integrator="implicitfast" iterations="50" gravity="0 0 -9.81"/>
+  <visual>
+    <global azimuth="135" elevation="-25"/>
+    <headlight ambient="0.35 0.35 0.35" diffuse="0.75 0.75 0.75" specular="0.2 0.2 0.2"/>
+    <map znear="0.001" zfar="2"/>
+    <quality shadowsize="2048"/>
+  </visual>
+
+  <default>
+    <joint damping="0.02" armature="0.0001" limited="true" range="-0.7 0.7"/>
+    <geom type="capsule" size="0.004" density="1100" rgba="0.2 0.45 0.85 1" group="0"/>
+    <site size="0.003" rgba="0.95 0.25 0.2 1"/>
+    <position kp="20" ctrllimited="true" ctrlrange="-0.7 0.7" forcelimited="true" forcerange="-0.5 0.5"/>
+  </default>
+
+  <worldbody>
+    <body name="base" pos="0 0 0">
+      <geom name="base_geom" type="cylinder" size="0.012 0.004" pos="0 0 -0.004" rgba="0.12 0.12 0.12 1" group="0"/>
+      <site name="base_site" pos="0 0 0" quat="1 0 0 0"/>
+
+      <body name="segment_1_link_1" pos="0 0 0">
+        <joint name="segment_1_link_1_x" type="hinge" axis="1 0 0"/>
+        <joint name="segment_1_link_1_y" type="hinge" axis="0 1 0"/>
+        <geom name="segment_1_link_1_geom" fromto="0 0 0 0 0 0.01"/>
+        <body name="segment_1_link_2" pos="0 0 0.01">
+          <joint name="segment_1_link_2_x" type="hinge" axis="1 0 0"/>
+          <joint name="segment_1_link_2_y" type="hinge" axis="0 1 0"/>
+          <geom name="segment_1_link_2_geom" fromto="0 0 0 0 0 0.01"/>
+          <body name="segment_1_link_3" pos="0 0 0.01">
+            <joint name="segment_1_link_3_x" type="hinge" axis="1 0 0"/>
+            <joint name="segment_1_link_3_y" type="hinge" axis="0 1 0"/>
+            <geom name="segment_1_link_3_geom" fromto="0 0 0 0 0 0.01"/>
+            <body name="segment_1_link_4" pos="0 0 0.01">
+              <joint name="segment_1_link_4_x" type="hinge" axis="1 0 0"/>
+              <joint name="segment_1_link_4_y" type="hinge" axis="0 1 0"/>
+              <geom name="segment_1_link_4_geom" fromto="0 0 0 0 0 0.01"/>
+              <site name="segment_1_tip" pos="0 0 0.01" quat="1 0 0 0"/>
+
+              <body name="segment_2_link_1" pos="0 0 0.01">
+                <joint name="segment_2_link_1_x" type="hinge" axis="1 0 0"/>
+                <joint name="segment_2_link_1_y" type="hinge" axis="0 1 0"/>
+                <geom name="segment_2_link_1_geom" fromto="0 0 0 0 0 0.01"/>
+                <body name="segment_2_link_2" pos="0 0 0.01">
+                  <joint name="segment_2_link_2_x" type="hinge" axis="1 0 0"/>
+                  <joint name="segment_2_link_2_y" type="hinge" axis="0 1 0"/>
+                  <geom name="segment_2_link_2_geom" fromto="0 0 0 0 0 0.01"/>
+                  <body name="segment_2_link_3" pos="0 0 0.01">
+                    <joint name="segment_2_link_3_x" type="hinge" axis="1 0 0"/>
+                    <joint name="segment_2_link_3_y" type="hinge" axis="0 1 0"/>
+                    <geom name="segment_2_link_3_geom" fromto="0 0 0 0 0 0.01"/>
+                    <body name="segment_2_link_4" pos="0 0 0.01">
+                      <joint name="segment_2_link_4_x" type="hinge" axis="1 0 0"/>
+                      <joint name="segment_2_link_4_y" type="hinge" axis="0 1 0"/>
+                      <geom name="segment_2_link_4_geom" fromto="0 0 0 0 0 0.01"/>
+                      <site name="segment_2_tip" pos="0 0 0.01" quat="1 0 0 0"/>
+
+                      <body name="segment_3_link_1" pos="0 0 0.01">
+                        <joint name="segment_3_link_1_x" type="hinge" axis="1 0 0"/>
+                        <joint name="segment_3_link_1_y" type="hinge" axis="0 1 0"/>
+                        <geom name="segment_3_link_1_geom" fromto="0 0 0 0 0 0.01"/>
+                        <body name="segment_3_link_2" pos="0 0 0.01">
+                          <joint name="segment_3_link_2_x" type="hinge" axis="1 0 0"/>
+                          <joint name="segment_3_link_2_y" type="hinge" axis="0 1 0"/>
+                          <geom name="segment_3_link_2_geom" fromto="0 0 0 0 0 0.01"/>
+                          <body name="segment_3_link_3" pos="0 0 0.01">
+                            <joint name="segment_3_link_3_x" type="hinge" axis="1 0 0"/>
+                            <joint name="segment_3_link_3_y" type="hinge" axis="0 1 0"/>
+                            <geom name="segment_3_link_3_geom" fromto="0 0 0 0 0 0.01"/>
+                            <body name="segment_3_link_4" pos="0 0 0.01">
+                              <joint name="segment_3_link_4_x" type="hinge" axis="1 0 0"/>
+                              <joint name="segment_3_link_4_y" type="hinge" axis="0 1 0"/>
+                              <geom name="segment_3_link_4_geom" fromto="0 0 0 0 0 0.01"/>
+                              <site name="segment_3_tip" pos="0 0 0.01" quat="1 0 0 0"/>
+                              <site name="tip" pos="0 0 0.01" quat="1 0 0 0"/>
+                            </body>
+                          </body>
+                        </body>
+                      </body>
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <position name="act_segment_1_link_1_x" joint="segment_1_link_1_x"/>
+    <position name="act_segment_1_link_1_y" joint="segment_1_link_1_y"/>
+    <position name="act_segment_1_link_2_x" joint="segment_1_link_2_x"/>
+    <position name="act_segment_1_link_2_y" joint="segment_1_link_2_y"/>
+    <position name="act_segment_1_link_3_x" joint="segment_1_link_3_x"/>
+    <position name="act_segment_1_link_3_y" joint="segment_1_link_3_y"/>
+    <position name="act_segment_1_link_4_x" joint="segment_1_link_4_x"/>
+    <position name="act_segment_1_link_4_y" joint="segment_1_link_4_y"/>
+
+    <position name="act_segment_2_link_1_x" joint="segment_2_link_1_x"/>
+    <position name="act_segment_2_link_1_y" joint="segment_2_link_1_y"/>
+    <position name="act_segment_2_link_2_x" joint="segment_2_link_2_x"/>
+    <position name="act_segment_2_link_2_y" joint="segment_2_link_2_y"/>
+    <position name="act_segment_2_link_3_x" joint="segment_2_link_3_x"/>
+    <position name="act_segment_2_link_3_y" joint="segment_2_link_3_y"/>
+    <position name="act_segment_2_link_4_x" joint="segment_2_link_4_x"/>
+    <position name="act_segment_2_link_4_y" joint="segment_2_link_4_y"/>
+
+    <position name="act_segment_3_link_1_x" joint="segment_3_link_1_x"/>
+    <position name="act_segment_3_link_1_y" joint="segment_3_link_1_y"/>
+    <position name="act_segment_3_link_2_x" joint="segment_3_link_2_x"/>
+    <position name="act_segment_3_link_2_y" joint="segment_3_link_2_y"/>
+    <position name="act_segment_3_link_3_x" joint="segment_3_link_3_x"/>
+    <position name="act_segment_3_link_3_y" joint="segment_3_link_3_y"/>
+    <position name="act_segment_3_link_4_x" joint="segment_3_link_4_x"/>
+    <position name="act_segment_3_link_4_y" joint="segment_3_link_4_y"/>
+  </actuator>
+</mujoco>

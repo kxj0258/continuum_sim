@@ -58,7 +58,7 @@ motion:
   samples_per_line: 30
   approach_offset_m: 0.005
   contact_offset_m: -0.0025
-  waypoint_tolerance_m: 0.003
+  waypoint_tolerance_m: 0.005
 
 mujoco:
   feedback_mode: mujoco_actual

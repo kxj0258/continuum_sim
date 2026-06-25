@@ -1,0 +1,25 @@
+tool:
+  name: carbon_removal_tool
+  type: contact_sphere_tool
+  enabled: true
+
+  tip_to_attachment:
+    position: [0.0, 0.0, 0.02]
+    quat: [1.0, 0.0, 0.0, 0.0]
+
+  tcp_pose:
+    position: [0.0, 0.0, 0.045]
+    quat: [1.0, 0.0, 0.0, 0.0]
+
+  visual_mesh_path: assets/placeholders/carbon_removal_tool.obj
+
+  collision:
+    type: sphere
+    radius_m: 0.018
+
+  mass_kg: 0.05
+
+  contact:
+    target_normal_force_n: 1.0
+    max_normal_force_n: 3.0
+    standoff_distance_m: 0.02

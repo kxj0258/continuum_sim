@@ -1,0 +1,27 @@
+tool:
+  name: eye_camera_air_gun
+  type: camera_airgun
+  enabled: true
+
+  tip_to_attachment:
+    position: [0.0, 0.0, 0.025]
+    quat: [1.0, 0.0, 0.0, 0.0]
+
+  camera:
+    name: observer_eye_camera
+    intrinsics:
+      width: 640
+      height: 480
+      fovy_deg: 60.0
+      near: 0.02
+      far: 2.0
+    tip_to_camera:
+      position: [0.0, 0.0, 0.04]
+      quat: [1.0, 0.0, 0.0, 0.0]
+
+  nozzle_pose:
+    position: [0.0, 0.015, 0.045]
+    quat: [1.0, 0.0, 0.0, 0.0]
+
+  airgun:
+    standoff_distance_m: 0.05

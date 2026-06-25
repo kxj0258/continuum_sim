@@ -22,6 +22,11 @@ from continuum_sim.scenes.engine_scene import (  # noqa: E402
     resolve_engine_asset_paths,
     validate_engine_scene_config,
 )
+from continuum_sim.scenes.primitive_collision import (  # noqa: E402
+    PrimitiveCollisionGeomConfig,
+    load_primitive_collision_geoms,
+    primitive_geom_bbox,
+)
 
 
 SUPPORTED_MESH_EXTENSIONS = {".obj", ".stl", ".msh"}
@@ -92,10 +97,18 @@ class PrimitiveCollisionHintReport:
     name: str
     type: str
     enabled: bool
+    frame: str
     position_m: tuple[float, float, float] | None
     quat_wxyz: tuple[float, float, float, float] | None
+    fromto_m: tuple[float, float, float, float, float, float] | None
+    radius_m: float | None
+    length_m: float | None
+    size_m: tuple[float, float, float] | None
+    rgba: tuple[float, float, float, float] | None
     bbox_min: tuple[float, float, float] | None
     bbox_max: tuple[float, float, float] | None
+    intersects_visual_bbox: bool | None
+    intersects_collision_bbox: bool | None
     warnings: tuple[str, ...]
     note: str = ""
 
@@ -198,7 +211,12 @@ def collect_engine_scene_diagnostics(
 
     visual_report = next((report for report in reports if report.asset_name == "visual_mesh"), None)
     region_reports = _collect_region_reports(config.regions.values(), visual_report)
-    primitive_hint_reports = _collect_primitive_hint_reports(raw.get("primitive_collision_geoms", []))
+    collision_report = next((report for report in reports if report.asset_name == "collision_mesh"), None)
+    primitive_hint_reports = _collect_primitive_hint_reports(
+        raw.get("primitive_collision_geoms", []),
+        visual_report=visual_report,
+        collision_report=collision_report,
+    )
     return EngineSceneDiagnostics(
         config_path=config.path,
         scale=scale,
@@ -564,9 +582,16 @@ def _print_diagnostics(diagnostics: EngineSceneDiagnostics, *, display_root: Pat
         for report in diagnostics.primitive_hint_reports:
             print(f"  {report.name} ({report.type})")
             print(f"    enabled: {report.enabled}")
+            print(f"    frame: {report.frame}")
             print(f"    position_m: {_format_tuple(report.position_m)}")
+            print(f"    fromto_m: {_format_tuple6(report.fromto_m)}")
+            print(f"    radius_m: {_format_float(report.radius_m)}")
+            print(f"    length_m: {_format_float(report.length_m)}")
+            print(f"    size_m: {_format_tuple(report.size_m)}")
             print(f"    bbox_min: {_format_tuple(report.bbox_min)}")
             print(f"    bbox_max: {_format_tuple(report.bbox_max)}")
+            print(f"    intersects_visual_bbox: {report.intersects_visual_bbox}")
+            print(f"    intersects_collision_bbox: {report.intersects_collision_bbox}")
             if report.note:
                 print(f"    note: {report.note}")
             for warning in report.warnings:
@@ -583,6 +608,12 @@ def _format_float(value: float | None) -> str:
     if value is None:
         return "<unavailable>"
     return f"{value:.6g}"
+
+
+def _format_tuple6(values: tuple[float, float, float, float, float, float] | None) -> str:
+    if values is None:
+        return "<unavailable>"
+    return "[" + ", ".join(f"{value:.6g}" for value in values) + "]"
 
 
 def _relative_to(path: Path, root: Path) -> str:
@@ -654,113 +685,95 @@ def _distance_to_bbox(
     return squared**0.5
 
 
-def _collect_primitive_hint_reports(raw_hints: object) -> list[PrimitiveCollisionHintReport]:
-    if raw_hints is None:
-        return []
-    if not isinstance(raw_hints, list):
-        return [
-            PrimitiveCollisionHintReport(
-                name="<invalid>",
-                type="<invalid>",
-                enabled=False,
-                position_m=None,
-                quat_wxyz=None,
-                bbox_min=None,
-                bbox_max=None,
-                warnings=("primitive_collision_geoms must be a list.",),
-            )
-        ]
-    return [_primitive_hint_report(raw_hint) for raw_hint in raw_hints]
-
-
-def _primitive_hint_report(raw_hint: object) -> PrimitiveCollisionHintReport:
-    if not isinstance(raw_hint, dict):
-        return PrimitiveCollisionHintReport(
-            name="<invalid>",
-            type="<invalid>",
-            enabled=False,
-            position_m=None,
-            quat_wxyz=None,
-            bbox_min=None,
-            bbox_max=None,
-            warnings=("Primitive collision hint must be a mapping.",),
+def _collect_primitive_hint_reports(
+    raw_hints: object,
+    *,
+    visual_report: AssetReport | None,
+    collision_report: AssetReport | None,
+) -> list[PrimitiveCollisionHintReport]:
+    geoms = load_primitive_collision_geoms(raw_hints)
+    return [
+        _primitive_hint_report(
+            geom,
+            visual_report=visual_report,
+            collision_report=collision_report,
         )
+        for geom in geoms
+    ]
 
-    name = str(raw_hint.get("name", "primitive_collision_hint"))
-    hint_type = str(raw_hint.get("type", "unknown"))
-    enabled = bool(raw_hint.get("enabled", False))
-    position = _optional_tuple3(raw_hint.get("position_m"))
-    quat = _optional_tuple4(raw_hint.get("quat_wxyz"))
-    bbox_min, bbox_max, warnings_list = _primitive_hint_bbox(hint_type, raw_hint, position)
+
+def _primitive_hint_report(
+    geom: PrimitiveCollisionGeomConfig,
+    *,
+    visual_report: AssetReport | None,
+    collision_report: AssetReport | None,
+) -> PrimitiveCollisionHintReport:
+    bbox = primitive_geom_bbox(geom)
+    intersects_visual = _bbox_intersects_report(bbox.minimum, bbox.maximum, visual_report)
+    intersects_collision = _bbox_intersects_report(bbox.minimum, bbox.maximum, collision_report)
+    warnings_list: list[str] = []
+    if geom.frame != "world":
+        warnings_list.append(
+            f"Primitive frame {geom.frame!r} is parsed, but diagnostics currently report its local bbox."
+        )
+    if intersects_visual is False and intersects_collision is False:
+        warnings_list.append("Primitive hint bbox does not intersect visual or collision mesh world bboxes.")
     return PrimitiveCollisionHintReport(
-        name=name,
-        type=hint_type,
-        enabled=enabled,
-        position_m=position,
-        quat_wxyz=quat,
-        bbox_min=bbox_min,
-        bbox_max=bbox_max,
+        name=geom.name,
+        type=geom.type,
+        enabled=geom.enabled,
+        frame=geom.frame,
+        position_m=_tuple_or_none(geom.position_m),
+        quat_wxyz=_tuple4_or_none(geom.quat_wxyz),
+        fromto_m=_tuple6_or_none(geom.fromto_m),
+        radius_m=geom.radius_m,
+        length_m=geom.length_m,
+        size_m=_tuple_or_none(geom.size_m),
+        rgba=geom.rgba,
+        bbox_min=bbox.minimum,
+        bbox_max=bbox.maximum,
+        intersects_visual_bbox=intersects_visual,
+        intersects_collision_bbox=intersects_collision,
         warnings=tuple(warnings_list),
-        note=str(raw_hint.get("note", "")),
+        note=geom.note or "",
     )
 
 
-def _primitive_hint_bbox(
-    hint_type: str,
-    raw_hint: dict,
-    position: tuple[float, float, float] | None,
-) -> tuple[tuple[float, float, float] | None, tuple[float, float, float] | None, list[str]]:
-    warnings_list: list[str] = []
-    if position is None:
-        return None, None, ["Primitive collision hint is missing position_m."]
-
-    if hint_type == "sphere":
-        radius = _optional_float(raw_hint.get("radius_m"))
-        if radius is None:
-            return None, None, ["Sphere hint is missing radius_m."]
-        half_extents = (radius, radius, radius)
-    elif hint_type in ("capsule", "cylinder"):
-        radius = _optional_float(raw_hint.get("radius_m"))
-        length = _optional_float(raw_hint.get("length_m"))
-        if radius is None or length is None:
-            return None, None, [f"{hint_type} hint requires radius_m and length_m."]
-        half_extents = (radius, radius, length * 0.5 + radius)
-        warnings_list.append("Primitive hint bbox ignores quat_wxyz and assumes local z axis.")
-    elif hint_type == "box":
-        size = _optional_tuple3(raw_hint.get("size_m"))
-        if size is None:
-            return None, None, ["Box hint is missing size_m."]
-        half_extents = tuple(value * 0.5 for value in size)  # type: ignore[assignment]
-    else:
-        return None, None, [f"Unsupported primitive collision hint type {hint_type!r}."]
-
-    bbox_min = tuple(position[index] - half_extents[index] for index in range(3))
-    bbox_max = tuple(position[index] + half_extents[index] for index in range(3))
-    return bbox_min, bbox_max, warnings_list  # type: ignore[return-value]
-
-
-def _optional_float(value: object) -> float | None:
-    if value is None:
+def _bbox_intersects_report(
+    bbox_min: tuple[float, float, float],
+    bbox_max: tuple[float, float, float],
+    report: AssetReport | None,
+) -> bool | None:
+    if report is None or report.bbox_min_world is None or report.bbox_max_world is None:
         return None
-    return float(value)
+    return _bbox_intersects(bbox_min, bbox_max, report.bbox_min_world, report.bbox_max_world)
 
 
-def _optional_tuple3(value: object) -> tuple[float, float, float] | None:
-    if value is None:
-        return None
-    values = tuple(float(item) for item in value)  # type: ignore[union-attr]
-    if len(values) != 3:
-        return None
-    return values  # type: ignore[return-value]
+def _bbox_intersects(
+    a_min: tuple[float, float, float],
+    a_max: tuple[float, float, float],
+    b_min: tuple[float, float, float],
+    b_max: tuple[float, float, float],
+) -> bool:
+    return all(a_min[index] <= b_max[index] and b_min[index] <= a_max[index] for index in range(3))
 
 
-def _optional_tuple4(value: object) -> tuple[float, float, float, float] | None:
-    if value is None:
+def _tuple_or_none(values: object) -> tuple[float, float, float] | None:
+    if values is None:
         return None
-    values = tuple(float(item) for item in value)  # type: ignore[union-attr]
-    if len(values) != 4:
+    return tuple(float(value) for value in values)  # type: ignore[return-value]
+
+
+def _tuple4_or_none(values: object) -> tuple[float, float, float, float] | None:
+    if values is None:
         return None
-    return values  # type: ignore[return-value]
+    return tuple(float(value) for value in values)  # type: ignore[return-value]
+
+
+def _tuple6_or_none(values: object) -> tuple[float, float, float, float, float, float] | None:
+    if values is None:
+        return None
+    return tuple(float(value) for value in values)  # type: ignore[return-value]
 
 
 if __name__ == "__main__":

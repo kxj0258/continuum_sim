@@ -1,0 +1,113 @@
+schema_version: 1
+name: engine_cleaning_nozzle_collision
+scene_type: engine_cleaning
+metadata:
+  generated_from: configs/scenes/engine_cleaning_aligned.yaml
+  alignment_mode: grounded
+  note: Derived from aligned mesh bbox diagnostics; verify manually in viewer.
+  collision_hint_source: collision
+  collision_hint_primitive: capsule
+engine:
+  assets:
+    visual_mesh: ../../assets/engine/meshes/engine_visual.stl
+    collision_mesh: ../../assets/engine/collision/engine_collision.stl
+  scale: 0.001
+  pose:
+    position_m:
+    - -1.12127
+    - -1.32342
+    - -3.48744
+    quat_wxyz:
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+primitive_collision_geoms:
+- name: nozzle_collision_capsule_hint
+  type: capsule
+  enabled: false
+  frame: world
+  fromto_m:
+  - -1.79762177002
+  - 0.46331425293
+  - 0.555564394531
+  - -0.121505144043
+  - 0.46331425293
+  - 0.555564394531
+  radius_m: 0.166670800781
+  rgba:
+  - 1.0
+  - 0.2
+  - 0.1
+  - 0.35
+  note: Auto-generated initial capsule hint from collision mesh bbox; verify manually
+    in viewer.
+- name: nozzle_collision_box_hint
+  type: box
+  enabled: false
+  frame: world
+  position_m:
+  - -0.959563457031
+  - 0.46331425293
+  - 0.555564394531
+  size_m:
+  - 0.93117590332
+  - 0.576141479492
+  - 0.555569335938
+  rgba:
+  - 0.2
+  - 0.8
+  - 1.0
+  - 0.25
+  note: BBox hint only; not recommended as final collision unless manually verified.
+regions:
+  entry_port:
+    type: circular_port
+    center_m:
+    - 0.28
+    - 0.0
+    - 0.1
+    normal:
+    - -1.0
+    - 0.0
+    - 0.0
+    radius_m: 0.045
+    description: Main insertion entry for future observer and executor arms.
+  inspection_roi:
+    type: roi_box
+    center_m:
+    - 0.36
+    - 0.0
+    - 0.12
+    size_m:
+    - 0.12
+    - 0.1
+    - 0.08
+    description: Coarse inspection volume for first-pass engine observation.
+  carbon_deposit_region:
+    type: surface_patch
+    position_m:
+    - 0.4
+    - 0.015
+    - 0.095
+    normal:
+    - -1.0
+    - 0.0
+    - 0.0
+    extents_m:
+    - 0.05
+    - 0.03
+    - 0.01
+    description: Placeholder region for future deposit localization and path generation.
+  forbidden_zone:
+    type: box
+    center_m:
+    - 0.42
+    - 0.0
+    - 0.18
+    size_m:
+    - 0.08
+    - 0.06
+    - 0.04
+    description: Keep-out region reserved for no-go geometry and future collision
+      policies.

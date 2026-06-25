@@ -18,9 +18,14 @@ if str(SRC_ROOT) not in sys.path:
 
 from continuum_sim.config import load_yaml  # noqa: E402
 from continuum_sim.scenes.engine_scene import (  # noqa: E402
+    EngineSceneConfig,
     EngineRegionConfig,
     load_engine_scene_config,
     resolve_engine_asset_paths,
+)
+from continuum_sim.scenes.primitive_collision import (  # noqa: E402
+    PrimitiveCollisionGeomConfig,
+    load_primitive_collision_geoms,
 )
 from scripts.check_engine_assets import collect_engine_scene_diagnostics  # noqa: E402
 
@@ -54,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
             config,
             Path(temp_dir),
             include_visual=not args.collision_only,
-            include_collision=not args.visual_only,
+            include_collision=not args.visual_only and not args.hide_mesh_collision,
         )
         xml_text = build_engine_preview_mjcf(
             config_path=args.config,
@@ -66,7 +71,10 @@ def main(argv: list[str] | None = None) -> int:
             show_axes=args.show_axes,
             alpha_visual=args.alpha_visual,
             alpha_collision=args.alpha_collision,
+            show_primitive_collision=args.show_primitive_collision,
             show_disabled_hints=args.show_disabled_hints,
+            primitive_alpha=args.primitive_alpha,
+            hide_mesh_collision=args.hide_mesh_collision,
         )
         xml_path = Path(temp_dir) / "engine_preview.xml"
         xml_path.write_text(xml_text, encoding="utf-8")
@@ -116,7 +124,10 @@ def build_engine_preview_mjcf(
     show_axes: bool = True,
     alpha_visual: float = 0.45,
     alpha_collision: float = 0.28,
+    show_primitive_collision: bool = True,
     show_disabled_hints: bool = False,
+    primitive_alpha: float = 0.55,
+    hide_mesh_collision: bool = False,
 ) -> str:
     """Build a minimal MJCF document for the configured engine mesh."""
 
@@ -126,7 +137,7 @@ def build_engine_preview_mjcf(
     visual_mesh = overrides.get("visual_mesh", asset_paths.visual_mesh)
     collision_mesh = overrides.get("collision_mesh", asset_paths.collision_mesh)
     include_visual = not collision_only
-    include_collision = not visual_only and collision_mesh is not None
+    include_collision = not visual_only and not hide_mesh_collision and collision_mesh is not None
     root = ElementTree.Element("mujoco", {"model": "engine_preview"})
     compiler = ElementTree.SubElement(root, "compiler")
     compiler.set("angle", "radian")
@@ -208,11 +219,14 @@ def build_engine_preview_mjcf(
         for region in config.regions.values():
             _add_region_site(worldbody, region)
 
-    _add_primitive_collision_hints(
-        worldbody,
-        load_yaml(Path(config_path).resolve()),
-        show_disabled_hints=show_disabled_hints,
-    )
+    if show_primitive_collision:
+        _add_primitive_collision_hints(
+            worldbody,
+            load_yaml(Path(config_path).resolve()),
+            config=config,
+            show_disabled_hints=show_disabled_hints,
+            primitive_alpha=primitive_alpha,
+        )
 
     ElementTree.indent(root)
     return ElementTree.tostring(root, encoding="unicode")
@@ -307,9 +321,21 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--alpha-visual", type=float, default=0.45, help="Visual mesh alpha.")
     parser.add_argument("--alpha-collision", type=float, default=0.28, help="Collision mesh alpha.")
     parser.add_argument(
+        "--show-primitive-collision",
+        action="store_true",
+        default=True,
+        help="Show enabled primitive_collision_geoms hints.",
+    )
+    parser.add_argument(
         "--show-disabled-hints",
         action="store_true",
         help="Show disabled primitive_collision_geoms hints as low-alpha preview geometry.",
+    )
+    parser.add_argument("--primitive-alpha", type=float, default=0.55, help="Primitive hint alpha.")
+    parser.add_argument(
+        "--hide-mesh-collision",
+        action="store_true",
+        help="Hide configured mesh collision while keeping primitive hints visible.",
     )
     return parser.parse_args(argv)
 
@@ -438,65 +464,116 @@ def _add_primitive_collision_hints(
     worldbody: ElementTree.Element,
     raw_config: dict,
     *,
+    config: EngineSceneConfig,
     show_disabled_hints: bool,
+    primitive_alpha: float,
 ) -> None:
-    raw_hints = raw_config.get("primitive_collision_geoms", [])
-    if not isinstance(raw_hints, list):
-        return
-    for raw_hint in raw_hints:
-        if not isinstance(raw_hint, dict):
+    geoms = load_primitive_collision_geoms(raw_config.get("primitive_collision_geoms"))
+    for geom in geoms:
+        if not geom.enabled and not show_disabled_hints:
             continue
-        enabled = bool(raw_hint.get("enabled", False))
-        if not enabled and not show_disabled_hints:
-            continue
-        _add_primitive_collision_hint(worldbody, raw_hint, enabled=enabled)
+        alpha = primitive_alpha if geom.enabled else min(primitive_alpha, 0.22)
+        _add_primitive_collision_hint(worldbody, geom, config=config, alpha=alpha)
 
 
 def _add_primitive_collision_hint(
     worldbody: ElementTree.Element,
-    raw_hint: dict,
+    geom: PrimitiveCollisionGeomConfig,
     *,
-    enabled: bool,
+    config: EngineSceneConfig,
+    alpha: float,
 ) -> None:
-    name = str(raw_hint.get("name", "primitive_collision_hint"))
-    hint_type = str(raw_hint.get("type", ""))
-    position = raw_hint.get("position_m", [0.0, 0.0, 0.0])
-    quat = raw_hint.get("quat_wxyz", [1.0, 0.0, 0.0, 0.0])
+    rgba = _primitive_rgba(geom, alpha)
+    if geom.type == "capsule" and geom.fromto_m is not None:
+        ElementTree.SubElement(
+            worldbody,
+            "geom",
+            {
+                "name": f"hint_{geom.name}",
+                "type": "capsule",
+                "fromto": _mujoco_vec(_primitive_fromto_world(geom, config)),
+                "size": f"{float(geom.radius_m):.12g}",
+                "rgba": rgba,
+                "contype": "0",
+                "conaffinity": "0",
+                "group": "2",
+            },
+        )
+        return
+
+    position = _primitive_position_world(geom, config)
+    quat = geom.quat_wxyz if geom.quat_wxyz is not None else (1.0, 0.0, 0.0, 0.0)
     body = ElementTree.SubElement(
         worldbody,
         "body",
         {
-            "name": f"hint_body_{name}",
+            "name": f"hint_body_{geom.name}",
             "pos": _mujoco_vec(position),
             "quat": _mujoco_vec(quat),
         },
     )
-    rgba = "0.2 0.9 1.0 0.45" if enabled else "0.2 0.9 1.0 0.18"
     attrs = {
-        "name": f"hint_{name}",
-        "type": hint_type,
+        "name": f"hint_{geom.name}",
+        "type": geom.type,
         "rgba": rgba,
         "contype": "0",
         "conaffinity": "0",
         "group": "2",
     }
-    if hint_type == "capsule":
-        radius = float(raw_hint.get("radius_m", 0.01))
-        half_length = float(raw_hint.get("length_m", 0.1)) * 0.5
+    if geom.type == "capsule":
+        radius = float(geom.radius_m)
+        half_length = float(geom.length_m) * 0.5
         attrs["fromto"] = f"0 0 {-half_length:.12g} 0 0 {half_length:.12g}"
         attrs["size"] = f"{radius:.12g}"
-    elif hint_type == "cylinder":
-        radius = float(raw_hint.get("radius_m", 0.01))
-        half_length = float(raw_hint.get("length_m", 0.1)) * 0.5
+    elif geom.type == "cylinder":
+        radius = float(geom.radius_m)
+        half_length = float(geom.length_m) * 0.5
         attrs["size"] = f"{radius:.12g} {half_length:.12g}"
-    elif hint_type == "sphere":
-        attrs["size"] = f"{float(raw_hint.get('radius_m', 0.01)):.12g}"
-    elif hint_type == "box":
-        size = raw_hint.get("size_m", [0.02, 0.02, 0.02])
+    elif geom.type == "sphere":
+        attrs["size"] = f"{float(geom.radius_m):.12g}"
+    elif geom.type == "box":
+        size = geom.size_m
         attrs["size"] = _mujoco_vec(tuple(float(value) * 0.5 for value in size))
     else:
         return
     ElementTree.SubElement(body, "geom", attrs)
+
+
+def _primitive_position_world(
+    geom: PrimitiveCollisionGeomConfig,
+    config: EngineSceneConfig,
+) -> tuple[float, float, float]:
+    if geom.position_m is None:
+        return (0.0, 0.0, 0.0)
+    if geom.frame == "world":
+        return tuple(float(value) for value in geom.position_m)  # type: ignore[return-value]
+    return _engine_local_to_world(geom.position_m, config)
+
+
+def _primitive_fromto_world(
+    geom: PrimitiveCollisionGeomConfig,
+    config: EngineSceneConfig,
+) -> tuple[float, float, float, float, float, float]:
+    values = geom.fromto_m
+    if values is None:
+        raise ValueError(f"Primitive collision hint {geom.name!r} has no fromto_m.")
+    if geom.frame == "world":
+        return tuple(float(value) for value in values)  # type: ignore[return-value]
+    start = _engine_local_to_world(values[:3], config)
+    end = _engine_local_to_world(values[3:], config)
+    return (*start, *end)
+
+
+def _engine_local_to_world(values: object, config: EngineSceneConfig) -> tuple[float, float, float]:
+    return tuple(
+        float(config.engine.pose.position_m[index]) + float(values[index]) * float(config.engine.scale)
+        for index in range(3)
+    )  # type: ignore[index, return-value]
+
+
+def _primitive_rgba(geom: PrimitiveCollisionGeomConfig, alpha: float) -> str:
+    rgba = geom.rgba or (1.0, 0.25, 0.1, alpha)
+    return _mujoco_vec((rgba[0], rgba[1], rgba[2], alpha))
 
 
 def _region_rgba(region_type: str) -> str:

@@ -19,6 +19,11 @@ from continuum_sim.config_validation import (
     resolve_path as _resolve_config_path,
     section as _section,
 )
+from continuum_sim.scenes.primitive_collision import (
+    PrimitiveCollisionGeomConfig,
+    load_primitive_collision_geoms,
+    validate_primitive_collision_geoms as _validate_primitive_collision_geoms,
+)
 
 
 ENGINE_SCENE_TYPES = ("engine_cleaning",)
@@ -91,6 +96,7 @@ class EngineSceneConfig:
     scene_type: str
     engine: EngineModelConfig
     regions: dict[str, EngineRegionConfig]
+    primitive_collision_geoms: tuple[PrimitiveCollisionGeomConfig, ...] = ()
 
 
 def load_engine_scene_config(path: str | Path) -> EngineSceneConfig:
@@ -138,6 +144,9 @@ def load_engine_scene_config(path: str | Path) -> EngineSceneConfig:
             name: _load_engine_region_config(name, values)
             for name, values in regions_raw.items()
         },
+        primitive_collision_geoms=tuple(
+            load_primitive_collision_geoms(raw.get("primitive_collision_geoms"))
+        ),
     )
     return config
 
@@ -153,6 +162,7 @@ def validate_engine_scene_config(
         raise ValueError(
             f"scene_type must be one of {ENGINE_SCENE_TYPES}, got {config.scene_type!r}."
         )
+    _validate_primitive_collision_geoms(config.primitive_collision_geoms)
     if not config.regions:
         return
     for region_name, region in config.regions.items():
@@ -183,6 +193,20 @@ def iter_engine_regions(config: EngineSceneConfig) -> Iterator[tuple[str, Engine
     """Iterate named engine regions in YAML insertion order."""
 
     yield from config.regions.items()
+
+
+def iter_primitive_collision_geoms(
+    config: EngineSceneConfig,
+) -> Iterator[PrimitiveCollisionGeomConfig]:
+    """Iterate optional primitive collision hints in YAML insertion order."""
+
+    yield from config.primitive_collision_geoms
+
+
+def validate_primitive_collision_geoms(config: EngineSceneConfig) -> None:
+    """Validate optional primitive collision hints loaded with an engine scene."""
+
+    _validate_primitive_collision_geoms(config.primitive_collision_geoms)
 
 
 def resolve_engine_asset_paths(

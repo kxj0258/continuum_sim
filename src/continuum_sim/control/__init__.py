@@ -24,6 +24,18 @@ from continuum_sim.control.hybrid_force_position import (
     contact_measurement_from_surface_proxy,
     desired_hybrid_tip_velocity,
 )
+from continuum_sim.control.engine_cleaning_controller import (
+    EngineCleaningController,
+    build_engine_cleaning_gains_from_config,
+    limit_tcp_velocity,
+    load_engine_cleaning_controller_config,
+    validate_engine_cleaning_controller_config,
+)
+from continuum_sim.control.engine_cleaning_types import (
+    EngineCleaningCommand,
+    EngineCleaningControllerGains,
+    EngineCleaningFeedback,
+)
 from continuum_sim.control.navigation_controller import (
     centerline_point_motor_jacobian,
     compute_navigation_motor_velocity_command,
@@ -35,7 +47,12 @@ __all__ = [
     "AdaptiveImpedanceConfig",
     "CBFQPConfig",
     "DifferentialIKConfig",
+    "EngineCleaningCommand",
+    "EngineCleaningController",
+    "EngineCleaningControllerGains",
+    "EngineCleaningFeedback",
     "TrackingResult",
+    "build_engine_cleaning_gains_from_config",
     "centerline_point_motor_jacobian",
     "compute_motor_velocity_command",
     "compute_motor_velocity_command_from_observation",
@@ -48,6 +65,9 @@ __all__ = [
     "cbf_lower_bound",
     "damped_least_squares",
     "desired_hybrid_tip_velocity",
+    "limit_tcp_velocity",
+    "load_engine_cleaning_controller_config",
     "solve_cbf_qp_velocity",
     "simulate_position_tracking",
+    "validate_engine_cleaning_controller_config",
 ]

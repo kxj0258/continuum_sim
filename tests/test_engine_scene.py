@@ -65,15 +65,15 @@ def test_iter_engine_regions_preserves_named_region_order() -> None:
     ]
 
 
-def test_validate_engine_scene_config_allows_missing_placeholder_assets_when_not_strict() -> None:
-    config = load_engine_scene_config(SCENE_CONFIG)
+def test_validate_engine_scene_config_allows_missing_assets_when_not_strict(tmp_path: Path) -> None:
+    config = load_engine_scene_config(_write_missing_asset_scene_config(tmp_path))
 
     with pytest.warns(UserWarning, match="does not exist"):
         validate_engine_scene_config(config, strict_assets=False)
 
 
-def test_validate_engine_scene_config_rejects_missing_assets_when_strict() -> None:
-    config = load_engine_scene_config(SCENE_CONFIG)
+def test_validate_engine_scene_config_rejects_missing_assets_when_strict(tmp_path: Path) -> None:
+    config = load_engine_scene_config(_write_missing_asset_scene_config(tmp_path))
 
     with pytest.raises(FileNotFoundError, match="does not exist"):
         validate_engine_scene_config(config, strict_assets=True)
@@ -184,3 +184,37 @@ def test_resolve_engine_asset_paths_reanchors_relative_assets(tmp_path: Path) ->
 
     assert resolved.visual_mesh == (tmp_path / "assets" / "visual.obj").resolve()
     assert resolved.collision_mesh == (tmp_path / "assets" / "collision.obj").resolve()
+
+
+def _write_missing_asset_scene_config(tmp_path: Path) -> Path:
+    config_path = tmp_path / "missing_assets.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "name": "missing_assets",
+                "scene_type": "engine_cleaning",
+                "engine": {
+                    "assets": {
+                        "visual_mesh": "assets/missing_visual.obj",
+                        "collision_mesh": "assets/missing_collision.obj",
+                    },
+                    "scale": 1.0,
+                    "pose": {
+                        "position_m": [0.0, 0.0, 0.0],
+                        "quat_wxyz": [1.0, 0.0, 0.0, 0.0],
+                    },
+                },
+                "regions": {
+                    "entry_port": {
+                        "type": "circular_port",
+                        "center_m": [0.0, 0.0, 0.0],
+                        "normal": [1.0, 0.0, 0.0],
+                        "radius_m": 0.1,
+                    }
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    return config_path

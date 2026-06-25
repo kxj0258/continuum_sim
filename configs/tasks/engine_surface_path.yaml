@@ -1,0 +1,33 @@
+schema_version: 1
+name: engine_surface_path
+
+robot:
+  config_path: configs/robot_3seg.yaml
+
+task:
+  type: engine_surface_path
+  scene_config_path: configs/scenes/engine_cleaning.yaml
+  target_region: carbon_deposit_region
+  tool_config_path: configs/tools/carbon_remover.yaml
+  executor_arm: executor
+  observer_arm: observer
+
+  surface_patch:
+    name: carbon_deposit_patch
+    type: sphere_patch
+    sphere_center: [0.18, 0.02, 0.35]
+    radius_m: 0.08
+    patch_center: [0.18, 0.02, 0.43]
+    normal: [0.0, 0.0, 1.0]
+    tangent_u: [1.0, 0.0, 0.0]
+    size_u_m: 0.06
+    size_v_m: 0.04
+
+  path:
+    num_passes_u: 5
+    num_passes_v: 4
+    approach_distance_m: 0.04
+    retreat_distance_m: 0.05
+    target_force_n: 1.0
+    standoff_distance_m: 0.02
+    snake_pattern: true

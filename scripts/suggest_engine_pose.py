@@ -87,13 +87,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 
-    _print_suggestion(suggestion)
+    _print_suggestion(suggestion, mode=args.mode)
     if args.write_suggested_config is not None:
         try:
+            pose_position = _pose_for_mode(suggestion, args.mode)
             _write_suggested_config(
                 source_path=Path(args.config),
                 output_path=args.write_suggested_config,
-                pose_position=suggestion.recenter_pose_position,
+                pose_position=pose_position,
             )
         except Exception as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
@@ -102,6 +103,23 @@ def main(argv: list[str] | None = None) -> int:
         print(
             "Preview it with: "
             f"python scripts/preview_engine_scene_mujoco.py --config {args.write_suggested_config} --headless-check"
+        )
+    if args.write_aligned_config is not None:
+        try:
+            _write_aligned_config(
+                source_path=Path(args.config),
+                output_path=args.write_aligned_config,
+                pose_position=suggestion.grounded_pose_position,
+                generated_from=str(args.config),
+            )
+        except Exception as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        print(f"Wrote aligned config: {args.write_aligned_config}")
+        print(
+            "Preview it with: "
+            f"python scripts/preview_engine_scene_mujoco.py --config {args.write_aligned_config} "
+            "--headless-check"
         )
     return 0
 
@@ -119,6 +137,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         type=Path,
         default=None,
         help="Optional root used when re-resolving relative configured asset paths.",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("recenter", "grounded"),
+        default="recenter",
+        help="Pose suggestion mode to print or write for --write-suggested-config.",
     )
     parser.add_argument(
         "--target-center",
@@ -140,11 +164,18 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         default=None,
         help="Write a new candidate YAML with the recenter pose. The source config is not modified.",
     )
+    parser.add_argument(
+        "--write-aligned-config",
+        type=Path,
+        default=None,
+        help="Write a derived aligned YAML using the grounded pose and primitive collision hints.",
+    )
     return parser.parse_args(argv)
 
 
-def _print_suggestion(suggestion: PoseSuggestion) -> None:
+def _print_suggestion(suggestion: PoseSuggestion, *, mode: str) -> None:
     print(f"config: {suggestion.config_path}")
+    print(f"mode: {mode}")
     print(f"Current pose.position_m: {_format_tuple(suggestion.current_pose_position)}")
     print(f"Scaled bbox min: {_format_tuple(suggestion.bbox_min_scaled)}")
     print(f"Scaled bbox max: {_format_tuple(suggestion.bbox_max_scaled)}")
@@ -155,6 +186,13 @@ def _print_suggestion(suggestion: PoseSuggestion) -> None:
     print(f"World bbox center: {_format_tuple(suggestion.bbox_center_world)}")
     print(f"Suggested recenter pose.position_m: {_format_tuple(suggestion.recenter_pose_position)}")
     print(f"Suggested grounded pose.position_m: {_format_tuple(suggestion.grounded_pose_position)}")
+    print(f"Selected suggested pose.position_m: {_format_tuple(_pose_for_mode(suggestion, mode))}")
+
+
+def _pose_for_mode(suggestion: PoseSuggestion, mode: str) -> tuple[float, float, float]:
+    if mode == "grounded":
+        return suggestion.grounded_pose_position
+    return suggestion.recenter_pose_position
 
 
 def _write_suggested_config(
@@ -171,6 +209,45 @@ def _write_suggested_config(
     raw["engine"]["pose"]["position_m"] = [round(value, 12) for value in pose_position]
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+
+
+def _write_aligned_config(
+    *,
+    source_path: Path,
+    output_path: Path,
+    pose_position: tuple[float, float, float],
+    generated_from: str,
+) -> None:
+    source = source_path.resolve()
+    output = output_path.resolve()
+    if output == source:
+        raise ValueError("--write-aligned-config must not overwrite the source config.")
+    raw = yaml.safe_load(source.read_text(encoding="utf-8"))
+    raw["name"] = "engine_cleaning_aligned"
+    raw["metadata"] = {
+        "generated_from": generated_from,
+        "alignment_mode": "grounded",
+        "note": "Derived from mesh bbox diagnostics; verify in viewer.",
+    }
+    raw["engine"]["pose"]["position_m"] = [round(value, 12) for value in pose_position]
+    raw.setdefault("primitive_collision_geoms", _default_primitive_collision_hints())
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+
+
+def _default_primitive_collision_hints() -> list[dict[str, object]]:
+    return [
+        {
+            "name": "nozzle_collision_hint",
+            "type": "capsule",
+            "enabled": False,
+            "position_m": [0.0, 0.0, 0.4],
+            "quat_wxyz": [1.0, 0.0, 0.0, 0.0],
+            "radius_m": 0.03,
+            "length_m": 0.4,
+            "note": "Placeholder only. Needs manual alignment to the nozzle.",
+        }
+    ]
 
 
 def _format_tuple(values: tuple[float, float, float]) -> str:

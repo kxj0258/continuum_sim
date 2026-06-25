@@ -16,6 +16,7 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from continuum_sim.config import load_yaml  # noqa: E402
 from continuum_sim.scenes.engine_scene import (  # noqa: E402
     load_engine_scene_config,
     resolve_engine_asset_paths,
@@ -85,6 +86,21 @@ class RegionReport:
 
 
 @dataclass(frozen=True)
+class PrimitiveCollisionHintReport:
+    """Approximate diagnostic report for a primitive collision hint."""
+
+    name: str
+    type: str
+    enabled: bool
+    position_m: tuple[float, float, float] | None
+    quat_wxyz: tuple[float, float, float, float] | None
+    bbox_min: tuple[float, float, float] | None
+    bbox_max: tuple[float, float, float] | None
+    warnings: tuple[str, ...]
+    note: str = ""
+
+
+@dataclass(frozen=True)
 class EngineSceneDiagnostics:
     """Full diagnostic report for configured engine assets and regions."""
 
@@ -93,6 +109,7 @@ class EngineSceneDiagnostics:
     pose_position: tuple[float, float, float]
     asset_reports: list[AssetReport]
     region_reports: list[RegionReport]
+    primitive_hint_reports: list[PrimitiveCollisionHintReport]
 
 
 def parse_mesh_geometry(path: str | Path) -> MeshGeometry:
@@ -142,6 +159,7 @@ def collect_engine_scene_diagnostics(
     """Load an engine scene config and inspect assets plus region-to-bbox offsets."""
 
     config = load_engine_scene_config(config_path)
+    raw = load_yaml(config.path)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         validate_engine_scene_config(config, strict_assets=False)
@@ -180,12 +198,14 @@ def collect_engine_scene_diagnostics(
 
     visual_report = next((report for report in reports if report.asset_name == "visual_mesh"), None)
     region_reports = _collect_region_reports(config.regions.values(), visual_report)
+    primitive_hint_reports = _collect_primitive_hint_reports(raw.get("primitive_collision_geoms", []))
     return EngineSceneDiagnostics(
         config_path=config.path,
         scale=scale,
         pose_position=pose_position,
         asset_reports=reports,
         region_reports=region_reports,
+        primitive_hint_reports=primitive_hint_reports,
     )
 
 
@@ -346,7 +366,7 @@ def _collect_region_reports(regions, visual_report: AssetReport | None) -> list[
     visual_min = visual_report.bbox_min_world if visual_report else None
     visual_max = visual_report.bbox_max_world if visual_report else None
     visual_size = visual_report.bbox_size_world if visual_report else None
-    near_threshold = max(0.25, 0.25 * max(visual_size)) if visual_size else 0.25
+    near_threshold = 0.5
 
     for region in regions:
         reference_point = _region_reference_point(region)
@@ -535,6 +555,22 @@ def _print_diagnostics(diagnostics: EngineSceneDiagnostics, *, display_root: Pat
         print(f"    inside_visual_bbox: {report.inside_visual_bbox}")
         for warning in report.warnings:
             print(f"    warning: {warning}")
+        if not report.warnings and report.distance_to_visual_bbox is not None:
+            print("    OK: region is inside or near the visual mesh bbox.")
+
+    if diagnostics.primitive_hint_reports:
+        print()
+        print("primitive_collision_hints")
+        for report in diagnostics.primitive_hint_reports:
+            print(f"  {report.name} ({report.type})")
+            print(f"    enabled: {report.enabled}")
+            print(f"    position_m: {_format_tuple(report.position_m)}")
+            print(f"    bbox_min: {_format_tuple(report.bbox_min)}")
+            print(f"    bbox_max: {_format_tuple(report.bbox_max)}")
+            if report.note:
+                print(f"    note: {report.note}")
+            for warning in report.warnings:
+                print(f"    warning: {warning}")
 
 
 def _format_tuple(values: tuple[float, float, float] | None) -> str:
@@ -563,6 +599,7 @@ def _diagnostics_to_dict(diagnostics: EngineSceneDiagnostics) -> dict[str, objec
         "pose_position": diagnostics.pose_position,
         "asset_reports": [_report_to_dict(report) for report in diagnostics.asset_reports],
         "region_reports": [asdict(report) for report in diagnostics.region_reports],
+        "primitive_hint_reports": [asdict(report) for report in diagnostics.primitive_hint_reports],
     }
 
 
@@ -615,6 +652,115 @@ def _distance_to_bbox(
         elif point[axis] > bbox_max[axis]:
             squared += (point[axis] - bbox_max[axis]) ** 2
     return squared**0.5
+
+
+def _collect_primitive_hint_reports(raw_hints: object) -> list[PrimitiveCollisionHintReport]:
+    if raw_hints is None:
+        return []
+    if not isinstance(raw_hints, list):
+        return [
+            PrimitiveCollisionHintReport(
+                name="<invalid>",
+                type="<invalid>",
+                enabled=False,
+                position_m=None,
+                quat_wxyz=None,
+                bbox_min=None,
+                bbox_max=None,
+                warnings=("primitive_collision_geoms must be a list.",),
+            )
+        ]
+    return [_primitive_hint_report(raw_hint) for raw_hint in raw_hints]
+
+
+def _primitive_hint_report(raw_hint: object) -> PrimitiveCollisionHintReport:
+    if not isinstance(raw_hint, dict):
+        return PrimitiveCollisionHintReport(
+            name="<invalid>",
+            type="<invalid>",
+            enabled=False,
+            position_m=None,
+            quat_wxyz=None,
+            bbox_min=None,
+            bbox_max=None,
+            warnings=("Primitive collision hint must be a mapping.",),
+        )
+
+    name = str(raw_hint.get("name", "primitive_collision_hint"))
+    hint_type = str(raw_hint.get("type", "unknown"))
+    enabled = bool(raw_hint.get("enabled", False))
+    position = _optional_tuple3(raw_hint.get("position_m"))
+    quat = _optional_tuple4(raw_hint.get("quat_wxyz"))
+    bbox_min, bbox_max, warnings_list = _primitive_hint_bbox(hint_type, raw_hint, position)
+    return PrimitiveCollisionHintReport(
+        name=name,
+        type=hint_type,
+        enabled=enabled,
+        position_m=position,
+        quat_wxyz=quat,
+        bbox_min=bbox_min,
+        bbox_max=bbox_max,
+        warnings=tuple(warnings_list),
+        note=str(raw_hint.get("note", "")),
+    )
+
+
+def _primitive_hint_bbox(
+    hint_type: str,
+    raw_hint: dict,
+    position: tuple[float, float, float] | None,
+) -> tuple[tuple[float, float, float] | None, tuple[float, float, float] | None, list[str]]:
+    warnings_list: list[str] = []
+    if position is None:
+        return None, None, ["Primitive collision hint is missing position_m."]
+
+    if hint_type == "sphere":
+        radius = _optional_float(raw_hint.get("radius_m"))
+        if radius is None:
+            return None, None, ["Sphere hint is missing radius_m."]
+        half_extents = (radius, radius, radius)
+    elif hint_type in ("capsule", "cylinder"):
+        radius = _optional_float(raw_hint.get("radius_m"))
+        length = _optional_float(raw_hint.get("length_m"))
+        if radius is None or length is None:
+            return None, None, [f"{hint_type} hint requires radius_m and length_m."]
+        half_extents = (radius, radius, length * 0.5 + radius)
+        warnings_list.append("Primitive hint bbox ignores quat_wxyz and assumes local z axis.")
+    elif hint_type == "box":
+        size = _optional_tuple3(raw_hint.get("size_m"))
+        if size is None:
+            return None, None, ["Box hint is missing size_m."]
+        half_extents = tuple(value * 0.5 for value in size)  # type: ignore[assignment]
+    else:
+        return None, None, [f"Unsupported primitive collision hint type {hint_type!r}."]
+
+    bbox_min = tuple(position[index] - half_extents[index] for index in range(3))
+    bbox_max = tuple(position[index] + half_extents[index] for index in range(3))
+    return bbox_min, bbox_max, warnings_list  # type: ignore[return-value]
+
+
+def _optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    return float(value)
+
+
+def _optional_tuple3(value: object) -> tuple[float, float, float] | None:
+    if value is None:
+        return None
+    values = tuple(float(item) for item in value)  # type: ignore[union-attr]
+    if len(values) != 3:
+        return None
+    return values  # type: ignore[return-value]
+
+
+def _optional_tuple4(value: object) -> tuple[float, float, float, float] | None:
+    if value is None:
+        return None
+    values = tuple(float(item) for item in value)  # type: ignore[union-attr]
+    if len(values) != 4:
+        return None
+    return values  # type: ignore[return-value]
 
 
 if __name__ == "__main__":

@@ -70,6 +70,40 @@ f 1 2 3
     assert "Suggested recenter pose.position_m" in capsys.readouterr().out
 
 
+def test_suggest_pose_writes_aligned_config_with_grounded_pose_and_metadata(
+    tmp_path: Path,
+) -> None:
+    mesh_path = tmp_path / "visual.obj"
+    mesh_path.write_text(
+        """v 2 4 6
+v 4 8 10
+v 2 8 6
+f 1 2 3
+""",
+        encoding="utf-8",
+    )
+    config_path = _write_scene_config(tmp_path, mesh_path.name, scale=0.5)
+    output_path = tmp_path / "engine_cleaning_aligned.yaml"
+
+    result = suggest_pose_main(
+        [
+            "--config",
+            str(config_path),
+            "--mode",
+            "grounded",
+            "--write-aligned-config",
+            str(output_path),
+        ]
+    )
+
+    assert result == 0
+    aligned = yaml.safe_load(output_path.read_text(encoding="utf-8"))
+    assert aligned["engine"]["pose"]["position_m"] == [-1.5, -3.0, -3.0]
+    assert aligned["metadata"]["generated_from"] == str(config_path)
+    assert aligned["metadata"]["alignment_mode"] == "grounded"
+    assert aligned["primitive_collision_geoms"][0]["enabled"] is False
+
+
 def _write_scene_config(tmp_path: Path, visual_mesh: str, *, scale: float) -> Path:
     config_path = tmp_path / "engine_scene.yaml"
     config_path.write_text(

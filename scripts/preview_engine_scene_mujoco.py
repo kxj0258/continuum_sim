@@ -16,6 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from continuum_sim.config import load_yaml  # noqa: E402
 from continuum_sim.scenes.engine_scene import (  # noqa: E402
     EngineRegionConfig,
     load_engine_scene_config,
@@ -65,6 +66,7 @@ def main(argv: list[str] | None = None) -> int:
             show_axes=args.show_axes,
             alpha_visual=args.alpha_visual,
             alpha_collision=args.alpha_collision,
+            show_disabled_hints=args.show_disabled_hints,
         )
         xml_path = Path(temp_dir) / "engine_preview.xml"
         xml_path.write_text(xml_text, encoding="utf-8")
@@ -114,6 +116,7 @@ def build_engine_preview_mjcf(
     show_axes: bool = True,
     alpha_visual: float = 0.45,
     alpha_collision: float = 0.28,
+    show_disabled_hints: bool = False,
 ) -> str:
     """Build a minimal MJCF document for the configured engine mesh."""
 
@@ -204,6 +207,12 @@ def build_engine_preview_mjcf(
     if show_regions:
         for region in config.regions.values():
             _add_region_site(worldbody, region)
+
+    _add_primitive_collision_hints(
+        worldbody,
+        load_yaml(Path(config_path).resolve()),
+        show_disabled_hints=show_disabled_hints,
+    )
 
     ElementTree.indent(root)
     return ElementTree.tostring(root, encoding="unicode")
@@ -297,6 +306,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     parser.add_argument("--alpha-visual", type=float, default=0.45, help="Visual mesh alpha.")
     parser.add_argument("--alpha-collision", type=float, default=0.28, help="Collision mesh alpha.")
+    parser.add_argument(
+        "--show-disabled-hints",
+        action="store_true",
+        help="Show disabled primitive_collision_geoms hints as low-alpha preview geometry.",
+    )
     return parser.parse_args(argv)
 
 
@@ -418,6 +432,71 @@ def _add_region_site(worldbody: ElementTree.Element, region: EngineRegionConfig)
     else:
         return
     ElementTree.SubElement(worldbody, "site", attrs)
+
+
+def _add_primitive_collision_hints(
+    worldbody: ElementTree.Element,
+    raw_config: dict,
+    *,
+    show_disabled_hints: bool,
+) -> None:
+    raw_hints = raw_config.get("primitive_collision_geoms", [])
+    if not isinstance(raw_hints, list):
+        return
+    for raw_hint in raw_hints:
+        if not isinstance(raw_hint, dict):
+            continue
+        enabled = bool(raw_hint.get("enabled", False))
+        if not enabled and not show_disabled_hints:
+            continue
+        _add_primitive_collision_hint(worldbody, raw_hint, enabled=enabled)
+
+
+def _add_primitive_collision_hint(
+    worldbody: ElementTree.Element,
+    raw_hint: dict,
+    *,
+    enabled: bool,
+) -> None:
+    name = str(raw_hint.get("name", "primitive_collision_hint"))
+    hint_type = str(raw_hint.get("type", ""))
+    position = raw_hint.get("position_m", [0.0, 0.0, 0.0])
+    quat = raw_hint.get("quat_wxyz", [1.0, 0.0, 0.0, 0.0])
+    body = ElementTree.SubElement(
+        worldbody,
+        "body",
+        {
+            "name": f"hint_body_{name}",
+            "pos": _mujoco_vec(position),
+            "quat": _mujoco_vec(quat),
+        },
+    )
+    rgba = "0.2 0.9 1.0 0.45" if enabled else "0.2 0.9 1.0 0.18"
+    attrs = {
+        "name": f"hint_{name}",
+        "type": hint_type,
+        "rgba": rgba,
+        "contype": "0",
+        "conaffinity": "0",
+        "group": "2",
+    }
+    if hint_type == "capsule":
+        radius = float(raw_hint.get("radius_m", 0.01))
+        half_length = float(raw_hint.get("length_m", 0.1)) * 0.5
+        attrs["fromto"] = f"0 0 {-half_length:.12g} 0 0 {half_length:.12g}"
+        attrs["size"] = f"{radius:.12g}"
+    elif hint_type == "cylinder":
+        radius = float(raw_hint.get("radius_m", 0.01))
+        half_length = float(raw_hint.get("length_m", 0.1)) * 0.5
+        attrs["size"] = f"{radius:.12g} {half_length:.12g}"
+    elif hint_type == "sphere":
+        attrs["size"] = f"{float(raw_hint.get('radius_m', 0.01)):.12g}"
+    elif hint_type == "box":
+        size = raw_hint.get("size_m", [0.02, 0.02, 0.02])
+        attrs["size"] = _mujoco_vec(tuple(float(value) * 0.5 for value in size))
+    else:
+        return
+    ElementTree.SubElement(body, "geom", attrs)
 
 
 def _region_rgba(region_type: str) -> str:

@@ -1,0 +1,32 @@
+multi_arm:
+  base_frame: mobile_base
+  default_arm: executor
+
+  arms:
+    observer:
+      name: observer
+      role: observer
+      enabled: true
+      robot_config_path: configs/robot_3seg.yaml
+      attachment: eye_camera_air_gun
+      mount:
+        name: observer_mount
+        parent_frame: mobile_base
+        child_frame: observer_continuum_base
+        pose:
+          position: [0.0, 0.035, 0.0]
+          quat: [1.0, 0.0, 0.0, 0.0]
+
+    executor:
+      name: executor
+      role: executor
+      enabled: true
+      robot_config_path: configs/robot_3seg.yaml
+      attachment: carbon_removal_tool
+      mount:
+        name: executor_mount
+        parent_frame: mobile_base
+        child_frame: executor_continuum_base
+        pose:
+          position: [0.0, -0.035, 0.0]
+          quat: [1.0, 0.0, 0.0, 0.0]

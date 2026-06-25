@@ -31,6 +31,11 @@ versioned.
 MuJoCo may reject STL files with more than 200,000 faces. The preview script can
 create a temporary, subsampled STL for loading checks, but production assets
 should still be exported at an appropriate visual and collision resolution.
+When exporting a low-poly visual mesh from SolidWorks, prefer names such as
+`engine_visual_low.stl` or `engine_visual_preview.stl`. Scripted decimation can
+be handled as a separate task later; the current preview subsampling is only for
+temporary loading diagnostics and should not be treated as a production collision
+or precise visual asset.
 
 If the nozzle is the main collision target, export a separate nozzle visual mesh
 and then build a simplified nozzle collision mesh or primitive collision model.

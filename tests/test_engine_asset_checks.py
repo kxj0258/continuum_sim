@@ -6,7 +6,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-from scripts.check_engine_assets import collect_engine_asset_reports, parse_mesh_geometry
+from scripts.check_engine_assets import (
+    collect_engine_asset_reports,
+    collect_engine_scene_diagnostics,
+    main as check_engine_assets_main,
+    parse_mesh_geometry,
+)
+from scripts.preview_engine_scene_mujoco import build_engine_preview_mjcf
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -106,25 +112,152 @@ def test_repository_engine_config_loads_with_non_strict_assets() -> None:
     assert any(report.asset_name == "visual_mesh" for report in reports)
 
 
-def _write_scene_config(tmp_path: Path, visual_mesh: str, collision_mesh: str) -> Path:
+def test_collect_scene_diagnostics_computes_scaled_world_bbox_and_recenter_pose(
+    tmp_path: Path,
+) -> None:
+    visual_mesh = tmp_path / "visual.obj"
+    visual_mesh.write_text(
+        """v 0 0 0
+v 2 4 6
+v 1 1 1
+f 1 2 3
+""",
+        encoding="utf-8",
+    )
+    config_path = _write_scene_config(
+        tmp_path,
+        visual_mesh.name,
+        "",
+        scale=0.5,
+        position_m=[1.0, 2.0, 3.0],
+    )
+
+    diagnostics = collect_engine_scene_diagnostics(config_path, strict_assets=False)
+    visual = diagnostics.asset_reports[0]
+
+    assert visual.bbox_min_raw == pytest.approx((0.0, 0.0, 0.0))
+    assert visual.bbox_max_raw == pytest.approx((2.0, 4.0, 6.0))
+    assert visual.bbox_min_scaled == pytest.approx((0.0, 0.0, 0.0))
+    assert visual.bbox_max_scaled == pytest.approx((1.0, 2.0, 3.0))
+    assert visual.bbox_min_world == pytest.approx((1.0, 2.0, 3.0))
+    assert visual.bbox_max_world == pytest.approx((2.0, 4.0, 6.0))
+    assert visual.recommended_pose_position == pytest.approx((-0.5, -1.0, -1.5))
+    assert visual.recommended_grounded_pose_position == pytest.approx((-0.5, -1.0, 0.0))
+
+
+def test_region_diagnostics_warn_when_regions_are_far_from_visual_bbox(tmp_path: Path) -> None:
+    visual_mesh = tmp_path / "visual.obj"
+    visual_mesh.write_text(
+        """v 0 0 0
+v 1 1 1
+v 0 1 0
+f 1 2 3
+""",
+        encoding="utf-8",
+    )
+    config_path = _write_scene_config(
+        tmp_path,
+        visual_mesh.name,
+        "",
+        regions={
+            "entry_port": {
+                "type": "circular_port",
+                "center_m": [10.0, 0.0, 0.0],
+                "normal": [1.0, 0.0, 0.0],
+                "radius_m": 0.1,
+            }
+        },
+    )
+
+    diagnostics = collect_engine_scene_diagnostics(config_path, strict_assets=False)
+
+    assert diagnostics.region_reports[0].name == "entry_port"
+    assert diagnostics.region_reports[0].distance_to_visual_bbox > 0.0
+    assert diagnostics.region_reports[0].warnings
+
+
+def test_json_output_contains_scaled_bbox_and_scale(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    visual_mesh = tmp_path / "visual.obj"
+    visual_mesh.write_text(
+        """v 0 0 0
+v 2 2 2
+v 0 2 0
+f 1 2 3
+""",
+        encoding="utf-8",
+    )
+    config_path = _write_scene_config(tmp_path, visual_mesh.name, "", scale=0.25)
+
+    assert check_engine_assets_main(["--config", str(config_path), "--json"]) == 0
+    output = capsys.readouterr().out
+
+    assert '"scale": 0.25' in output
+    assert '"bbox_min_scaled"' in output
+    assert '"bbox_max_world"' in output
+
+
+def test_preview_mjcf_supports_visibility_modes_and_markers(tmp_path: Path) -> None:
+    visual_mesh = tmp_path / "visual.obj"
+    collision_mesh = tmp_path / "collision.obj"
+    mesh_text = """v 0 0 0
+v 1 1 1
+v 0 1 0
+f 1 2 3
+"""
+    visual_mesh.write_text(mesh_text, encoding="utf-8")
+    collision_mesh.write_text(mesh_text, encoding="utf-8")
+    config_path = _write_scene_config(tmp_path, visual_mesh.name, collision_mesh.name)
+
+    both = build_engine_preview_mjcf(
+        config_path,
+        show_bbox=True,
+        show_regions=True,
+        show_axes=True,
+        alpha_visual=0.4,
+        alpha_collision=0.2,
+    )
+    visual_only = build_engine_preview_mjcf(config_path, visual_only=True)
+    collision_only = build_engine_preview_mjcf(config_path, collision_only=True)
+
+    assert 'name="engine_visual"' in both
+    assert 'name="engine_collision"' in both
+    assert 'name="bbox_edge_0"' in both
+    assert 'name="region_entry_port"' in both
+    assert 'name="world_x_axis"' in both
+    assert "0.72 0.76 0.80 0.4" in both
+    assert "0.9 0.2 0.15 0.2" in both
+    assert 'name="engine_collision"' not in visual_only
+    assert 'name="engine_visual"' not in collision_only
+
+
+def _write_scene_config(
+    tmp_path: Path,
+    visual_mesh: str,
+    collision_mesh: str,
+    *,
+    scale: float = 1.0,
+    position_m: list[float] | None = None,
+    regions: dict[str, object] | None = None,
+) -> Path:
     config_path = tmp_path / "engine_scene.yaml"
+    assets = {"visual_mesh": visual_mesh}
+    if collision_mesh:
+        assets["collision_mesh"] = collision_mesh
     config_path.write_text(
         yaml.safe_dump(
             {
                 "name": "test_engine",
                 "scene_type": "engine_cleaning",
                 "engine": {
-                    "assets": {
-                        "visual_mesh": visual_mesh,
-                        "collision_mesh": collision_mesh,
-                    },
-                    "scale": 1.0,
+                    "assets": assets,
+                    "scale": scale,
                     "pose": {
-                        "position_m": [0.0, 0.0, 0.0],
+                        "position_m": position_m or [0.0, 0.0, 0.0],
                         "quat_wxyz": [1.0, 0.0, 0.0, 0.0],
                     },
                 },
-                "regions": {
+                "regions": regions
+                or {
                     "entry_port": {
                         "type": "circular_port",
                         "center_m": [0.0, 0.0, 0.0],

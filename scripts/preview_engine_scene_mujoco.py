@@ -11,6 +11,8 @@ from xml.etree import ElementTree
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
@@ -19,6 +21,7 @@ from continuum_sim.scenes.engine_scene import (  # noqa: E402
     load_engine_scene_config,
     resolve_engine_asset_paths,
 )
+from scripts.check_engine_assets import collect_engine_scene_diagnostics  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -26,13 +29,16 @@ def main(argv: list[str] | None = None) -> int:
     if not args.headless_check and not args.viewer:
         print("Pass --headless-check or --viewer.")
         return 1
+    if args.visual_only and args.collision_only:
+        print("ERROR: --visual-only and --collision-only are mutually exclusive.", file=sys.stderr)
+        return 1
 
     config = load_engine_scene_config(args.config)
     asset_paths = resolve_engine_asset_paths(config, config.path.parent)
-    if not asset_paths.visual_mesh.exists():
+    if not args.collision_only and not asset_paths.visual_mesh.exists():
         print(f"ERROR: visual mesh does not exist: {asset_paths.visual_mesh}", file=sys.stderr)
         return 1
-    if asset_paths.collision_mesh is not None and not asset_paths.collision_mesh.exists():
+    if not args.visual_only and asset_paths.collision_mesh is not None and not asset_paths.collision_mesh.exists():
         print(f"ERROR: collision mesh does not exist: {asset_paths.collision_mesh}", file=sys.stderr)
         return 1
 
@@ -43,10 +49,22 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     with tempfile.TemporaryDirectory(prefix="engine_preview_mujoco_") as temp_dir:
-        mesh_overrides = _prepare_preview_meshes(config, Path(temp_dir))
+        mesh_overrides = _prepare_preview_meshes(
+            config,
+            Path(temp_dir),
+            include_visual=not args.collision_only,
+            include_collision=not args.visual_only,
+        )
         xml_text = build_engine_preview_mjcf(
             config_path=args.config,
             mesh_overrides=mesh_overrides,
+            visual_only=args.visual_only,
+            collision_only=args.collision_only,
+            show_bbox=args.show_bbox,
+            show_regions=args.show_regions,
+            show_axes=args.show_axes,
+            alpha_visual=args.alpha_visual,
+            alpha_collision=args.alpha_collision,
         )
         xml_path = Path(temp_dir) / "engine_preview.xml"
         xml_path.write_text(xml_text, encoding="utf-8")
@@ -59,6 +77,12 @@ def main(argv: list[str] | None = None) -> int:
             "MuJoCo model loaded: "
             f"nbody={model.nbody}, ngeom={model.ngeom}, nsite={model.nsite}, nmesh={model.nmesh}"
         )
+        camera = _suggest_camera(args.config)
+        print(
+            "Recommended camera: "
+            f"lookat={_mujoco_vec(camera['lookat'])}, distance={camera['distance']:.6g}, "
+            f"azimuth={camera['azimuth']:.6g}, elevation={camera['elevation']:.6g}"
+        )
 
         if args.viewer:
             try:
@@ -69,6 +93,10 @@ def main(argv: list[str] | None = None) -> int:
             print("Opening MuJoCo viewer. Close the viewer window to exit.")
             data = mujoco.MjData(model)
             with mujoco.viewer.launch_passive(model, data) as viewer:
+                viewer.cam.lookat[:] = camera["lookat"]
+                viewer.cam.distance = camera["distance"]
+                viewer.cam.azimuth = camera["azimuth"]
+                viewer.cam.elevation = camera["elevation"]
                 while viewer.is_running():
                     viewer.sync()
 
@@ -79,6 +107,13 @@ def build_engine_preview_mjcf(
     config_path: str | Path = Path("configs/scenes/engine_cleaning.yaml"),
     *,
     mesh_overrides: dict[str, Path] | None = None,
+    visual_only: bool = False,
+    collision_only: bool = False,
+    show_bbox: bool = True,
+    show_regions: bool = True,
+    show_axes: bool = True,
+    alpha_visual: float = 0.45,
+    alpha_collision: float = 0.28,
 ) -> str:
     """Build a minimal MJCF document for the configured engine mesh."""
 
@@ -87,6 +122,8 @@ def build_engine_preview_mjcf(
     overrides = mesh_overrides or {}
     visual_mesh = overrides.get("visual_mesh", asset_paths.visual_mesh)
     collision_mesh = overrides.get("collision_mesh", asset_paths.collision_mesh)
+    include_visual = not collision_only
+    include_collision = not visual_only and collision_mesh is not None
     root = ElementTree.Element("mujoco", {"model": "engine_preview"})
     compiler = ElementTree.SubElement(root, "compiler")
     compiler.set("angle", "radian")
@@ -95,16 +132,17 @@ def build_engine_preview_mjcf(
 
     asset = ElementTree.SubElement(root, "asset")
     scale = _mujoco_vec((config.engine.scale, config.engine.scale, config.engine.scale))
-    ElementTree.SubElement(
-        asset,
-        "mesh",
-        {
-            "name": "engine_visual_mesh",
-            "file": str(visual_mesh),
-            "scale": scale,
-        },
-    )
-    if collision_mesh is not None:
+    if include_visual:
+        ElementTree.SubElement(
+            asset,
+            "mesh",
+            {
+                "name": "engine_visual_mesh",
+                "file": str(visual_mesh),
+                "scale": scale,
+            },
+        )
+    if include_collision:
         ElementTree.SubElement(
             asset,
             "mesh",
@@ -116,7 +154,14 @@ def build_engine_preview_mjcf(
         )
 
     worldbody = ElementTree.SubElement(root, "worldbody")
-    _add_world_axes(worldbody)
+    diagnostics = collect_engine_scene_diagnostics(config_path)
+    visual_report = next(
+        (report for report in diagnostics.asset_reports if report.asset_name == "visual_mesh"),
+        None,
+    )
+    axis_length = _marker_scale_from_bbox(visual_report)
+    if show_axes:
+        _add_world_axes(worldbody, axis_length=axis_length)
     body = ElementTree.SubElement(
         worldbody,
         "body",
@@ -126,20 +171,21 @@ def build_engine_preview_mjcf(
             "quat": _mujoco_vec(config.engine.pose.quat_wxyz),
         },
     )
-    ElementTree.SubElement(
-        body,
-        "geom",
-        {
-            "name": "engine_visual",
-            "type": "mesh",
-            "mesh": "engine_visual_mesh",
-            "contype": "0",
-            "conaffinity": "0",
-            "group": "1",
-            "rgba": "0.72 0.76 0.80 1.0",
-        },
-    )
-    if collision_mesh is not None:
+    if include_visual:
+        ElementTree.SubElement(
+            body,
+            "geom",
+            {
+                "name": "engine_visual",
+                "type": "mesh",
+                "mesh": "engine_visual_mesh",
+                "contype": "0",
+                "conaffinity": "0",
+                "group": "1",
+                "rgba": f"0.72 0.76 0.80 {float(alpha_visual):.6g}",
+            },
+        )
+    if include_collision:
         ElementTree.SubElement(
             body,
             "geom",
@@ -148,24 +194,35 @@ def build_engine_preview_mjcf(
                 "type": "mesh",
                 "mesh": "engine_collision_mesh",
                 "group": "0",
-                "rgba": "0.9 0.2 0.15 0.25",
+                "rgba": f"0.9 0.2 0.15 {float(alpha_collision):.6g}",
             },
         )
 
-    for region in config.regions.values():
-        _add_region_site(worldbody, region)
+    if show_bbox and visual_report is not None:
+        _add_bbox_marker(worldbody, visual_report)
+
+    if show_regions:
+        for region in config.regions.values():
+            _add_region_site(worldbody, region)
 
     ElementTree.indent(root)
     return ElementTree.tostring(root, encoding="unicode")
 
 
-def _prepare_preview_meshes(config, temp_dir: Path) -> dict[str, Path]:
+def _prepare_preview_meshes(
+    config,
+    temp_dir: Path,
+    *,
+    include_visual: bool = True,
+    include_collision: bool = True,
+) -> dict[str, Path]:
     asset_paths = resolve_engine_asset_paths(config, config.path.parent)
     overrides: dict[str, Path] = {}
-    visual_mesh = _mujoco_ready_stl(asset_paths.visual_mesh, temp_dir, "engine_visual_preview")
-    if visual_mesh != asset_paths.visual_mesh:
-        overrides["visual_mesh"] = visual_mesh
-    if asset_paths.collision_mesh is not None:
+    if include_visual:
+        visual_mesh = _mujoco_ready_stl(asset_paths.visual_mesh, temp_dir, "engine_visual_preview")
+        if visual_mesh != asset_paths.visual_mesh:
+            overrides["visual_mesh"] = visual_mesh
+    if include_collision and asset_paths.collision_mesh is not None:
         collision_mesh = _mujoco_ready_stl(
             asset_paths.collision_mesh,
             temp_dir,
@@ -218,25 +275,113 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="Generate MJCF and verify MuJoCo can load it without opening a viewer.",
     )
     parser.add_argument("--viewer", action="store_true", help="Open an interactive MuJoCo viewer.")
+    parser.add_argument("--visual-only", action="store_true", help="Show only the visual mesh geom.")
+    parser.add_argument("--collision-only", action="store_true", help="Show only the collision mesh geom.")
+    parser.add_argument(
+        "--show-bbox",
+        action="store_true",
+        default=True,
+        help="Show visual mesh world bbox markers.",
+    )
+    parser.add_argument(
+        "--show-regions",
+        action="store_true",
+        default=True,
+        help="Show configured engine region markers.",
+    )
+    parser.add_argument(
+        "--show-axes",
+        action="store_true",
+        default=True,
+        help="Show world X/Y/Z axes markers.",
+    )
+    parser.add_argument("--alpha-visual", type=float, default=0.45, help="Visual mesh alpha.")
+    parser.add_argument("--alpha-collision", type=float, default=0.28, help="Collision mesh alpha.")
     return parser.parse_args(argv)
 
 
-def _add_world_axes(worldbody: ElementTree.Element) -> None:
+def _add_world_axes(worldbody: ElementTree.Element, *, axis_length: float) -> None:
+    radius = max(axis_length * 0.01, 0.003)
     ElementTree.SubElement(
         worldbody,
         "site",
-        {"name": "world_x_axis", "type": "capsule", "fromto": "0 0 0 0.15 0 0", "size": "0.003", "rgba": "1 0 0 1"},
+        {
+            "name": "world_x_axis",
+            "type": "capsule",
+            "fromto": f"0 0 0 {axis_length:.12g} 0 0",
+            "size": f"{radius:.12g}",
+            "rgba": "1 0 0 1",
+        },
     )
     ElementTree.SubElement(
         worldbody,
         "site",
-        {"name": "world_y_axis", "type": "capsule", "fromto": "0 0 0 0 0.15 0", "size": "0.003", "rgba": "0 0.8 0 1"},
+        {
+            "name": "world_y_axis",
+            "type": "capsule",
+            "fromto": f"0 0 0 0 {axis_length:.12g} 0",
+            "size": f"{radius:.12g}",
+            "rgba": "0 0.8 0 1",
+        },
     )
     ElementTree.SubElement(
         worldbody,
         "site",
-        {"name": "world_z_axis", "type": "capsule", "fromto": "0 0 0 0 0 0.15", "size": "0.003", "rgba": "0.1 0.2 1 1"},
+        {
+            "name": "world_z_axis",
+            "type": "capsule",
+            "fromto": f"0 0 0 0 0 {axis_length:.12g}",
+            "size": f"{radius:.12g}",
+            "rgba": "0.1 0.2 1 1",
+        },
     )
+
+
+def _add_bbox_marker(worldbody: ElementTree.Element, visual_report) -> None:
+    bbox_min = visual_report.bbox_min_world
+    bbox_max = visual_report.bbox_max_world
+    bbox_size = visual_report.bbox_size_world
+    if bbox_min is None or bbox_max is None or bbox_size is None:
+        return
+    x0, y0, z0 = bbox_min
+    x1, y1, z1 = bbox_max
+    corners = [
+        (x0, y0, z0),
+        (x1, y0, z0),
+        (x1, y1, z0),
+        (x0, y1, z0),
+        (x0, y0, z1),
+        (x1, y0, z1),
+        (x1, y1, z1),
+        (x0, y1, z1),
+    ]
+    edges = [
+        (0, 1),
+        (1, 2),
+        (2, 3),
+        (3, 0),
+        (4, 5),
+        (5, 6),
+        (6, 7),
+        (7, 4),
+        (0, 4),
+        (1, 5),
+        (2, 6),
+        (3, 7),
+    ]
+    radius = max(max(bbox_size) * 0.002, 0.002)
+    for index, (start_index, end_index) in enumerate(edges):
+        ElementTree.SubElement(
+            worldbody,
+            "site",
+            {
+                "name": f"bbox_edge_{index}",
+                "type": "capsule",
+                "fromto": f"{_mujoco_vec(corners[start_index])} {_mujoco_vec(corners[end_index])}",
+                "size": f"{radius:.12g}",
+                "rgba": "1 1 0 0.85",
+            },
+        )
 
 
 def _add_region_site(worldbody: ElementTree.Element, region: EngineRegionConfig) -> None:
@@ -287,6 +432,34 @@ def _region_rgba(region_type: str) -> str:
 
 def _mujoco_vec(values: object) -> str:
     return " ".join(f"{float(value):.12g}" for value in values)
+
+
+def _marker_scale_from_bbox(visual_report) -> float:
+    if visual_report is None or visual_report.bbox_size_world is None:
+        return 0.15
+    return max(max(visual_report.bbox_size_world) * 0.35, 0.15)
+
+
+def _suggest_camera(config_path: Path) -> dict[str, object]:
+    diagnostics = collect_engine_scene_diagnostics(config_path)
+    visual_report = next(
+        (report for report in diagnostics.asset_reports if report.asset_name == "visual_mesh"),
+        None,
+    )
+    if visual_report is None or visual_report.bbox_center_world is None or visual_report.bbox_size_world is None:
+        return {
+            "lookat": (0.0, 0.0, 0.0),
+            "distance": 1.0,
+            "azimuth": 135.0,
+            "elevation": -25.0,
+        }
+    max_size = max(visual_report.bbox_size_world)
+    return {
+        "lookat": visual_report.bbox_center_world,
+        "distance": max(max_size * 2.2, 0.5),
+        "azimuth": 135.0,
+        "elevation": -25.0,
+    }
 
 
 if __name__ == "__main__":

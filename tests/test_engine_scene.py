@@ -21,8 +21,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCENE_CONFIG = PROJECT_ROOT / "configs" / "scenes" / "engine_cleaning.yaml"
 
 
-def test_load_engine_scene_config_reads_engine_pose_scale_and_regions() -> None:
-    config = load_engine_scene_config(SCENE_CONFIG)
+def test_load_engine_scene_config_reads_engine_pose_scale_and_regions(tmp_path: Path) -> None:
+    config = load_engine_scene_config(_write_precise_scene_config(tmp_path))
 
     assert isinstance(config, EngineSceneConfig)
     assert config.scene_type == "engine_cleaning"
@@ -37,8 +37,8 @@ def test_load_engine_scene_config_reads_engine_pose_scale_and_regions() -> None:
     )
 
 
-def test_load_engine_scene_config_parses_region_fields() -> None:
-    config = load_engine_scene_config(SCENE_CONFIG)
+def test_load_engine_scene_config_parses_region_fields(tmp_path: Path) -> None:
+    config = load_engine_scene_config(_write_precise_scene_config(tmp_path))
     entry_port = config.regions["entry_port"]
     forbidden_zone = config.regions["forbidden_zone"]
 
@@ -211,6 +211,56 @@ def _write_missing_asset_scene_config(tmp_path: Path) -> Path:
                         "normal": [1.0, 0.0, 0.0],
                         "radius_m": 0.1,
                     }
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    return config_path
+
+
+def _write_precise_scene_config(tmp_path: Path) -> Path:
+    config_path = tmp_path / "engine_scene.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "name": "precise_engine",
+                "scene_type": "engine_cleaning",
+                "engine": {
+                    "assets": {
+                        "visual_mesh": "assets/placeholder/engine_visual.obj",
+                        "collision_mesh": "assets/placeholder/engine_collision.obj",
+                    },
+                    "scale": 0.001,
+                    "pose": {
+                        "position_m": [0.35, 0.0, 0.12],
+                        "quat_wxyz": [1.0, 0.0, 0.0, 0.0],
+                    },
+                },
+                "regions": {
+                    "entry_port": {
+                        "type": "circular_port",
+                        "center_m": [0.28, 0.0, 0.1],
+                        "normal": [-1.0, 0.0, 0.0],
+                        "radius_m": 0.045,
+                    },
+                    "inspection_roi": {
+                        "type": "roi_box",
+                        "center_m": [0.36, 0.0, 0.12],
+                        "size_m": [0.12, 0.10, 0.08],
+                    },
+                    "carbon_deposit_region": {
+                        "type": "surface_patch",
+                        "position_m": [0.40, 0.015, 0.095],
+                        "normal": [-1.0, 0.0, 0.0],
+                        "extents_m": [0.05, 0.03, 0.01],
+                    },
+                    "forbidden_zone": {
+                        "type": "box",
+                        "center_m": [0.42, 0.0, 0.18],
+                        "size_m": [0.08, 0.06, 0.04],
+                    },
                 },
             },
             sort_keys=False,

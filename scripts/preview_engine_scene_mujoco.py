@@ -27,7 +27,7 @@ from continuum_sim.scenes.primitive_collision import (  # noqa: E402
     PrimitiveCollisionGeomConfig,
     load_primitive_collision_geoms,
 )
-from scripts.check_engine_assets import collect_engine_scene_diagnostics  # noqa: E402
+from scripts.check_engine_assets import collect_engine_scene_diagnostics, transform_points  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -492,7 +492,7 @@ def _add_primitive_collision_hint(
                 "name": f"hint_{geom.name}",
                 "type": "capsule",
                 "fromto": _mujoco_vec(_primitive_fromto_world(geom, config)),
-                "size": f"{float(geom.radius_m):.12g}",
+                "size": f"{float(geom.radius_m) * _primitive_dimension_scale(geom, config):.12g}",
                 "rgba": rgba,
                 "contype": "0",
                 "conaffinity": "0",
@@ -502,7 +502,7 @@ def _add_primitive_collision_hint(
         return
 
     position = _primitive_position_world(geom, config)
-    quat = geom.quat_wxyz if geom.quat_wxyz is not None else (1.0, 0.0, 0.0, 0.0)
+    quat = _primitive_quat_world(geom, config)
     body = ElementTree.SubElement(
         worldbody,
         "body",
@@ -521,18 +521,21 @@ def _add_primitive_collision_hint(
         "group": "2",
     }
     if geom.type == "capsule":
-        radius = float(geom.radius_m)
-        half_length = float(geom.length_m) * 0.5
+        dimension_scale = _primitive_dimension_scale(geom, config)
+        radius = float(geom.radius_m) * dimension_scale
+        half_length = float(geom.length_m) * 0.5 * dimension_scale
         attrs["fromto"] = f"0 0 {-half_length:.12g} 0 0 {half_length:.12g}"
         attrs["size"] = f"{radius:.12g}"
     elif geom.type == "cylinder":
-        radius = float(geom.radius_m)
-        half_length = float(geom.length_m) * 0.5
+        dimension_scale = _primitive_dimension_scale(geom, config)
+        radius = float(geom.radius_m) * dimension_scale
+        half_length = float(geom.length_m) * 0.5 * dimension_scale
         attrs["size"] = f"{radius:.12g} {half_length:.12g}"
     elif geom.type == "sphere":
-        attrs["size"] = f"{float(geom.radius_m):.12g}"
+        attrs["size"] = f"{float(geom.radius_m) * _primitive_dimension_scale(geom, config):.12g}"
     elif geom.type == "box":
-        size = geom.size_m
+        dimension_scale = _primitive_dimension_scale(geom, config)
+        size = tuple(float(value) * dimension_scale for value in geom.size_m)
         attrs["size"] = _mujoco_vec(tuple(float(value) * 0.5 for value in size))
     else:
         return
@@ -565,10 +568,51 @@ def _primitive_fromto_world(
 
 
 def _engine_local_to_world(values: object, config: EngineSceneConfig) -> tuple[float, float, float]:
-    return tuple(
-        float(config.engine.pose.position_m[index]) + float(values[index]) * float(config.engine.scale)
-        for index in range(3)
-    )  # type: ignore[index, return-value]
+    transformed = transform_points(
+        [values],
+        position=tuple(float(value) for value in config.engine.pose.position_m),
+        quat_wxyz=tuple(float(value) for value in config.engine.pose.quat_wxyz),
+        scale=float(config.engine.scale),
+    )
+    return tuple(float(value) for value in transformed[0])  # type: ignore[return-value]
+
+
+def _primitive_dimension_scale(geom: PrimitiveCollisionGeomConfig, config: EngineSceneConfig) -> float:
+    if geom.frame == "world":
+        return 1.0
+    return float(config.engine.scale)
+
+
+def _primitive_quat_world(
+    geom: PrimitiveCollisionGeomConfig,
+    config: EngineSceneConfig,
+) -> tuple[float, float, float, float]:
+    local_quat = (
+        tuple(float(value) for value in geom.quat_wxyz)
+        if geom.quat_wxyz is not None
+        else (1.0, 0.0, 0.0, 0.0)
+    )
+    if geom.frame == "world":
+        return local_quat  # type: ignore[return-value]
+    return _quat_multiply(tuple(float(value) for value in config.engine.pose.quat_wxyz), local_quat)
+
+
+def _quat_multiply(
+    left: tuple[float, float, float, float],
+    right: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    lw, lx, ly, lz = left
+    rw, rx, ry, rz = right
+    quat = (
+        lw * rw - lx * rx - ly * ry - lz * rz,
+        lw * rx + lx * rw + ly * rz - lz * ry,
+        lw * ry - lx * rz + ly * rw + lz * rx,
+        lw * rz + lx * ry - ly * rx + lz * rw,
+    )
+    norm = sum(value * value for value in quat) ** 0.5
+    if norm <= 1.0e-12:
+        return (1.0, 0.0, 0.0, 0.0)
+    return tuple(value / norm for value in quat)  # type: ignore[return-value]
 
 
 def _primitive_rgba(geom: PrimitiveCollisionGeomConfig, alpha: float) -> str:

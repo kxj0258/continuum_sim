@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Iterable
 import warnings
 
+import numpy as np
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
@@ -120,6 +122,7 @@ class EngineSceneDiagnostics:
     config_path: Path
     scale: float
     pose_position: tuple[float, float, float]
+    pose_quat_wxyz: tuple[float, float, float, float]
     asset_reports: list[AssetReport]
     region_reports: list[RegionReport]
     primitive_hint_reports: list[PrimitiveCollisionHintReport]
@@ -181,6 +184,7 @@ def collect_engine_scene_diagnostics(
     resolved = resolve_engine_asset_paths(config, root_dir)
     scale = float(config.engine.scale)
     pose_position = _tuple3(config.engine.pose.position_m)
+    pose_quat_wxyz = _tuple4(config.engine.pose.quat_wxyz)
     assets = [
         ("visual_mesh", "visual mesh", resolved.visual_mesh),
         ("collision_mesh", "collision mesh", resolved.collision_mesh),
@@ -197,6 +201,7 @@ def collect_engine_scene_diagnostics(
             asset_path,
             scale=scale,
             pose_position=pose_position,
+            pose_quat_wxyz=pose_quat_wxyz,
         )
         if strict_assets and not report.exists:
             raise FileNotFoundError(
@@ -216,11 +221,15 @@ def collect_engine_scene_diagnostics(
         raw.get("primitive_collision_geoms", []),
         visual_report=visual_report,
         collision_report=collision_report,
+        scale=scale,
+        pose_position=pose_position,
+        pose_quat_wxyz=pose_quat_wxyz,
     )
     return EngineSceneDiagnostics(
         config_path=config.path,
         scale=scale,
         pose_position=pose_position,
+        pose_quat_wxyz=pose_quat_wxyz,
         asset_reports=reports,
         region_reports=region_reports,
         primitive_hint_reports=primitive_hint_reports,
@@ -277,6 +286,7 @@ def _inspect_asset(
     *,
     scale: float,
     pose_position: tuple[float, float, float],
+    pose_quat_wxyz: tuple[float, float, float, float],
 ) -> AssetReport:
     extension = path.suffix.lower()
     supported = extension in SUPPORTED_MESH_EXTENSIONS
@@ -308,7 +318,12 @@ def _inspect_asset(
     elif not supported:
         warnings_list.append(f"Unsupported extension {extension!r} for {role}.")
 
-    bbox_values = _asset_bbox_values(geometry, scale=scale, pose_position=pose_position)
+    bbox_values = _asset_bbox_values(
+        geometry,
+        scale=scale,
+        pose_position=pose_position,
+        pose_quat_wxyz=pose_quat_wxyz,
+    )
     return AssetReport(
         asset_name=asset_name,
         role=role,
@@ -330,6 +345,7 @@ def _asset_bbox_values(
     *,
     scale: float,
     pose_position: tuple[float, float, float],
+    pose_quat_wxyz: tuple[float, float, float, float],
 ) -> dict[str, tuple[float, float, float] | None]:
     empty: dict[str, tuple[float, float, float] | None] = {
         "bbox_min_raw": None,
@@ -354,9 +370,15 @@ def _asset_bbox_values(
     bbox_max_scaled = _scale_tuple(geometry.bbox_max, scale)
     bbox_center_scaled = _scale_tuple(geometry.center, scale) if geometry.center else None
     bbox_size_scaled = _scale_tuple(geometry.size, abs(scale)) if geometry.size else None
-    bbox_min_world = _add_tuple(bbox_min_scaled, pose_position)
-    bbox_max_world = _add_tuple(bbox_max_scaled, pose_position)
-    bbox_center_world = _add_tuple(bbox_center_scaled, pose_position) if bbox_center_scaled else None
+    scaled_corners = bbox_corners(bbox_min_scaled, bbox_max_scaled)
+    world_corners = transform_points(scaled_corners, position=pose_position, quat_wxyz=pose_quat_wxyz)
+    bbox_min_world, bbox_max_world, bbox_size_world, bbox_center_world = bbox_from_points(world_corners)
+    zero_pose_corners = transform_points(
+        scaled_corners,
+        position=(0.0, 0.0, 0.0),
+        quat_wxyz=pose_quat_wxyz,
+    )
+    recommended_min, _recommended_max, _recommended_size, recommended_center = bbox_from_points(zero_pose_corners)
     return {
         "bbox_min_raw": geometry.bbox_min,
         "bbox_max_raw": geometry.bbox_max,
@@ -368,13 +390,13 @@ def _asset_bbox_values(
         "bbox_center_scaled": bbox_center_scaled,
         "bbox_min_world": bbox_min_world,
         "bbox_max_world": bbox_max_world,
-        "bbox_size_world": bbox_size_scaled,
+        "bbox_size_world": bbox_size_world,
         "bbox_center_world": bbox_center_world,
-        "recommended_pose_position": _neg_tuple(bbox_center_scaled) if bbox_center_scaled else None,
+        "recommended_pose_position": _neg_tuple(recommended_center),
         "recommended_grounded_pose_position": (
-            (-bbox_center_scaled[0], -bbox_center_scaled[1], -bbox_min_scaled[2])
-            if bbox_center_scaled
-            else None
+            -recommended_center[0],
+            -recommended_center[1],
+            -recommended_min[2],
         ),
     }
 
@@ -628,6 +650,7 @@ def _diagnostics_to_dict(diagnostics: EngineSceneDiagnostics) -> dict[str, objec
         "config_path": str(diagnostics.config_path),
         "scale": diagnostics.scale,
         "pose_position": diagnostics.pose_position,
+        "pose_quat_wxyz": diagnostics.pose_quat_wxyz,
         "asset_reports": [_report_to_dict(report) for report in diagnostics.asset_reports],
         "region_reports": [asdict(report) for report in diagnostics.region_reports],
         "primitive_hint_reports": [asdict(report) for report in diagnostics.primitive_hint_reports],
@@ -642,6 +665,90 @@ def _report_to_dict(report: AssetReport) -> dict[str, object]:
 
 def _tuple3(values: object) -> tuple[float, float, float]:
     return tuple(float(value) for value in values)  # type: ignore[return-value]
+
+
+def _tuple4(values: object) -> tuple[float, float, float, float]:
+    return tuple(float(value) for value in values)  # type: ignore[return-value]
+
+
+def quat_wxyz_to_matrix(quat: object) -> np.ndarray:
+    """Return a 3x3 rotation matrix for a `[w, x, y, z]` quaternion."""
+
+    q = np.asarray(quat, dtype=float)
+    if q.shape != (4,):
+        raise ValueError(f"Expected quaternion with shape (4,), got {q.shape}.")
+    norm = float(np.linalg.norm(q))
+    if norm <= 1.0e-12:
+        raise ValueError("quat_wxyz must have non-zero length.")
+    w, x, y, z = q / norm
+    return np.array(
+        [
+            [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w)],
+            [2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w)],
+            [2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y)],
+        ],
+        dtype=float,
+    )
+
+
+def bbox_corners(
+    bbox_min: tuple[float, float, float],
+    bbox_max: tuple[float, float, float],
+) -> np.ndarray:
+    """Return the eight corners of an axis-aligned bbox."""
+
+    x0, y0, z0 = bbox_min
+    x1, y1, z1 = bbox_max
+    return np.array(
+        [
+            [x0, y0, z0],
+            [x1, y0, z0],
+            [x1, y1, z0],
+            [x0, y1, z0],
+            [x0, y0, z1],
+            [x1, y0, z1],
+            [x1, y1, z1],
+            [x0, y1, z1],
+        ],
+        dtype=float,
+    )
+
+
+def transform_points(
+    points: object,
+    *,
+    position: tuple[float, float, float],
+    quat_wxyz: tuple[float, float, float, float],
+    scale: float = 1.0,
+) -> np.ndarray:
+    """Transform points by optional scale, `[w, x, y, z]` rotation, and translation."""
+
+    point_array = np.asarray(points, dtype=float)
+    if point_array.ndim != 2 or point_array.shape[1] != 3:
+        raise ValueError(f"Expected points with shape (N, 3), got {point_array.shape}.")
+    rotation = quat_wxyz_to_matrix(quat_wxyz)
+    translation = np.asarray(position, dtype=float)
+    return (rotation @ (point_array * float(scale)).T).T + translation
+
+
+def bbox_from_points(
+    points: object,
+) -> tuple[
+    tuple[float, float, float],
+    tuple[float, float, float],
+    tuple[float, float, float],
+    tuple[float, float, float],
+]:
+    """Return min, max, size, and center for an `N x 3` point cloud."""
+
+    point_array = np.asarray(points, dtype=float)
+    if point_array.ndim != 2 or point_array.shape[1] != 3 or point_array.shape[0] == 0:
+        raise ValueError(f"Expected non-empty points with shape (N, 3), got {point_array.shape}.")
+    minimum = np.min(point_array, axis=0)
+    maximum = np.max(point_array, axis=0)
+    size = maximum - minimum
+    center = (minimum + maximum) * 0.5
+    return _tuple3(minimum), _tuple3(maximum), _tuple3(size), _tuple3(center)
 
 
 def _scale_tuple(values: tuple[float, float, float] | None, scale: float) -> tuple[float, float, float] | None:
@@ -690,6 +797,9 @@ def _collect_primitive_hint_reports(
     *,
     visual_report: AssetReport | None,
     collision_report: AssetReport | None,
+    scale: float,
+    pose_position: tuple[float, float, float],
+    pose_quat_wxyz: tuple[float, float, float, float],
 ) -> list[PrimitiveCollisionHintReport]:
     geoms = load_primitive_collision_geoms(raw_hints)
     return [
@@ -697,6 +807,9 @@ def _collect_primitive_hint_reports(
             geom,
             visual_report=visual_report,
             collision_report=collision_report,
+            scale=scale,
+            pose_position=pose_position,
+            pose_quat_wxyz=pose_quat_wxyz,
         )
         for geom in geoms
     ]
@@ -707,15 +820,19 @@ def _primitive_hint_report(
     *,
     visual_report: AssetReport | None,
     collision_report: AssetReport | None,
+    scale: float,
+    pose_position: tuple[float, float, float],
+    pose_quat_wxyz: tuple[float, float, float, float],
 ) -> PrimitiveCollisionHintReport:
-    bbox = primitive_geom_bbox(geom)
+    bbox = _primitive_geom_bbox_world(
+        geom,
+        scale=scale,
+        pose_position=pose_position,
+        pose_quat_wxyz=pose_quat_wxyz,
+    )
     intersects_visual = _bbox_intersects_report(bbox.minimum, bbox.maximum, visual_report)
     intersects_collision = _bbox_intersects_report(bbox.minimum, bbox.maximum, collision_report)
     warnings_list: list[str] = []
-    if geom.frame != "world":
-        warnings_list.append(
-            f"Primitive frame {geom.frame!r} is parsed, but diagnostics currently report its local bbox."
-        )
     if intersects_visual is False and intersects_collision is False:
         warnings_list.append("Primitive hint bbox does not intersect visual or collision mesh world bboxes.")
     return PrimitiveCollisionHintReport(
@@ -737,6 +854,26 @@ def _primitive_hint_report(
         warnings=tuple(warnings_list),
         note=geom.note or "",
     )
+
+
+def _primitive_geom_bbox_world(
+    geom: PrimitiveCollisionGeomConfig,
+    *,
+    scale: float,
+    pose_position: tuple[float, float, float],
+    pose_quat_wxyz: tuple[float, float, float, float],
+):
+    bbox = primitive_geom_bbox(geom)
+    if geom.frame == "world":
+        return bbox
+    world_corners = transform_points(
+        bbox_corners(bbox.minimum, bbox.maximum),
+        position=pose_position,
+        quat_wxyz=pose_quat_wxyz,
+        scale=scale,
+    )
+    bbox_min, bbox_max, _bbox_size, _bbox_center = bbox_from_points(world_corners)
+    return type(bbox)(minimum=bbox_min, maximum=bbox_max)
 
 
 def _bbox_intersects_report(

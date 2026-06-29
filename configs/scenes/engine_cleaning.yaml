@@ -6,34 +6,35 @@ engine:
   assets:
     visual_mesh: ../../assets/engine/meshes/engine_visual.stl
     collision_mesh: ../../assets/engine/collision/engine_collision.stl
+    collision_mesh_offset_m: [0.0, 0.0, 0.0]
   scale: 0.001
   pose:
-    position_m: [0.35, 0.0, 0.12]
+    position_m: [0.0, 0.0, 0.0]
     quat_wxyz: [1.0, 0.0, 0.0, 0.0]
 
 regions:
   entry_port:
     type: circular_port
-    center_m: [0.28, 0.0, 0.10]
-    normal: [-1.0, 0.0, 0.0]
+    center_m: [0.45556, -0.28000, 1.32342]
+    normal: [0.0, 1.0, 0.0]
     radius_m: 0.045
     description: Main insertion entry for future observer and executor arms.
 
   inspection_roi:
     type: roi_box
-    center_m: [0.36, 0.0, 0.12]
-    size_m: [0.12, 0.10, 0.08]
+    center_m: [0.43556, -0.36000, 1.32342]
+    size_m: [0.08, 0.12, 0.10]
     description: Coarse inspection volume for first-pass engine observation.
 
   carbon_deposit_region:
     type: surface_patch
-    position_m: [0.40, 0.015, 0.095]
-    normal: [-1.0, 0.0, 0.0]
-    extents_m: [0.05, 0.03, 0.01]
+    position_m: [0.46056, -0.40000, 1.33842]
+    normal: [0.0, 1.0, 0.0]
+    extents_m: [0.01, 0.05, 0.03]
     description: Placeholder region for future deposit localization and path generation.
 
   forbidden_zone:
     type: box
-    center_m: [0.42, 0.0, 0.18]
-    size_m: [0.08, 0.06, 0.04]
+    center_m: [0.37556, -0.42000, 1.32342]
+    size_m: [0.04, 0.08, 0.06]
     description: Keep-out region reserved for no-go geometry and future collision policies.

@@ -64,6 +64,7 @@ class AssetReport:
     warnings: tuple[str, ...]
     scale: float | None = None
     pose_position: tuple[float, float, float] | None = None
+    local_offset_m: tuple[float, float, float] | None = None
     bbox_min_raw: tuple[float, float, float] | None = None
     bbox_max_raw: tuple[float, float, float] | None = None
     bbox_size_raw: tuple[float, float, float] | None = None
@@ -185,14 +186,19 @@ def collect_engine_scene_diagnostics(
     scale = float(config.engine.scale)
     pose_position = _tuple3(config.engine.pose.position_m)
     pose_quat_wxyz = _tuple4(config.engine.pose.quat_wxyz)
+    collision_mesh_offset_m = (
+        _tuple3(config.engine.assets.collision_mesh_offset_m)
+        if config.engine.assets.collision_mesh_offset_m is not None
+        else (0.0, 0.0, 0.0)
+    )
     assets = [
-        ("visual_mesh", "visual mesh", resolved.visual_mesh),
-        ("collision_mesh", "collision mesh", resolved.collision_mesh),
-        ("collision_geoms", "collision geometry metadata", resolved.collision_geoms),
+        ("visual_mesh", "visual mesh", resolved.visual_mesh, (0.0, 0.0, 0.0)),
+        ("collision_mesh", "collision mesh", resolved.collision_mesh, collision_mesh_offset_m),
+        ("collision_geoms", "collision geometry metadata", resolved.collision_geoms, (0.0, 0.0, 0.0)),
     ]
 
     reports: list[AssetReport] = []
-    for asset_name, role, asset_path in assets:
+    for asset_name, role, asset_path, local_offset_m in assets:
         if asset_path is None:
             continue
         report = _inspect_asset(
@@ -202,6 +208,7 @@ def collect_engine_scene_diagnostics(
             scale=scale,
             pose_position=pose_position,
             pose_quat_wxyz=pose_quat_wxyz,
+            local_offset_m=local_offset_m,
         )
         if strict_assets and not report.exists:
             raise FileNotFoundError(
@@ -215,7 +222,12 @@ def collect_engine_scene_diagnostics(
         reports.append(report)
 
     visual_report = next((report for report in reports if report.asset_name == "visual_mesh"), None)
-    region_reports = _collect_region_reports(config.regions.values(), visual_report)
+    region_reports = _collect_region_reports(
+        config.regions.values(),
+        visual_report,
+        pose_position=pose_position,
+        pose_quat_wxyz=pose_quat_wxyz,
+    )
     collision_report = next((report for report in reports if report.asset_name == "collision_mesh"), None)
     primitive_hint_reports = _collect_primitive_hint_reports(
         raw.get("primitive_collision_geoms", []),
@@ -287,6 +299,7 @@ def _inspect_asset(
     scale: float,
     pose_position: tuple[float, float, float],
     pose_quat_wxyz: tuple[float, float, float, float],
+    local_offset_m: tuple[float, float, float],
 ) -> AssetReport:
     extension = path.suffix.lower()
     supported = extension in SUPPORTED_MESH_EXTENSIONS
@@ -308,6 +321,7 @@ def _inspect_asset(
             warnings=tuple(warnings_list),
             scale=scale,
             pose_position=pose_position,
+            local_offset_m=local_offset_m,
         )
 
     geometry: MeshGeometry | None = None
@@ -323,6 +337,7 @@ def _inspect_asset(
         scale=scale,
         pose_position=pose_position,
         pose_quat_wxyz=pose_quat_wxyz,
+        local_offset_m=local_offset_m,
     )
     return AssetReport(
         asset_name=asset_name,
@@ -336,6 +351,7 @@ def _inspect_asset(
         warnings=tuple(warnings_list),
         scale=scale,
         pose_position=pose_position,
+        local_offset_m=local_offset_m,
         **bbox_values,
     )
 
@@ -346,6 +362,7 @@ def _asset_bbox_values(
     scale: float,
     pose_position: tuple[float, float, float],
     pose_quat_wxyz: tuple[float, float, float, float],
+    local_offset_m: tuple[float, float, float],
 ) -> dict[str, tuple[float, float, float] | None]:
     empty: dict[str, tuple[float, float, float] | None] = {
         "bbox_min_raw": None,
@@ -371,10 +388,11 @@ def _asset_bbox_values(
     bbox_center_scaled = _scale_tuple(geometry.center, scale) if geometry.center else None
     bbox_size_scaled = _scale_tuple(geometry.size, abs(scale)) if geometry.size else None
     scaled_corners = bbox_corners(bbox_min_scaled, bbox_max_scaled)
-    world_corners = transform_points(scaled_corners, position=pose_position, quat_wxyz=pose_quat_wxyz)
+    offset_corners = scaled_corners + np.asarray(local_offset_m, dtype=float)
+    world_corners = transform_points(offset_corners, position=pose_position, quat_wxyz=pose_quat_wxyz)
     bbox_min_world, bbox_max_world, bbox_size_world, bbox_center_world = bbox_from_points(world_corners)
     zero_pose_corners = transform_points(
-        scaled_corners,
+        offset_corners,
         position=(0.0, 0.0, 0.0),
         quat_wxyz=pose_quat_wxyz,
     )
@@ -401,7 +419,13 @@ def _asset_bbox_values(
     }
 
 
-def _collect_region_reports(regions, visual_report: AssetReport | None) -> list[RegionReport]:
+def _collect_region_reports(
+    regions,
+    visual_report: AssetReport | None,
+    *,
+    pose_position: tuple[float, float, float],
+    pose_quat_wxyz: tuple[float, float, float, float],
+) -> list[RegionReport]:
     reports: list[RegionReport] = []
     visual_min = visual_report.bbox_min_world if visual_report else None
     visual_max = visual_report.bbox_max_world if visual_report else None
@@ -410,6 +434,15 @@ def _collect_region_reports(regions, visual_report: AssetReport | None) -> list[
 
     for region in regions:
         reference_point = _region_reference_point(region)
+        if reference_point is not None and region.frame == "engine":
+            reference_point = _tuple3(
+                transform_points(
+                    [reference_point],
+                    position=pose_position,
+                    quat_wxyz=pose_quat_wxyz,
+                    scale=1.0,
+                )[0]
+            )
         distance = (
             _distance_to_bbox(reference_point, visual_min, visual_max)
             if reference_point is not None and visual_min is not None and visual_max is not None
@@ -570,6 +603,7 @@ def _print_diagnostics(diagnostics: EngineSceneDiagnostics, *, display_root: Pat
             print(f"  bbox_max_raw: {_format_tuple(report.bbox_max_raw)}")
             print(f"  bbox_size_raw: {_format_tuple(report.bbox_size_raw)}")
             print(f"  bbox_center_raw: {_format_tuple(report.bbox_center_raw)}")
+            print(f"  local_offset_m: {_format_tuple(report.local_offset_m)}")
             print(f"  bbox_min_scaled: {_format_tuple(report.bbox_min_scaled)}")
             print(f"  bbox_max_scaled: {_format_tuple(report.bbox_max_scaled)}")
             print(f"  bbox_size_scaled: {_format_tuple(report.bbox_size_scaled)}")

@@ -145,6 +145,44 @@ f 1 2 3
     assert visual.recommended_grounded_pose_position == pytest.approx((-0.5, -1.0, 0.0))
 
 
+def test_collision_mesh_offset_aligns_collision_bbox_center_to_visual_bbox_center(
+    tmp_path: Path,
+) -> None:
+    visual_mesh = tmp_path / "visual.obj"
+    collision_mesh = tmp_path / "collision.obj"
+    visual_mesh.write_text(
+        """v 0 0 0
+v 2 2 2
+v 0 2 0
+f 1 2 3
+""",
+        encoding="utf-8",
+    )
+    collision_mesh.write_text(
+        """v 10 0 0
+v 12 2 2
+v 10 2 0
+f 1 2 3
+""",
+        encoding="utf-8",
+    )
+    config_path = _write_scene_config(
+        tmp_path,
+        visual_mesh.name,
+        collision_mesh.name,
+        collision_mesh_offset_m=[-10.0, 0.0, 0.0],
+    )
+
+    diagnostics = collect_engine_scene_diagnostics(config_path, strict_assets=False)
+    visual = next(report for report in diagnostics.asset_reports if report.asset_name == "visual_mesh")
+    collision = next(report for report in diagnostics.asset_reports if report.asset_name == "collision_mesh")
+
+    assert collision.local_offset_m == pytest.approx((-10.0, 0.0, 0.0))
+    assert collision.bbox_center_world == pytest.approx(visual.bbox_center_world)
+    assert collision.bbox_min_world == pytest.approx(visual.bbox_min_world)
+    assert collision.bbox_max_world == pytest.approx(visual.bbox_max_world)
+
+
 def test_region_diagnostics_warn_when_regions_are_far_from_visual_bbox(tmp_path: Path) -> None:
     visual_mesh = tmp_path / "visual.obj"
     visual_mesh.write_text(
@@ -230,6 +268,29 @@ f 1 2 3
     assert 'name="engine_visual"' not in collision_only
 
 
+def test_preview_mjcf_applies_collision_mesh_offset_to_collision_geom(tmp_path: Path) -> None:
+    visual_mesh = tmp_path / "visual.obj"
+    collision_mesh = tmp_path / "collision.obj"
+    mesh_text = """v 0 0 0
+v 1 1 1
+v 0 1 0
+f 1 2 3
+"""
+    visual_mesh.write_text(mesh_text, encoding="utf-8")
+    collision_mesh.write_text(mesh_text, encoding="utf-8")
+    config_path = _write_scene_config(
+        tmp_path,
+        visual_mesh.name,
+        collision_mesh.name,
+        collision_mesh_offset_m=[0.25, -0.5, 0.0],
+    )
+
+    xml_text = build_engine_preview_mjcf(config_path)
+
+    assert 'name="engine_collision"' in xml_text
+    assert 'pos="0.25 -0.5 0"' in xml_text
+
+
 def _write_scene_config(
     tmp_path: Path,
     visual_mesh: str,
@@ -237,12 +298,15 @@ def _write_scene_config(
     *,
     scale: float = 1.0,
     position_m: list[float] | None = None,
+    collision_mesh_offset_m: list[float] | None = None,
     regions: dict[str, object] | None = None,
 ) -> Path:
     config_path = tmp_path / "engine_scene.yaml"
     assets = {"visual_mesh": visual_mesh}
     if collision_mesh:
         assets["collision_mesh"] = collision_mesh
+    if collision_mesh_offset_m is not None:
+        assets["collision_mesh_offset_m"] = collision_mesh_offset_m
     config_path.write_text(
         yaml.safe_dump(
             {

@@ -19,11 +19,12 @@ ALIGNED_CONFIG = PROJECT_ROOT / "configs" / "scenes" / "engine_cleaning_aligned.
 NOZZLE_CONFIG = PROJECT_ROOT / "configs" / "scenes" / "engine_cleaning_nozzle_collision.yaml"
 
 
-def test_aligned_scene_config_loads_and_preserves_grounded_pose() -> None:
+def test_aligned_scene_config_loads_and_preserves_y_forward_pose() -> None:
     config = load_engine_scene_config(ALIGNED_CONFIG)
 
     assert config.engine.scale == pytest.approx(0.001)
-    assert config.engine.pose.position_m.tolist() == pytest.approx([-1.12127, -1.32342, -3.48744])
+    assert config.engine.pose.position_m.tolist() == pytest.approx([4.043, 1.12127, 0.0])
+    assert config.engine.pose.quat_wxyz.tolist() == pytest.approx([0.5, 0.5, -0.5, -0.5])
 
 
 def test_aligned_scene_allows_non_strict_asset_validation() -> None:
@@ -38,7 +39,8 @@ def test_nozzle_collision_candidate_keeps_aligned_scene_and_disabled_hints() -> 
     hints = list(iter_primitive_collision_geoms(config))
 
     assert config.engine.scale == pytest.approx(0.001)
-    assert config.engine.pose.position_m.tolist() == pytest.approx([-1.12127, -1.32342, -3.48744])
+    assert config.engine.pose.position_m.tolist() == pytest.approx([4.043, 1.12127, 0.0])
+    assert config.engine.pose.quat_wxyz.tolist() == pytest.approx([0.5, 0.5, -0.5, -0.5])
     assert set(config.regions) >= {
         "entry_port",
         "inspection_roi",
@@ -50,8 +52,11 @@ def test_nozzle_collision_candidate_keeps_aligned_scene_and_disabled_hints() -> 
         "nozzle_collision_box_hint",
     ]
     assert [hint.enabled for hint in hints] == [False, False]
+    assert config.engine.assets.collision_mesh_offset_m.tolist() == pytest.approx(
+        [0.959563457031, 0.0, 0.0]
+    )
     assert hints[0].fromto_m.tolist() == pytest.approx(
-        [-1.79762177002, 0.46331425293, 0.555564394531, -0.121505144043, 0.46331425293, 0.555564394531]
+        [-4.394531e-06, -0.838058312988, 1.78673425293, -4.394531e-06, 0.838058312989, 1.78673425293]
     )
 
 

@@ -9,6 +9,8 @@ import tempfile
 from pathlib import Path
 from xml.etree import ElementTree
 
+import numpy as np
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
 if str(PROJECT_ROOT) not in sys.path:
@@ -75,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
             show_disabled_hints=args.show_disabled_hints,
             primitive_alpha=args.primitive_alpha,
             hide_mesh_collision=args.hide_mesh_collision,
+            show_exploration_paths=not args.hide_exploration_paths,
         )
         xml_path = Path(temp_dir) / "engine_preview.xml"
         xml_path.write_text(xml_text, encoding="utf-8")
@@ -128,6 +131,7 @@ def build_engine_preview_mjcf(
     show_disabled_hints: bool = False,
     primitive_alpha: float = 0.55,
     hide_mesh_collision: bool = False,
+    show_exploration_paths: bool = True,
 ) -> str:
     """Build a minimal MJCF document for the configured engine mesh."""
 
@@ -200,16 +204,20 @@ def build_engine_preview_mjcf(
             },
         )
     if include_collision:
+        collision_attrs = {
+            "name": "engine_collision",
+            "type": "mesh",
+            "mesh": "engine_collision_mesh",
+            "group": "0",
+            "rgba": f"0.9 0.2 0.15 {float(alpha_collision):.6g}",
+        }
+        collision_offset = config.engine.assets.collision_mesh_offset_m
+        if collision_offset is not None:
+            collision_attrs["pos"] = _mujoco_vec(collision_offset)
         ElementTree.SubElement(
             body,
             "geom",
-            {
-                "name": "engine_collision",
-                "type": "mesh",
-                "mesh": "engine_collision_mesh",
-                "group": "0",
-                "rgba": f"0.9 0.2 0.15 {float(alpha_collision):.6g}",
-            },
+            collision_attrs,
         )
 
     if show_bbox and visual_report is not None:
@@ -217,7 +225,10 @@ def build_engine_preview_mjcf(
 
     if show_regions:
         for region in config.regions.values():
-            _add_region_site(worldbody, region)
+            _add_region_site(worldbody, region, config=config)
+
+    if show_exploration_paths:
+        _add_exploration_paths(worldbody, config)
 
     if show_primitive_collision:
         _add_primitive_collision_hints(
@@ -337,6 +348,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="store_true",
         help="Hide configured mesh collision while keeping primitive hints visible.",
     )
+    parser.add_argument(
+        "--hide-exploration-paths",
+        action="store_true",
+        help="Hide configured exploration path overlays.",
+    )
     return parser.parse_args(argv)
 
 
@@ -424,7 +440,12 @@ def _add_bbox_marker(worldbody: ElementTree.Element, visual_report) -> None:
         )
 
 
-def _add_region_site(worldbody: ElementTree.Element, region: EngineRegionConfig) -> None:
+def _add_region_site(
+    worldbody: ElementTree.Element,
+    region: EngineRegionConfig,
+    *,
+    config: EngineSceneConfig,
+) -> None:
     attrs = {
         "name": f"region_{region.name}",
         "rgba": _region_rgba(region.type),
@@ -433,7 +454,7 @@ def _add_region_site(worldbody: ElementTree.Element, region: EngineRegionConfig)
         attrs.update(
             {
                 "type": "sphere",
-                "pos": _mujoco_vec(region.center_m),
+                "pos": _mujoco_vec(_region_point_world(region.center_m, region, config)),
                 "size": str(region.radius_m or 0.01),
             }
         )
@@ -441,7 +462,7 @@ def _add_region_site(worldbody: ElementTree.Element, region: EngineRegionConfig)
         attrs.update(
             {
                 "type": "box",
-                "pos": _mujoco_vec(region.center_m),
+                "pos": _mujoco_vec(_region_point_world(region.center_m, region, config)),
                 "size": _mujoco_vec(tuple(float(value) * 0.5 for value in region.size_m)),
             }
         )
@@ -449,15 +470,97 @@ def _add_region_site(worldbody: ElementTree.Element, region: EngineRegionConfig)
         attrs.update(
             {
                 "type": "box",
-                "pos": _mujoco_vec(region.position_m),
+                "pos": _mujoco_vec(_region_point_world(region.position_m, region, config)),
                 "size": _mujoco_vec(tuple(max(float(value) * 0.5, 0.002) for value in region.extents_m)),
             }
         )
     elif region.center_m is not None:
-        attrs.update({"type": "sphere", "pos": _mujoco_vec(region.center_m), "size": "0.01"})
+        attrs.update(
+            {
+                "type": "sphere",
+                "pos": _mujoco_vec(_region_point_world(region.center_m, region, config)),
+                "size": "0.01",
+            }
+        )
     else:
         return
     ElementTree.SubElement(worldbody, "site", attrs)
+
+
+def _add_exploration_paths(
+    worldbody: ElementTree.Element,
+    config: EngineSceneConfig,
+) -> None:
+    for path in config.exploration_paths:
+        if not path.enabled:
+            continue
+        points = (
+            _engine_frame_points_to_world(path.points_m, config)
+            if path.frame == "engine"
+            else np.asarray(path.points_m, dtype=float)
+        )
+        for index, (start, end) in enumerate(zip(points[:-1], points[1:], strict=True)):
+            ElementTree.SubElement(
+                worldbody,
+                "geom",
+                {
+                    "name": f"exploration_{path.name}_segment_{index}",
+                    "type": "capsule",
+                    "fromto": _mujoco_vec((*start, *end)),
+                    "size": f"{path.radius_m:.12g}",
+                    "rgba": _mujoco_vec(path.rgba),
+                    "contype": "0",
+                    "conaffinity": "0",
+                    "group": "3",
+                },
+            )
+        marker_size = max(path.radius_m * 1.8, 0.006)
+        ElementTree.SubElement(
+            worldbody,
+            "site",
+            {
+                "name": f"exploration_{path.name}_start",
+                "type": "sphere",
+                "pos": _mujoco_vec(points[0]),
+                "size": f"{marker_size:.12g}",
+                "rgba": "0.1 0.7 1 0.95",
+                "group": "3",
+            },
+        )
+        ElementTree.SubElement(
+            worldbody,
+            "site",
+            {
+                "name": f"exploration_{path.name}_end",
+                "type": "sphere",
+                "pos": _mujoco_vec(points[-1]),
+                "size": f"{marker_size:.12g}",
+                "rgba": "1 0.85 0.1 0.95",
+                "group": "3",
+            },
+        )
+
+
+def _region_point_world(
+    point_m: object,
+    region: EngineRegionConfig,
+    config: EngineSceneConfig,
+) -> np.ndarray:
+    if region.frame == "engine":
+        return _engine_frame_points_to_world([point_m], config)[0]
+    return np.asarray(point_m, dtype=float)
+
+
+def _engine_frame_points_to_world(
+    points_m: object,
+    config: EngineSceneConfig,
+) -> np.ndarray:
+    return transform_points(
+        points_m,
+        position=tuple(float(value) for value in config.engine.pose.position_m),
+        quat_wxyz=tuple(float(value) for value in config.engine.pose.quat_wxyz),
+        scale=1.0,
+    )
 
 
 def _add_primitive_collision_hints(

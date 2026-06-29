@@ -19,6 +19,10 @@ from continuum_sim.config_validation import (
     resolve_path as _resolve_config_path,
     section as _section,
 )
+from continuum_sim.scenes.engine_exploration_path import (
+    ExplorationPathConfig,
+    load_exploration_paths,
+)
 from continuum_sim.scenes.primitive_collision import (
     PrimitiveCollisionGeomConfig,
     load_primitive_collision_geoms,
@@ -52,6 +56,7 @@ class EngineAssetConfig:
     visual_mesh: Path
     collision_mesh: Path | None
     collision_geoms: Path | None
+    collision_mesh_offset_m: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +74,7 @@ class EngineRegionConfig:
 
     name: str
     type: str
+    frame: str = "world"
     center_m: np.ndarray | None = None
     position_m: np.ndarray | None = None
     normal: np.ndarray | None = None
@@ -96,6 +102,7 @@ class EngineSceneConfig:
     scene_type: str
     engine: EngineModelConfig
     regions: dict[str, EngineRegionConfig]
+    exploration_paths: tuple[ExplorationPathConfig, ...] = ()
     primitive_collision_geoms: tuple[PrimitiveCollisionGeomConfig, ...] = ()
 
 
@@ -133,6 +140,10 @@ def load_engine_scene_config(path: str | Path) -> EngineSceneConfig:
                     config_path,
                     assets.get("collision_geoms", _MISSING),
                 ),
+                collision_mesh_offset_m=_optional_position(
+                    assets.get("collision_mesh_offset_m", _MISSING),
+                    "engine.assets.collision_mesh_offset_m",
+                ),
             ),
             scale=_positive_float_value(_required(engine, "scale"), "engine.scale"),
             pose=EnginePoseConfig(
@@ -144,6 +155,7 @@ def load_engine_scene_config(path: str | Path) -> EngineSceneConfig:
             name: _load_engine_region_config(name, values)
             for name, values in regions_raw.items()
         },
+        exploration_paths=tuple(load_exploration_paths(raw.get("exploration_paths"))),
         primitive_collision_geoms=tuple(
             load_primitive_collision_geoms(raw.get("primitive_collision_geoms"))
         ),
@@ -238,6 +250,11 @@ def _load_engine_region_config(name: object, values: object) -> EngineRegionConf
     return EngineRegionConfig(
         name=region_name,
         type=region_type,
+        frame=_choice_value(
+            values.get("frame", "world"),
+            f"regions.{region_name}.frame",
+            ("world", "engine"),
+        ),
         center_m=_optional_position(values.get("center_m", _MISSING), f"regions.{region_name}.center_m"),
         position_m=_optional_position(
             values.get("position_m", _MISSING),

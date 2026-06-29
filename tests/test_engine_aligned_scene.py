@@ -23,8 +23,8 @@ def test_aligned_scene_config_loads_and_preserves_y_forward_pose() -> None:
     config = load_engine_scene_config(ALIGNED_CONFIG)
 
     assert config.engine.scale == pytest.approx(0.001)
-    assert config.engine.pose.position_m.tolist() == pytest.approx([4.043, 1.12127, 0.0])
-    assert config.engine.pose.quat_wxyz.tolist() == pytest.approx([0.5, 0.5, -0.5, -0.5])
+    assert config.engine.pose.position_m.tolist() == pytest.approx([0.0, 0.0, 0.0])
+    assert config.engine.pose.quat_wxyz.tolist() == pytest.approx([1.0, 0.0, 0.0, 0.0])
 
 
 def test_aligned_scene_allows_non_strict_asset_validation() -> None:
@@ -34,30 +34,34 @@ def test_aligned_scene_allows_non_strict_asset_validation() -> None:
 
 
 def test_nozzle_collision_candidate_keeps_aligned_scene_and_disabled_hints() -> None:
+    aligned_config = load_engine_scene_config(ALIGNED_CONFIG)
     config = load_engine_scene_config(NOZZLE_CONFIG)
 
     hints = list(iter_primitive_collision_geoms(config))
 
     assert config.engine.scale == pytest.approx(0.001)
-    assert config.engine.pose.position_m.tolist() == pytest.approx([4.043, 1.12127, 0.0])
-    assert config.engine.pose.quat_wxyz.tolist() == pytest.approx([0.5, 0.5, -0.5, -0.5])
-    assert set(config.regions) >= {
-        "entry_port",
-        "inspection_roi",
-        "carbon_deposit_region",
-        "forbidden_zone",
-    }
+    assert config.engine.pose.position_m.tolist() == pytest.approx(aligned_config.engine.pose.position_m.tolist())
+    assert config.engine.pose.quat_wxyz.tolist() == pytest.approx(aligned_config.engine.pose.quat_wxyz.tolist())
+    assert config.engine.pose.position_m.tolist() == pytest.approx([0.0, 0.0, 0.0])
+    assert config.engine.pose.quat_wxyz.tolist() == pytest.approx([1.0, 0.0, 0.0, 0.0])
+    assert set(config.regions) == {"entry_port"}
     assert [hint.name for hint in hints] == [
         "nozzle_collision_capsule_hint",
         "nozzle_collision_box_hint",
     ]
     assert [hint.enabled for hint in hints] == [False, False]
     assert config.engine.assets.collision_mesh_offset_m.tolist() == pytest.approx(
-        [0.959563457031, 0.0, 0.0]
+        [0.0, 0.0, 0.0]
     )
     assert hints[0].fromto_m.tolist() == pytest.approx(
         [-4.394531e-06, -0.838058312988, 1.78673425293, -4.394531e-06, 0.838058312989, 1.78673425293]
     )
+    assert len(config.exploration_paths) == 1
+    path = config.exploration_paths[0]
+    assert path.name == "nozzle_axis_entry"
+    assert path.frame == "engine"
+    assert path.points_m[0].tolist() == pytest.approx([0.442, 1.58169, 1.74693])
+    assert path.points_m[1].tolist() == pytest.approx([0.442, 0.37281, 2.07857])
 
 
 def test_engine_scene_loader_exposes_primitive_collision_geoms(tmp_path: Path) -> None:

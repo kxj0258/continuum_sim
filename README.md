@@ -772,3 +772,14 @@ M1.9 region calibration
 M6.5 executor command adapter
 M7 observer ground-truth perception and visual servo scaffold
 ```
+
+---
+
+## Development Roadmap
+
+The long-term development baseline is documented in:
+
+- `docs/development_baseline.md`
+- `docs/development_log_template.md`
+
+For future engine scene alignment, mobile base control, dual-arm import, and engine interaction tasks, use `feat/engine-dual-arm-foundation` as the main development branch.

@@ -4,6 +4,7 @@ from continuum_sim.model.physical_tendon import (
     PhysicalTendonPath,
     load_physical_tendons_from_yaml,
 )
+from continuum_sim.model.mobile_base_context import MobileBaseArmContext
 from continuum_sim.model.robot_params import SegmentParams, ThreeSegmentRobotParams
 from continuum_sim.model.tendon_routing import TendonRouting
 from continuum_sim.model.tendon_coupling import (
@@ -15,6 +16,7 @@ from continuum_sim.model.tendon_coupling import (
 
 __all__ = [
     "PhysicalTendonPath",
+    "MobileBaseArmContext",
     "SegmentParams",
     "TendonRouting",
     "ThreeSegmentRobotParams",

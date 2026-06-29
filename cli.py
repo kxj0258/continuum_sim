@@ -19,7 +19,11 @@ from continuum_sim.config import load_mujoco_config, load_yaml
 from continuum_sim.control import DifferentialIKConfig
 from continuum_sim.io import save_run_artifacts
 from continuum_sim.kinematics import ContinuumKinematicsChain
-from continuum_sim.model import ThreeSegmentRobotParams, load_physical_tendons_from_yaml
+from continuum_sim.model import (
+    MobileBaseArmContext,
+    ThreeSegmentRobotParams,
+    load_physical_tendons_from_yaml,
+)
 from continuum_sim.runtime.mujoco_tracking_runtime import (
     _show_mujoco_tracking_summary,
     run_mujoco_trajectory_tracking,
@@ -147,10 +151,12 @@ def view_pcc(config_path: str | Path) -> int:
         matplotlib.use("Agg")
 
     params = ThreeSegmentRobotParams.from_yaml(robot_config)
+    arm_context = _arm_context_from_any_yaml(raw, resolved_config)
     viewer = PCCInteractiveViewer(
         params,
         initial_q=named_q(initial_q_name),
         samples_per_segment=samples_per_segment,
+        arm_context=arm_context,
     )
     viewer.update_plot(redraw=False)
     if not show:
@@ -202,6 +208,7 @@ def view_motor_chain(config_path: str | Path) -> int:
     params = ThreeSegmentRobotParams.from_yaml(robot_config)
     physical_tendons = load_physical_tendons_from_yaml(robot_config)
     motor_params = load_motor_params_from_yaml(robot_config)
+    arm_context = _arm_context_from_any_yaml(raw, resolved_config)
     viewer = MotorChainInteractiveViewer(
         params,
         physical_tendons,
@@ -210,6 +217,7 @@ def view_motor_chain(config_path: str | Path) -> int:
         velocity_limit_rad_s=velocity_limit,
         dt=dt,
         samples_per_segment=samples_per_segment,
+        arm_context=arm_context,
     )
     viewer.set_motor_state(initial_motor, initial_velocity)
     viewer.update_plot(redraw=False)
@@ -232,6 +240,7 @@ def run_tracking(config_path: str | Path, *, save_run: bool = False) -> int:
 
     chain = ContinuumKinematicsChain.from_robot_config(config.robot_config_path)
     target_positions = build_target_positions(config, chain.params)
+    arm_context = _arm_context_for_tracking_config(task_config_path)
     result = chain.simulate_tracking(
         config.simulation.initial_motor_position_rad,
         target_positions,
@@ -263,12 +272,21 @@ def run_tracking(config_path: str | Path, *, save_run: bool = False) -> int:
             samples_per_segment=config.visualization.animation_samples_per_segment,
             interval_ms=config.visualization.animation_interval_ms,
             stride=config.visualization.animation_stride,
+            arm_context=arm_context,
         )
         summary_fig = None
         if config.visualization.show_summary_after_animation:
-            summary_fig = plot_tracking_result(result, chain.params)
+            summary_fig = plot_tracking_result(
+                result,
+                chain.params,
+                arm_context=arm_context,
+            )
     else:
-        fig = plot_tracking_result(result, chain.params)
+        fig = plot_tracking_result(
+            result,
+            chain.params,
+            arm_context=arm_context,
+        )
         summary_fig = None
 
     if not show:
@@ -295,15 +313,15 @@ def view_mujoco(config_path: str | Path) -> int:
         from continuum_sim.runtime.mujoco_runtime_utils import (
             _configure_viewer_camera,
             _configure_viewer_groups,
-            _resolve_visual_xml_path,
             draw_tendon_path_overlay_if_enabled,
+            resolve_runtime_xml_path,
             sleep_for_realtime,
         )
     except ModuleNotFoundError:
         raise
 
-    override_xml_path = _resolve_visual_xml_path(config, config.viewer.use_segment_visuals)
-    backend = MujocoBackend.from_config(config, override_xml_path=override_xml_path)
+    runtime_xml_path = resolve_runtime_xml_path(config, config.viewer.use_segment_visuals)
+    backend = MujocoBackend.from_config(config, override_xml_path=runtime_xml_path)
     state = backend.reset()
     control = np.zeros(backend.model.nu, dtype=float)
     if not config.viewer.show:
@@ -361,14 +379,14 @@ def debug_mujoco_tendons(config_path: str | Path) -> int:
     from continuum_sim.runtime.mujoco_runtime_utils import (
         _configure_viewer_camera,
         _configure_viewer_groups,
-        _resolve_visual_xml_path,
         draw_tendon_path_overlay_if_enabled,
+        resolve_runtime_xml_path,
     )
 
     params = ThreeSegmentRobotParams.from_yaml(config.robot_config_path)
     physical_tendons = load_physical_tendons_from_yaml(config.robot_config_path)
-    override_xml_path = _resolve_visual_xml_path(config, config.viewer.use_segment_visuals)
-    backend = MujocoBackend.from_config(config, override_xml_path=override_xml_path)
+    runtime_xml_path = resolve_runtime_xml_path(config, config.viewer.use_segment_visuals)
+    backend = MujocoBackend.from_config(config, override_xml_path=runtime_xml_path)
     control_dt = max(
         0.02,
         config.solver.timestep * max(1, config.viewer.sync_interval_steps),
@@ -555,6 +573,28 @@ def _robot_config_from_any_yaml(raw: dict[str, Any], resolved_config: Path) -> P
         return _resolve_path(resolved_config, raw["robot_config_path"])
     main = load_yaml(PROJECT_ROOT / DEFAULT_MAIN_CONFIG)
     return _resolve_path(PROJECT_ROOT / DEFAULT_MAIN_CONFIG, main["robot_config"])
+
+
+def _mobile_base_config_from_any_yaml(raw: dict[str, Any], resolved_config: Path) -> Path | None:
+    for key in ("mobile_base_config", "mobile_base_config_path"):
+        if key in raw and raw[key] not in (None, ""):
+            return _resolve_path(resolved_config, raw[key])
+    main = load_yaml(PROJECT_ROOT / DEFAULT_MAIN_CONFIG)
+    raw_main_value = main.get("mobile_base_config")
+    if raw_main_value in (None, ""):
+        return None
+    return _resolve_path(PROJECT_ROOT / DEFAULT_MAIN_CONFIG, raw_main_value)
+
+
+def _arm_context_from_any_yaml(raw: dict[str, Any], resolved_config: Path) -> MobileBaseArmContext:
+    return MobileBaseArmContext.from_config_path(
+        _mobile_base_config_from_any_yaml(raw, resolved_config)
+    )
+
+
+def _arm_context_for_tracking_config(task_config_path: Path) -> MobileBaseArmContext:
+    raw, resolved = _load_config(task_config_path)
+    return _arm_context_from_any_yaml(raw, resolved)
 
 
 def _visualization_values(raw: dict[str, Any]) -> dict[str, Any]:

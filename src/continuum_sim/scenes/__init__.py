@@ -17,6 +17,7 @@ from continuum_sim.scenes.scene_builder import (
     ToolPadXmlConfig,
     build_mujoco_scene_xml,
     build_mujoco_wiping_xml,
+    inject_mobile_base_wrapper,
     inject_tool_contact_pad,
 )
 from continuum_sim.scenes.scene_config import (
@@ -43,6 +44,7 @@ __all__ = [
     "WorkSurfaceConfig",
     "build_mujoco_scene_xml",
     "build_mujoco_wiping_xml",
+    "inject_mobile_base_wrapper",
     "inject_tool_contact_pad",
     "load_navigation_scene_config",
     "nearest_clearance",

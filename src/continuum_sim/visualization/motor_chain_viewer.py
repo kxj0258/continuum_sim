@@ -15,6 +15,8 @@ from continuum_sim.actuation.motor_mapping import (
     tendon_delta_to_motor_position,
 )
 from continuum_sim.kinematics.pcc import forward_kinematics
+from continuum_sim.model.base_pose import Pose6D
+from continuum_sim.model.mobile_base_context import MobileBaseArmContext
 from continuum_sim.model.physical_tendon import PhysicalTendonPath
 from continuum_sim.model.robot_params import ThreeSegmentRobotParams
 from continuum_sim.model.tendon_coupling import (
@@ -25,7 +27,6 @@ from continuum_sim.model.tendon_coupling import (
 )
 from continuum_sim.visualization.axis_limits import (
     apply_axis_limits,
-    default_robot_axis_limits,
 )
 
 Q_LABELS = ("kx1", "ky1", "eps1", "kx2", "ky2", "eps2", "kx3", "ky3", "eps3")
@@ -52,10 +53,15 @@ class MotorChainViewData:
     tendon_velocity: np.ndarray
     q_est: np.ndarray
     q_dot_est: np.ndarray
-    tip_position: np.ndarray
-    centerline: np.ndarray
-    segment_centerlines: tuple[np.ndarray, ...]
+    tip_pose_world: np.ndarray
+    centerline_world: np.ndarray
+    segment_centerlines_world: tuple[np.ndarray, ...]
+    axis_limits_world: dict[str, tuple[float, float]]
     diagnostics: dict[str, float | int | bool]
+
+    @property
+    def tip_position(self) -> np.ndarray:
+        return self.tip_pose_world[:3, 3]
 
 
 def compute_motor_chain_view_data(
@@ -66,6 +72,7 @@ def compute_motor_chain_view_data(
     motor_params: tuple[MotorParams, ...],
     *,
     samples_per_segment: int = 40,
+    arm_context: MobileBaseArmContext | None = None,
 ) -> MotorChainViewData:
     """Run the offline motor -> tendon -> q -> FK chain."""
     motor_position_array = _as_motor_vector(motor_position, "motor_position")
@@ -77,6 +84,13 @@ def compute_motor_chain_view_data(
     q_dot_est = physical_tendon_delta_to_q(tendon_velocity, params, physical_tendons)
     fk = forward_kinematics(q_est, params, samples_per_segment=samples_per_segment)
     C = build_coupling_matrix(params, physical_tendons)
+    context = arm_context or MobileBaseArmContext.identity()
+    centerline_world = context.local_points_to_world(fk.centerline)
+    segment_centerlines_world = tuple(
+        context.local_points_to_world(points)
+        for points in fk.segment_centerlines
+    )
+    tip_pose_world = context.local_pose_to_world(Pose6D.from_matrix(fk.tip_pose)).as_matrix()
 
     return MotorChainViewData(
         motor_position=motor_position_array.copy(),
@@ -85,9 +99,13 @@ def compute_motor_chain_view_data(
         tendon_velocity=tendon_velocity,
         q_est=q_est,
         q_dot_est=q_dot_est,
-        tip_position=fk.tip_pose[:3, 3].copy(),
-        centerline=fk.centerline.copy(),
-        segment_centerlines=tuple(points.copy() for points in fk.segment_centerlines),
+        tip_pose_world=tip_pose_world,
+        centerline_world=centerline_world,
+        segment_centerlines_world=segment_centerlines_world,
+        axis_limits_world=_world_axis_limits(
+            np.vstack((centerline_world, tip_pose_world[:3, 3][None, :])),
+            params,
+        ),
         diagnostics=coupling_diagnostics(C),
     )
 
@@ -149,6 +167,7 @@ class MotorChainInteractiveViewer:
         dt: float = 0.02,
         *,
         samples_per_segment: int = 40,
+        arm_context: MobileBaseArmContext | None = None,
     ) -> None:
         if position_limit_rad <= 0.0:
             raise ValueError("position_limit_rad must be positive.")
@@ -164,7 +183,7 @@ class MotorChainInteractiveViewer:
         self.velocity_limit_rad_s = float(velocity_limit_rad_s)
         self.dt = float(dt)
         self.samples_per_segment = int(samples_per_segment)
-        self.axis_limits = default_robot_axis_limits(params)
+        self.arm_context = arm_context or MobileBaseArmContext.identity()
         self.motor_position = np.zeros(9, dtype=float)
         self.motor_velocity = np.zeros(9, dtype=float)
         self._running = False
@@ -345,9 +364,11 @@ class MotorChainInteractiveViewer:
             self.physical_tendons,
             self.motor_params,
             samples_per_segment=self.samples_per_segment,
+            arm_context=self.arm_context,
         )
         self.ax.cla()
         self._draw_centerlines(view_data)
+        self._draw_frames(view_data)
         self._format_axes(view_data)
         self._info_text.set_text(_format_info_text(view_data))
         if redraw:
@@ -355,18 +376,18 @@ class MotorChainInteractiveViewer:
         return view_data
 
     def _draw_centerlines(self, view_data: MotorChainViewData) -> None:
-        if view_data.centerline.size:
+        if view_data.centerline_world.size:
             self.ax.plot(
-                view_data.centerline[:, 0],
-                view_data.centerline[:, 1],
-                view_data.centerline[:, 2],
+                view_data.centerline_world[:, 0],
+                view_data.centerline_world[:, 1],
+                view_data.centerline_world[:, 2],
                 color="0.20",
                 linewidth=1.0,
                 alpha=0.7,
                 label="centerline",
             )
         for index, (points, color) in enumerate(
-            zip(view_data.segment_centerlines, SEGMENT_COLORS, strict=True),
+            zip(view_data.segment_centerlines_world, SEGMENT_COLORS, strict=True),
             start=1,
         ):
             self.ax.plot(
@@ -380,17 +401,44 @@ class MotorChainInteractiveViewer:
             end = points[-1]
             self.ax.scatter(end[0], end[1], end[2], color=color, s=28)
 
-        base = view_data.centerline[0]
+        base = view_data.centerline_world[0]
         tip = view_data.tip_position
         self.ax.scatter(base[0], base[1], base[2], color="0.15", s=28, marker="s", label="base")
         self.ax.scatter(tip[0], tip[1], tip[2], color="black", s=55, marker="*", label="tip")
 
+    def _draw_frames(self, view_data: MotorChainViewData) -> None:
+        total_length = float(np.sum(self.params.segment_lengths))
+        scale = max(total_length * 0.12, 0.005)
+        self._draw_frame(self.arm_context.world_mount_pose.as_matrix(), scale, "mount")
+        self._draw_frame(view_data.tip_pose_world, scale, "tip")
+
+    def _draw_frame(self, transform: np.ndarray, scale: float, label: str) -> None:
+        origin = transform[:3, 3]
+        axes = transform[:3, :3]
+        colors = ("tab:red", "tab:green", "tab:blue")
+        names = ("x", "y", "z")
+        for axis_index, color, name in zip(range(3), colors, names, strict=True):
+            direction = axes[:, axis_index] * scale
+            self.ax.quiver(
+                origin[0],
+                origin[1],
+                origin[2],
+                direction[0],
+                direction[1],
+                direction[2],
+                color=color,
+                linewidth=1.1,
+                arrow_length_ratio=0.25,
+            )
+            end = origin + direction * 1.12
+            self.ax.text(end[0], end[1], end[2], f"{label}_{name}", color=color, fontsize=8)
+
     def _format_axes(self, view_data: MotorChainViewData) -> None:
-        apply_axis_limits(self.ax, self.axis_limits)
+        apply_axis_limits(self.ax, view_data.axis_limits_world)
         self.ax.set_xlabel("x [m]")
         self.ax.set_ylabel("y [m]")
         self.ax.set_zlabel("z [m]")
-        self.ax.set_title("Motor -> tendon -> PCC shape")
+        self.ax.set_title("Motor -> tendon -> PCC shape in world frame")
         self.ax.grid(True)
         self.ax.view_init(elev=24, azim=-60)
         self.ax.set_box_aspect((1.0, 1.0, 1.4))
@@ -503,3 +551,20 @@ def _format_segment_rows(values: np.ndarray) -> list[str]:
             )
         )
     return rows
+
+
+def _world_axis_limits(
+    points: np.ndarray,
+    params: ThreeSegmentRobotParams,
+) -> dict[str, tuple[float, float]]:
+    all_points = np.asarray(points, dtype=float)
+    mins = np.min(all_points, axis=0)
+    maxs = np.max(all_points, axis=0)
+    center = 0.5 * (mins + maxs)
+    total_length = float(np.sum(params.segment_lengths))
+    half_span = max(0.55 * total_length, 0.6 * float(np.max(maxs - mins)), 0.01)
+    return {
+        "x": (center[0] - half_span, center[0] + half_span),
+        "y": (center[1] - half_span, center[1] + half_span),
+        "z": (center[2] - half_span, center[2] + half_span),
+    }

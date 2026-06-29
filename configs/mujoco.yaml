@@ -2,6 +2,7 @@ schema_version: 1
 backend: mujoco
 enabled: true
 robot_config_path: robot_3seg.yaml
+mobile_base_config_path: ../configs/robots/mobile_base_pose.yaml
 xml_path: ../assets/mujoco/three_segment_arm.xml
 tendon_xml_path: ../assets/mujoco/three_segment_arm_tendon.xml
 generated_xml_path: ../assets/mujoco/three_segment_arm_with_visuals.xml

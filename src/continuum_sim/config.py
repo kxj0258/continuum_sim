@@ -257,6 +257,7 @@ class MujocoConfig:
 
     path: Path
     robot_config_path: Path
+    mobile_base_config_path: Path | None
     xml_path: Path
     tendon_xml_path: Path
     generated_xml_path: Path
@@ -309,6 +310,7 @@ def load_mujoco_config(
     if not robot_config_path.is_file():
         raise FileNotFoundError(f"Robot config file does not exist: {robot_config_path}")
     physical_tendon_count = _load_robot_physical_tendon_count(robot_config_path)
+    mobile_base_config_path = _optional_config_path(config_path, raw.get("mobile_base_config_path"))
 
     xml_path = _resolve_path(config_path, _required(raw, "xml_path"))
     if require_xml and not xml_path.is_file():
@@ -356,6 +358,7 @@ def load_mujoco_config(
     return MujocoConfig(
         path=config_path,
         robot_config_path=robot_config_path,
+        mobile_base_config_path=mobile_base_config_path,
         xml_path=xml_path,
         tendon_xml_path=tendon_xml_path,
         generated_xml_path=generated_xml_path,
@@ -608,6 +611,15 @@ def _load_robot_physical_tendon_count(robot_config_path: Path) -> int:
             f"{declared_count} and {physical_tendon_count}."
         )
     return physical_tendon_count
+
+
+def _optional_config_path(config_path: Path, raw_value: object) -> Path | None:
+    if raw_value in (None, ""):
+        return None
+    resolved = _resolve_path(config_path, raw_value)
+    if not resolved.is_file():
+        raise FileNotFoundError(f"Optional config file does not exist: {resolved}")
+    return resolved
 
 
 def _load_mujoco_joint_config(raw: dict[str, Any]) -> MujocoJointConfig:

@@ -2,6 +2,7 @@ schema_version: 1
 backend: pcc
 enabled: true
 robot_config_path: robot_3seg.yaml
+mobile_base_config_path: ../configs/robots/mobile_base_pose.yaml
 model:
   assumption: piecewise_constant_curvature
   segment_count: 3

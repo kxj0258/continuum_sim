@@ -119,6 +119,7 @@ def run_mujoco_wiping(
         task_config.tool.to_xml_config(),
         task_config.scene.generated_xml_path,
         tip_site_name=mujoco_config.site_names.tip,
+        mobile_base_config_path=mujoco_config.mobile_base_config_path,
         offscreen_size=(
             mujoco_config.rendering.offscreen_width,
             mujoco_config.rendering.offscreen_height,

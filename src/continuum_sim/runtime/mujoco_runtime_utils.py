@@ -54,6 +54,34 @@ def _resolve_visual_xml_path(config, use_segment_visuals: bool) -> Path | None:
     return visual_xml_path
 
 
+def resolve_runtime_xml_path(config, use_segment_visuals: bool) -> Path:
+    """Return the runtime XML path, wrapping the arm under a mobile base when configured."""
+    visual_xml_path = _resolve_visual_xml_path(config, use_segment_visuals)
+    if visual_xml_path is not None:
+        base_xml_path = visual_xml_path
+    elif config.control_mode == "position_joint":
+        base_xml_path = config.xml_path
+    elif config.control_mode == "tendon_position":
+        base_xml_path = config.tendon_xml_path
+    else:
+        raise ValueError(f"Unsupported MuJoCo control_mode {config.control_mode!r}.")
+    if config.mobile_base_config_path is None:
+        return base_xml_path
+    from continuum_sim.scenes.scene_builder import inject_mobile_base_wrapper
+
+    output_path = _mobile_base_wrapped_xml_path(base_xml_path)
+    return inject_mobile_base_wrapper(
+        base_xml_path,
+        output_path,
+        config.mobile_base_config_path,
+    )
+
+
+def _mobile_base_wrapped_xml_path(base_xml_path: str | Path) -> Path:
+    path = Path(base_xml_path).resolve()
+    return path.with_name(f"{path.stem}_mobile_base{path.suffix}")
+
+
 def _configure_viewer_groups(viewer, config, show_collision_geoms: bool) -> None:
     opt = getattr(viewer, "opt", None)
     if opt is None or not hasattr(opt, "geomgroup"):

@@ -41,6 +41,18 @@ from continuum_sim.control.navigation_controller import (
     compute_navigation_motor_velocity_command,
     compute_navigation_motor_velocity_command_from_observation,
 )
+from continuum_sim.control.mobile_base_controller import (
+    MobileBaseCommand,
+    MobileBaseState,
+    WholeBodyCommand,
+    clamp_pose_to_limits,
+    clip_base_twist,
+    integrate_base_pose,
+    reset_mobile_base_state,
+    resolve_mobile_base_command,
+    set_mobile_base_locked,
+    zero_mobile_base_command,
+)
 
 __all__ = [
     "ContactMeasurement",
@@ -51,9 +63,13 @@ __all__ = [
     "EngineCleaningController",
     "EngineCleaningControllerGains",
     "EngineCleaningFeedback",
+    "MobileBaseCommand",
+    "MobileBaseState",
     "TrackingResult",
+    "WholeBodyCommand",
     "build_engine_cleaning_gains_from_config",
     "centerline_point_motor_jacobian",
+    "clamp_pose_to_limits",
     "compute_motor_velocity_command",
     "compute_motor_velocity_command_from_observation",
     "compute_navigation_motor_velocity_command",
@@ -65,9 +81,15 @@ __all__ = [
     "cbf_lower_bound",
     "damped_least_squares",
     "desired_hybrid_tip_velocity",
+    "clip_base_twist",
+    "integrate_base_pose",
     "limit_tcp_velocity",
     "load_engine_cleaning_controller_config",
+    "reset_mobile_base_state",
+    "resolve_mobile_base_command",
+    "set_mobile_base_locked",
     "solve_cbf_qp_velocity",
     "simulate_position_tracking",
     "validate_engine_cleaning_controller_config",
+    "zero_mobile_base_command",
 ]

@@ -8,6 +8,7 @@ import numpy as np
 
 from continuum_sim.control.differential_ik import TrackingResult
 from continuum_sim.kinematics.pcc import forward_kinematics
+from continuum_sim.model.mobile_base_context import MobileBaseArmContext
 from continuum_sim.model.robot_params import ThreeSegmentRobotParams
 
 
@@ -60,9 +61,14 @@ def make_figure_eight_trajectory(
 def plot_tracking_result(
     result: TrackingResult,
     params: ThreeSegmentRobotParams | None = None,
+    *,
+    arm_context: MobileBaseArmContext | None = None,
 ) -> plt.Figure:
     """Plot target/actual tip trajectory, error, motor velocity, and position."""
     _validate_tracking_result(result)
+    context = arm_context or MobileBaseArmContext.identity()
+    target_position_world = context.local_points_to_world(result.target_position)
+    tip_position_world = context.local_points_to_world(result.tip_position)
     fig = plt.figure(figsize=(13.0, 9.0))
     trajectory_ax = fig.add_subplot(2, 2, 1, projection="3d")
     error_ax = fig.add_subplot(2, 2, 2)
@@ -70,39 +76,44 @@ def plot_tracking_result(
     position_ax = fig.add_subplot(2, 2, 4)
 
     trajectory_ax.plot(
-        result.target_position[:, 0],
-        result.target_position[:, 1],
-        result.target_position[:, 2],
+        target_position_world[:, 0],
+        target_position_world[:, 1],
+        target_position_world[:, 2],
         color="tab:orange",
         linestyle="--",
         linewidth=1.8,
         label="target",
     )
     trajectory_ax.plot(
-        result.tip_position[:, 0],
-        result.tip_position[:, 1],
-        result.tip_position[:, 2],
+        tip_position_world[:, 0],
+        tip_position_world[:, 1],
+        tip_position_world[:, 2],
         color="tab:blue",
         linewidth=1.8,
         label="tip",
     )
     trajectory_ax.scatter(
-        result.target_position[0, 0],
-        result.target_position[0, 1],
-        result.target_position[0, 2],
+        target_position_world[0, 0],
+        target_position_world[0, 1],
+        target_position_world[0, 2],
         color="tab:orange",
         s=26,
         marker="o",
     )
     trajectory_ax.scatter(
-        result.tip_position[-1, 0],
-        result.tip_position[-1, 1],
-        result.tip_position[-1, 2],
+        tip_position_world[-1, 0],
+        tip_position_world[-1, 1],
+        tip_position_world[-1, 2],
         color="black",
         s=36,
         marker="*",
     )
-    _format_trajectory_axes(trajectory_ax, result, params)
+    _format_trajectory_axes(
+        trajectory_ax,
+        target_position_world,
+        tip_position_world,
+        params,
+    )
 
     error_ax.plot(result.time, result.error_norm, color="tab:red", linewidth=1.6)
     error_ax.set_title("Tip position error")
@@ -135,6 +146,7 @@ def animate_tracking_result(
     samples_per_segment: int = 30,
     interval_ms: int = 50,
     stride: int = 1,
+    arm_context: MobileBaseArmContext | None = None,
 ) -> tuple[plt.Figure, matplotlib.animation.FuncAnimation]:
     """Animate the offline tracking process in a matplotlib 3D window."""
     _validate_tracking_result(result)
@@ -145,6 +157,7 @@ def animate_tracking_result(
     if stride <= 0:
         raise ValueError(f"stride must be positive, got {stride}.")
 
+    context = arm_context or MobileBaseArmContext.identity()
     frame_indices = np.arange(0, result.time.shape[0], stride, dtype=int)
     if frame_indices[-1] != result.time.shape[0] - 1:
         frame_indices = np.append(frame_indices, result.time.shape[0] - 1)
@@ -158,17 +171,25 @@ def animate_tracking_result(
                 params,
                 samples_per_segment=samples_per_segment,
             )
-            centerline_cache[frame] = fk.centerline.copy()
+            centerline_cache[frame] = context.local_points_to_world(fk.centerline)
         return centerline_cache[frame]
 
-    axis_limits = _animation_axis_limits(result, params, frame_indices, centerline_for_frame)
+    target_position_world = context.local_points_to_world(result.target_position)
+    tip_position_world = context.local_points_to_world(result.tip_position)
+    axis_limits = _animation_axis_limits(
+        target_position_world,
+        tip_position_world,
+        params,
+        frame_indices,
+        centerline_for_frame,
+    )
     fig = plt.figure(figsize=(8.5, 7.0))
     axis = fig.add_subplot(1, 1, 1, projection="3d")
 
     axis.plot(
-        result.target_position[:, 0],
-        result.target_position[:, 1],
-        result.target_position[:, 2],
+        target_position_world[:, 0],
+        target_position_world[:, 1],
+        target_position_world[:, 2],
         color="tab:orange",
         linestyle="--",
         linewidth=1.6,
@@ -204,7 +225,7 @@ def animate_tracking_result(
     axis.set_xlabel("x [m]")
     axis.set_ylabel("y [m]")
     axis.set_zlabel("z [m]")
-    axis.set_title("PCC trajectory tracking replay")
+    axis.set_title("PCC trajectory tracking replay in world frame")
     axis.grid(True)
     axis.legend(loc="upper left")
     axis.view_init(elev=24, azim=-60)
@@ -212,9 +233,9 @@ def animate_tracking_result(
 
     def update(frame: int):
         centerline = centerline_for_frame(frame)
-        actual = result.tip_position[: frame + 1]
-        target = result.target_position[frame]
-        tip = result.tip_position[frame]
+        actual = tip_position_world[: frame + 1]
+        target = target_position_world[frame]
+        tip = tip_position_world[frame]
 
         actual_line.set_data(actual[:, 0], actual[:, 1])
         actual_line.set_3d_properties(actual[:, 2])
@@ -242,10 +263,11 @@ def animate_tracking_result(
 
 def _format_trajectory_axes(
     axis,
-    result: TrackingResult,
+    target_position: np.ndarray,
+    tip_position: np.ndarray,
     params: ThreeSegmentRobotParams | None,
 ) -> None:
-    all_points = np.vstack((result.target_position, result.tip_position))
+    all_points = np.vstack((target_position, tip_position))
     xy_extent = float(np.max(np.abs(all_points[:, :2]))) if all_points.size else 0.01
     z_max = float(np.max(all_points[:, 2])) if all_points.size else 0.01
     if params is not None:
@@ -257,14 +279,15 @@ def _format_trajectory_axes(
     axis.set_xlabel("x [m]")
     axis.set_ylabel("y [m]")
     axis.set_zlabel("z [m]")
-    axis.set_title("Target and actual tip trajectory")
+    axis.set_title("Target and actual tip trajectory in world frame")
     axis.legend(loc="upper left")
     axis.grid(True)
     axis.set_box_aspect((1.0, 1.0, 1.2))
 
 
 def _animation_axis_limits(
-    result: TrackingResult,
+    target_position: np.ndarray,
+    tip_position: np.ndarray,
     params: ThreeSegmentRobotParams,
     frame_indices: np.ndarray,
     centerline_for_frame,
@@ -272,8 +295,8 @@ def _animation_axis_limits(
     centerlines = [centerline_for_frame(int(frame)) for frame in frame_indices]
     all_points = np.vstack(
         (
-            result.target_position,
-            result.tip_position,
+            target_position,
+            tip_position,
             *centerlines,
         )
     )

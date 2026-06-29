@@ -1,19 +1,35 @@
 schema_version: 1
-mobile_base:
-  type: prescribed_pose
-  pose:
-    position: [0.0, -0.4, 0.2]
-    quat: [1.0, 0.0, 0.0, 0.0]
-  limits:
-    xyz_min: [-0.5, -0.8, 0.0]
-    xyz_max: [0.5, 0.2, 0.8]
-    max_linear_speed: 0.05
-    max_angular_speed: 0.3
+name: mobile_base_pose
 
-mount:
-  name: continuum_mount
-  parent_frame: mobile_base
-  child_frame: continuum_base
+mobile_base:
+  name: mobile_base
+  type: prescribed_pose
+  frame: world
   pose:
-    position: [0.0, 0.0, 0.0]
-    quat: [1.0, 0.0, 0.0, 0.0]
+    position_m: [0.0, 0.0, 0.0]
+    quat_wxyz: [1.0, 0.0, 0.0, 0.0]
+  limits:
+    position_min_m: [-1.0, -1.0, -1.0]
+    position_max_m: [1.0, 1.0, 1.0]
+    rpy_min_deg: [-180.0, -180.0, -180.0]
+    rpy_max_deg: [180.0, 180.0, 180.0]
+    max_linear_speed: 0.05
+    max_angular_speed: 0.30
+  manual_control:
+    translation_step_m: 0.01
+    rotation_step_deg: 2.0
+    fine_translation_step_m: 0.002
+    fine_rotation_step_deg: 0.5
+  visualization:
+    enabled: true
+    type: box
+    size_m: [0.10, 0.06, 0.04]
+    rgba: [0.35, 0.35, 0.35, 1.0]
+
+mounts:
+  arm_mount:
+    name: continuum_arm_mount
+    parent_frame: mobile_base
+    child_frame: continuum_arm_root
+    position_m: [0.0, 0.0, 0.04]
+    quat_wxyz: [1.0, 0.0, 0.0, 0.0]

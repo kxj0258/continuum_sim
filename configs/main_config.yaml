@@ -1,5 +1,6 @@
 schema_version: 1
 robot_config: configs/robot_3seg.yaml
+mobile_base_config: configs/robots/mobile_base_pose.yaml
 pcc_backend_config: configs/pcc.yaml
 mujoco_backend_config: configs/mujoco.yaml
 pcc_tracking_config: configs/tasks/pcc_trajectory_tracking.yaml

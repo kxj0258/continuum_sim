@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from continuum_sim.backends.base_types import BackendState
+from continuum_sim.control.mobile_base_controller import (
+    MobileBaseState,
+    reset_mobile_base_state,
+    set_mobile_base_locked,
+)
 from continuum_sim.model import ThreeSegmentRobotParams
 from continuum_sim.runtime import mujoco_runtime_utils as _mujoco_runtime_utils
 
@@ -22,6 +27,9 @@ class ViewerControlState:
     speed: float = 1.0
     replay_requested: bool = False
     replay_index: int = 0
+    base_state: MobileBaseState = field(default_factory=reset_mobile_base_state)
+    arm_locked: bool = False
+    fine_motion: bool = False
 
 
 def _create_tendon_live_panel(
@@ -129,6 +137,10 @@ def _handle_viewer_key(control: ViewerControlState, keycode: int) -> None:
     elif key == "r":
         control.replay_requested = True
         control.replay_index = 0
+    elif key == "b":
+        control.base_state = set_mobile_base_locked(control.base_state, not control.base_state.locked)
+    elif key == "h":
+        control.base_state = reset_mobile_base_state()
 
 
 def _maybe_hold_tracking_viewer_open_after_run(

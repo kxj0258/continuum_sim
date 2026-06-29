@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
+from continuum_sim.model.mount_frame import load_mobile_base_mount_config
 from continuum_sim.scenes.scene_config import (
     NavigationSceneConfig,
     ScenePrimitiveConfig,
@@ -39,6 +40,7 @@ def build_mujoco_scene_xml(
     output_xml_path: str | Path,
     *,
     offscreen_size: tuple[int, int] | None = None,
+    mobile_base_config_path: str | Path | None = None,
 ) -> Path:
     """Inject structured scene geoms into a base MuJoCo XML file."""
 
@@ -55,6 +57,11 @@ def build_mujoco_scene_xml(
     _rebase_asset_file_paths(root, base_path.parent, output_path.parent)
     if offscreen_size is not None:
         _set_offscreen_framebuffer(root, offscreen_size)
+    if mobile_base_config_path is not None:
+        _attach_mobile_base_wrapper(
+            root,
+            mobile_base_config_path,
+        )
 
     scene_body = ET.SubElement(
         worldbody,
@@ -94,6 +101,7 @@ def build_mujoco_wiping_xml(
     *,
     tip_site_name: str = "tip",
     offscreen_size: tuple[int, int] | None = None,
+    mobile_base_config_path: str | Path | None = None,
 ) -> Path:
     """Inject structured scene geoms and a tip-mounted wiping tool."""
 
@@ -102,6 +110,7 @@ def build_mujoco_wiping_xml(
         scene_config,
         output_xml_path,
         offscreen_size=offscreen_size,
+        mobile_base_config_path=mobile_base_config_path,
     )
     inject_tool_contact_pad(
         output_path,
@@ -109,6 +118,28 @@ def build_mujoco_wiping_xml(
         tool_config,
         tip_site_name=tip_site_name,
     )
+    return output_path
+
+
+def inject_mobile_base_wrapper(
+    base_xml_path: str | Path,
+    output_xml_path: str | Path,
+    mobile_base_config_path: str | Path,
+) -> Path:
+    """Wrap the arm root under an optional mobile-base body."""
+
+    base_path = Path(base_xml_path).resolve()
+    output_path = Path(output_xml_path).resolve()
+    if not base_path.is_file():
+        raise FileNotFoundError(f"Base MuJoCo XML does not exist: {base_path}")
+
+    tree = ET.parse(base_path)
+    root = tree.getroot()
+    _rebase_asset_file_paths(root, base_path.parent, output_path.parent)
+    _attach_mobile_base_wrapper(root, mobile_base_config_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    _indent(root)
+    tree.write(output_path, encoding="utf-8", xml_declaration=False)
     return output_path
 
 
@@ -130,6 +161,108 @@ def _set_offscreen_framebuffer(
         visual.insert(0, global_visual)
     global_visual.set("offwidth", str(int(width)))
     global_visual.set("offheight", str(int(height)))
+
+
+def _attach_mobile_base_wrapper(
+    root: ET.Element,
+    mobile_base_config_path: str | Path,
+) -> None:
+    config = load_mobile_base_mount_config(mobile_base_config_path)
+    worldbody = root.find("worldbody")
+    if worldbody is None:
+        raise ValueError("Base XML is missing a <worldbody> section.")
+    robot_root = _find_robot_root_body(worldbody)
+    robot_root_pose = _body_pose_from_xml(robot_root)
+    primary_mount = config.mount
+    wrapped_pose = primary_mount.pose.compose(robot_root_pose)
+
+    worldbody.remove(robot_root)
+    mobile_base_body = ET.Element(
+        "body",
+        {
+            "name": "mobile_base",
+            "pos": _format_vec(config.mobile_base.pose.position),
+            "quat": _format_tuple(tuple(float(value) for value in config.mobile_base.pose.quat)),
+        },
+    )
+    ET.SubElement(
+        mobile_base_body,
+        "site",
+        {
+            "name": "mobile_base_frame",
+            "type": "sphere",
+            "pos": "0 0 0",
+            "size": "0.002",
+            "rgba": "0.2 0.6 1 0.8",
+            "group": "2",
+        },
+    )
+    if config.mobile_base.visualization.enabled:
+        _append_mobile_base_geom(mobile_base_body, config)
+    for mount in config.mounts.values():
+        ET.SubElement(
+            mobile_base_body,
+            "site",
+            {
+                "name": mount.name,
+                "type": "sphere",
+                "pos": _format_vec(mount.pose.position),
+                "quat": _format_tuple(tuple(float(value) for value in mount.pose.quat)),
+                "size": "0.002",
+                "rgba": "0.95 0.55 0.12 0.85",
+                "group": "2",
+            },
+        )
+
+    robot_root.set("pos", _format_vec(wrapped_pose.position))
+    robot_root.set("quat", _format_tuple(tuple(float(value) for value in wrapped_pose.quat)))
+    mobile_base_body.append(robot_root)
+    worldbody.insert(0, mobile_base_body)
+
+
+def _append_mobile_base_geom(parent: ET.Element, config) -> None:
+    visualization = config.mobile_base.visualization
+    if visualization.type != "box":
+        raise ValueError(
+            "Only mobile_base.visualization.type='box' is supported in this phase, "
+            f"got {visualization.type!r}."
+        )
+    half_size = 0.5 * np.asarray(visualization.size_m, dtype=float)
+    ET.SubElement(
+        parent,
+        "geom",
+        {
+            "name": "mobile_base_box",
+            "type": "box",
+            "size": _format_vec(half_size),
+            "rgba": _format_tuple(visualization.rgba),
+            "contype": "0",
+            "conaffinity": "0",
+            "group": "2",
+        },
+    )
+
+
+def _find_robot_root_body(worldbody: ET.Element) -> ET.Element:
+    top_level_bodies = [child for child in worldbody if child.tag == "body"]
+    if not top_level_bodies:
+        raise ValueError("Base XML does not contain any top-level <body> elements.")
+    for body in top_level_bodies:
+        if body.attrib.get("name") == "base":
+            return body
+    return top_level_bodies[0]
+
+
+def _body_pose_from_xml(body: ET.Element):
+    from continuum_sim.model.base_pose import Pose6D
+
+    pos = _parse_vec(body.attrib.get("pos", "0 0 0"))
+    quat = np.fromstring(body.attrib.get("quat", "1 0 0 0"), sep=" ", dtype=float)
+    if quat.shape != (4,):
+        raise ValueError(
+            f"Expected body quaternion with 4 entries, got {body.attrib.get('quat', '')!r}."
+        )
+    return Pose6D(position=pos, quat=quat)
 
 
 def inject_tool_contact_pad(

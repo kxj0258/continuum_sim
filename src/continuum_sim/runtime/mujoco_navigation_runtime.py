@@ -89,6 +89,7 @@ def run_mujoco_navigation(
         _base_xml_path(mujoco_config),
         scene_config,
         task_config.generated_scene_xml_path,
+        mobile_base_config_path=mujoco_config.mobile_base_config_path,
     )
 
     show_viewer = mujoco_config.viewer.show if show is None else show

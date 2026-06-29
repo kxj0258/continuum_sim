@@ -10,10 +10,10 @@ from matplotlib.widgets import Button, RadioButtons, Slider
 
 from continuum_sim.kinematics.pcc import PCCForwardKinematicsResult, forward_kinematics
 from continuum_sim.kinematics.tendon_mapping import q_to_tendon_delta
+from continuum_sim.model.mobile_base_context import MobileBaseArmContext
 from continuum_sim.model.robot_params import ThreeSegmentRobotParams
 from continuum_sim.visualization.axis_limits import (
     apply_axis_limits,
-    default_robot_axis_limits,
 )
 
 Q_LABELS = ("kx1", "ky1", "eps1", "kx2", "ky2", "eps2", "kx3", "ky3", "eps3")
@@ -28,11 +28,14 @@ class PCCViewData:
     q: np.ndarray
     tendon_delta: np.ndarray
     fk: PCCForwardKinematicsResult
-    axis_limit: float
+    centerline_world: np.ndarray
+    segment_centerlines_world: tuple[np.ndarray, ...]
+    tip_pose_world: np.ndarray
+    axis_limits_world: dict[str, tuple[float, float]]
 
     @property
     def tip_position(self) -> np.ndarray:
-        return self.fk.tip_pose[:3, 3]
+        return self.tip_pose_world[:3, 3]
 
 
 def named_q(name: str) -> np.ndarray:
@@ -53,6 +56,7 @@ def compute_view_data(
     params: ThreeSegmentRobotParams,
     *,
     samples_per_segment: int = 40,
+    arm_context: MobileBaseArmContext | None = None,
 ) -> PCCViewData:
     """Compute FK, tendon deltas, and plot scale for a q vector."""
     q_array = np.asarray(q, dtype=float)
@@ -60,10 +64,26 @@ def compute_view_data(
         raise ValueError(f"Expected q with shape (9,), got {q_array.shape}.")
     fk = forward_kinematics(q_array, params, samples_per_segment=samples_per_segment)
     tendon_delta = q_to_tendon_delta(q_array, params)
-    total_length = float(np.sum(params.segment_lengths))
-    centerline_extent = float(np.max(np.abs(fk.centerline))) if fk.centerline.size else 0.0
-    axis_limit = max(total_length * 0.75, centerline_extent * 1.2, 0.01)
-    return PCCViewData(q=q_array.copy(), tendon_delta=tendon_delta, fk=fk, axis_limit=axis_limit)
+    context = arm_context or MobileBaseArmContext.identity()
+    centerline_world = context.local_points_to_world(fk.centerline)
+    segment_centerlines_world = tuple(
+        context.local_points_to_world(points)
+        for points in fk.segment_centerlines
+    )
+    tip_pose_world = context.local_pose_to_world(Pose6D.from_matrix(fk.tip_pose)).as_matrix()
+    axis_limits_world = _world_axis_limits(
+        np.vstack((centerline_world, tip_pose_world[:3, 3][None, :])),
+        params,
+    )
+    return PCCViewData(
+        q=q_array.copy(),
+        tendon_delta=tendon_delta,
+        fk=fk,
+        centerline_world=centerline_world,
+        segment_centerlines_world=segment_centerlines_world,
+        tip_pose_world=tip_pose_world,
+        axis_limits_world=axis_limits_world,
+    )
 
 
 class PCCInteractiveViewer:
@@ -75,10 +95,11 @@ class PCCInteractiveViewer:
         *,
         initial_q: np.ndarray | None = None,
         samples_per_segment: int = 40,
+        arm_context: MobileBaseArmContext | None = None,
     ) -> None:
         self.params = params
         self.samples_per_segment = samples_per_segment
-        self.axis_limits = default_robot_axis_limits(params)
+        self.arm_context = arm_context or MobileBaseArmContext.identity()
         self.q = np.asarray(initial_q if initial_q is not None else named_q("straight"), dtype=float)
         if self.q.shape != (9,):
             raise ValueError(f"Expected initial_q with shape (9,), got {self.q.shape}.")
@@ -167,6 +188,7 @@ class PCCInteractiveViewer:
             self.q,
             self.params,
             samples_per_segment=self.samples_per_segment,
+            arm_context=self.arm_context,
         )
         self.ax.cla()
         self._draw_centerlines(view_data)
@@ -178,7 +200,7 @@ class PCCInteractiveViewer:
         return view_data
 
     def _draw_centerlines(self, view_data: PCCViewData) -> None:
-        for points, color in zip(view_data.fk.segment_centerlines, SEGMENT_COLORS, strict=True):
+        for points, color in zip(view_data.segment_centerlines_world, SEGMENT_COLORS, strict=True):
             self.ax.plot(points[:, 0], points[:, 1], points[:, 2], color=color, linewidth=2.5)
             self.ax.scatter(points[0, 0], points[0, 1], points[0, 2], color=color, s=18)
         tip = view_data.tip_position
@@ -187,8 +209,8 @@ class PCCInteractiveViewer:
     def _draw_frames(self, view_data: PCCViewData) -> None:
         total_length = float(np.sum(self.params.segment_lengths))
         scale = max(total_length * 0.12, 0.005)
-        self._draw_frame(np.eye(4), scale, "base")
-        self._draw_frame(view_data.fk.tip_pose, scale, "tip")
+        self._draw_frame(self.arm_context.world_mount_pose.as_matrix(), scale, "mount")
+        self._draw_frame(view_data.tip_pose_world, scale, "tip")
 
     def _draw_frame(self, transform: np.ndarray, scale: float, label: str) -> None:
         origin = transform[:3, 3]
@@ -212,11 +234,11 @@ class PCCInteractiveViewer:
             self.ax.text(end[0], end[1], end[2], f"{label}_{name}", color=color, fontsize=8)
 
     def _format_axes(self, view_data: PCCViewData) -> None:
-        apply_axis_limits(self.ax, self.axis_limits)
+        apply_axis_limits(self.ax, view_data.axis_limits_world)
         self.ax.set_xlabel("x [m]")
         self.ax.set_ylabel("y [m]")
         self.ax.set_zlabel("z [m]")
-        self.ax.set_title("PCC centerline")
+        self.ax.set_title("PCC centerline in world frame")
         self.ax.grid(True)
         self.ax.view_init(elev=24, azim=-60)
         self.ax.set_box_aspect((1.0, 1.0, 1.4))
@@ -235,7 +257,7 @@ def _format_info_text(view_data: PCCViewData) -> str:
     delta_m = view_data.tendon_delta
     delta_mm = delta_m * 1000.0
     lines = [
-        "Tip position [m]",
+        "World tip position [m]",
         f"  x={tip[0]: .5f}  y={tip[1]: .5f}  z={tip[2]: .5f}",
         "",
         "q = [kx, ky, eps] x 3",
@@ -259,3 +281,23 @@ def _format_info_text(view_data: PCCViewData) -> str:
             "        [{: .2f}, {: .2f}, {: .2f}] mm".format(*segment_mm)
         )
     return "\n".join(lines)
+
+
+from continuum_sim.model.base_pose import Pose6D
+
+
+def _world_axis_limits(
+    points: np.ndarray,
+    params: ThreeSegmentRobotParams,
+) -> dict[str, tuple[float, float]]:
+    all_points = np.asarray(points, dtype=float)
+    mins = np.min(all_points, axis=0)
+    maxs = np.max(all_points, axis=0)
+    center = 0.5 * (mins + maxs)
+    total_length = float(np.sum(params.segment_lengths))
+    half_span = max(0.55 * total_length, 0.6 * float(np.max(maxs - mins)), 0.01)
+    return {
+        "x": (center[0] - half_span, center[0] + half_span),
+        "y": (center[1] - half_span, center[1] + half_span),
+        "z": (center[2] - half_span, center[2] + half_span),
+    }

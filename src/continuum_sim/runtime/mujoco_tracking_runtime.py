@@ -23,6 +23,7 @@ from continuum_sim.control import (
     compute_motor_velocity_command_from_observation,
 )
 from continuum_sim.model import (
+    MobileBaseArmContext,
     ThreeSegmentRobotParams,
     load_physical_tendons_from_yaml,
 )
@@ -98,7 +99,9 @@ def run_mujoco_trajectory_tracking(
     params = ThreeSegmentRobotParams.from_yaml(task_config.robot_config_path)
     physical_tendons = load_physical_tendons_from_yaml(task_config.robot_config_path)
     motor_params = load_motor_params_from_yaml(task_config.robot_config_path)
-    target_positions = build_target_positions(task_config, params)
+    arm_context = MobileBaseArmContext.from_config_path(mujoco_config.mobile_base_config_path)
+    target_positions_local = build_target_positions(task_config, params)
+    target_positions_world = arm_context.local_points_to_world(target_positions_local)
 
     controller_config = DifferentialIKConfig(
         dt=task_config.simulation.dt,
@@ -112,12 +115,7 @@ def run_mujoco_trajectory_tracking(
         controller_config.dt,
         mujoco_config.solver.timestep,
     )
-    override_xml_path = _resolve_visual_xml_path(mujoco_config, use_visuals)
-    scene_xml_path = (
-        Path(override_xml_path).resolve()
-        if override_xml_path is not None
-        else _base_xml_path(mujoco_config)
-    )
+    scene_xml_path = _resolve_runtime_xml_path(mujoco_config, use_visuals)
     backend = MujocoBackend.from_config(
         mujoco_config,
         override_xml_path=scene_xml_path,
@@ -168,10 +166,11 @@ def run_mujoco_trajectory_tracking(
             if target_advance_mode == "time":
                 waypoint_index = _time_advanced_target_index(
                     step_index,
-                    len(target_positions),
+                    len(target_positions_local),
                     controller_config.max_steps,
                 )
-            current_target = target_positions[waypoint_index]
+            current_target_local = target_positions_local[waypoint_index]
+            current_target_world = target_positions_world[waypoint_index]
             if (
                 viewer is not None
                 and mujoco_module is not None
@@ -186,7 +185,7 @@ def run_mujoco_trajectory_tracking(
                     mujoco_module,
                     tendon_overlay,
                     mujoco_config.viewer.overlays,
-                    current_target,
+                    current_target_world,
                     tip_trail,
                     target_trail,
                 )
@@ -200,7 +199,7 @@ def run_mujoco_trajectory_tracking(
                 controller_motor_position = motor_position.copy()
                 motor_velocity_cmd, info = compute_motor_velocity_command(
                     controller_motor_position,
-                    current_target,
+                    current_target_local,
                     params,
                     physical_tendons,
                     motor_params,
@@ -227,7 +226,7 @@ def run_mujoco_trajectory_tracking(
                     motor_velocity_cmd, info = compute_motor_velocity_command_from_observation(
                         observed_state.tip_pose[:3, 3],
                         tendon_delta,
-                        current_target,
+                        current_target_world,
                         params,
                         physical_tendons,
                         motor_params,
@@ -246,7 +245,7 @@ def run_mujoco_trajectory_tracking(
                     controller_motor_position = motor_position.copy()
                     motor_velocity_cmd, info = compute_motor_velocity_command(
                         controller_motor_position,
-                        current_target,
+                        current_target_local,
                         params,
                         physical_tendons,
                         motor_params,
@@ -277,9 +276,9 @@ def run_mujoco_trajectory_tracking(
             )
 
             tip_position = state.tip_pose[:3, 3]
-            error_norm = float(np.linalg.norm(current_target - tip_position))
+            error_norm = float(np.linalg.norm(current_target_world - tip_position))
             times.append(step_index * controller_config.dt)
-            target_history.append(current_target.copy())
+            target_history.append(current_target_world.copy())
             tip_pose_history.append(state.tip_pose.copy())
             segment_pose_history.append(state.segment_poses.copy())
             error_history.append(error_norm)
@@ -306,7 +305,7 @@ def run_mujoco_trajectory_tracking(
             )
             _append_trail_sample(
                 target_trail,
-                current_target,
+                current_target_world,
                 sample_index,
                 mujoco_config.viewer.overlays.trail_stride,
                 mujoco_config.viewer.overlays.trail_max_points,
@@ -331,7 +330,7 @@ def run_mujoco_trajectory_tracking(
                         mujoco_module,
                         tendon_overlay,
                         mujoco_config.viewer.overlays,
-                        current_target,
+                        current_target_world,
                         tip_trail,
                         target_trail,
                     )
@@ -359,7 +358,7 @@ def run_mujoco_trajectory_tracking(
                 mujoco_module,
                 tendon_overlay,
                 mujoco_config.viewer.overlays,
-                current_target,
+                current_target_world,
                 tip_trail,
                 target_trail,
             )
@@ -392,7 +391,7 @@ def run_mujoco_trajectory_tracking(
                     mujoco,
                     tendon_overlay,
                     mujoco_config.viewer.overlays,
-                    target_positions[waypoint_index],
+                    target_positions_world[waypoint_index],
                     tip_trail,
                     target_trail,
                 )
@@ -452,17 +451,6 @@ def _target_advance_mode(mode: str) -> str:
             f"target_advance_mode must be one of {TARGET_ADVANCE_MODES}, got {mode!r}."
         )
     return mode
-
-
-def _base_xml_path(config) -> Path:
-    visual_xml_path = _resolve_visual_xml_path(config, config.viewer.use_segment_visuals)
-    if visual_xml_path is not None:
-        return visual_xml_path
-    if config.control_mode == "position_joint":
-        return config.xml_path
-    if config.control_mode == "tendon_position":
-        return config.tendon_xml_path
-    raise ValueError(f"Unsupported MuJoCo control_mode {config.control_mode!r}.")
 
 
 def _time_advanced_target_index(
@@ -525,7 +513,7 @@ def _maybe_hold_tracking_viewer_open_after_run(
 
 
 TendonOverlayContext = _mujoco_runtime_utils.TendonOverlayContext
-_resolve_visual_xml_path = _mujoco_runtime_utils._resolve_visual_xml_path
+_resolve_runtime_xml_path = _mujoco_runtime_utils.resolve_runtime_xml_path
 _configure_viewer_groups = _mujoco_runtime_utils._configure_viewer_groups
 _configure_viewer_camera = _mujoco_runtime_utils._configure_viewer_camera
 compute_mujoco_control_substeps = _mujoco_runtime_utils.compute_mujoco_control_substeps

@@ -20,6 +20,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from continuum_sim.config import load_yaml  # noqa: E402
 from continuum_sim.scenes.engine_scene import (  # noqa: E402
+    effective_engine_frame_position,
     load_engine_scene_config,
     resolve_engine_asset_paths,
     validate_engine_scene_config,
@@ -185,6 +186,7 @@ def collect_engine_scene_diagnostics(
     resolved = resolve_engine_asset_paths(config, root_dir)
     scale = float(config.engine.scale)
     pose_position = _tuple3(config.engine.pose.position_m)
+    frame_pose_position = _tuple3(effective_engine_frame_position(config))
     pose_quat_wxyz = _tuple4(config.engine.pose.quat_wxyz)
     collision_mesh_offset_m = (
         _tuple3(config.engine.assets.collision_mesh_offset_m)
@@ -225,7 +227,7 @@ def collect_engine_scene_diagnostics(
     region_reports = _collect_region_reports(
         config.regions.values(),
         visual_report,
-        pose_position=pose_position,
+        pose_position=frame_pose_position,
         pose_quat_wxyz=pose_quat_wxyz,
     )
     collision_report = next((report for report in reports if report.asset_name == "collision_mesh"), None)
@@ -234,7 +236,7 @@ def collect_engine_scene_diagnostics(
         visual_report=visual_report,
         collision_report=collision_report,
         scale=scale,
-        pose_position=pose_position,
+        pose_position=frame_pose_position,
         pose_quat_wxyz=pose_quat_wxyz,
     )
     return EngineSceneDiagnostics(

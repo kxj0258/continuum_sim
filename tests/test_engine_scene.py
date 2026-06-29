@@ -28,6 +28,7 @@ def test_load_engine_scene_config_reads_engine_pose_scale_and_regions(tmp_path: 
     assert config.scene_type == "engine_cleaning"
     assert config.engine.scale == pytest.approx(0.001)
     assert config.engine.pose.position_m.tolist() == pytest.approx([0.35, 0.0, 0.12])
+    assert config.engine.pose.frame_offset_m.tolist() == pytest.approx([0.114155, 0.530382, 0.01])
     assert config.engine.pose.quat_wxyz.tolist() == pytest.approx([1.0, 0.0, 0.0, 0.0])
     assert tuple(config.regions) == (
         "entry_port",
@@ -52,17 +53,42 @@ def test_load_engine_scene_config_parses_region_fields(tmp_path: Path) -> None:
     assert forbidden_zone.size_m.tolist() == pytest.approx([0.08, 0.06, 0.04])
 
 
+def test_load_engine_scene_config_parses_exploration_start_and_paths(tmp_path: Path) -> None:
+    config = load_engine_scene_config(_write_precise_scene_config(tmp_path))
+
+    assert config.exploration_start is not None
+    assert config.exploration_start.frame == "engine"
+    assert config.exploration_start.point_m.tolist() == pytest.approx([0.442, 1.58169, 1.74693])
+    assert config.exploration_start.normal.tolist() == pytest.approx([0.0, -0.96436878, 0.26456163])
+    assert len(config.exploration_paths) == 1
+    assert config.exploration_paths[0].name == "nozzle_axis_entry"
+    assert config.exploration_paths[0].frame == "engine"
+
+
+def test_load_engine_scene_config_defaults_frame_offset_to_none(tmp_path: Path) -> None:
+    config_path = _write_precise_scene_config(tmp_path, include_world_offset=False)
+
+    config = load_engine_scene_config(config_path)
+
+    assert config.engine.pose.frame_offset_m is None
+
+
+def test_load_engine_scene_config_rejects_legacy_world_offset_field(tmp_path: Path) -> None:
+    config_path = _write_precise_scene_config(tmp_path, include_world_offset=False)
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    raw["engine"]["pose"]["world_offset_m"] = [0.114155, 0.530382, 0.01]
+    config_path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="world_offset_m.*frame_offset_m"):
+        load_engine_scene_config(config_path)
+
+
 def test_iter_engine_regions_preserves_named_region_order() -> None:
     config = load_engine_scene_config(SCENE_CONFIG)
 
     names = [name for name, _region in iter_engine_regions(config)]
 
-    assert names == [
-        "entry_port",
-        "inspection_roi",
-        "carbon_deposit_region",
-        "forbidden_zone",
-    ]
+    assert names == ["entry_port"]
 
 
 def test_validate_engine_scene_config_allows_missing_assets_when_not_strict(tmp_path: Path) -> None:
@@ -220,8 +246,14 @@ def _write_missing_asset_scene_config(tmp_path: Path) -> Path:
     return config_path
 
 
-def _write_precise_scene_config(tmp_path: Path) -> Path:
+def _write_precise_scene_config(tmp_path: Path, *, include_world_offset: bool = True) -> Path:
     config_path = tmp_path / "engine_scene.yaml"
+    pose = {
+        "position_m": [0.35, 0.0, 0.12],
+        "quat_wxyz": [1.0, 0.0, 0.0, 0.0],
+    }
+    if include_world_offset:
+        pose["frame_offset_m"] = [0.114155, 0.530382, 0.01]
     config_path.write_text(
         yaml.safe_dump(
             {
@@ -233,10 +265,7 @@ def _write_precise_scene_config(tmp_path: Path) -> Path:
                         "collision_mesh": "assets/placeholder/engine_collision.obj",
                     },
                     "scale": 0.001,
-                    "pose": {
-                        "position_m": [0.35, 0.0, 0.12],
-                        "quat_wxyz": [1.0, 0.0, 0.0, 0.0],
-                    },
+                    "pose": pose,
                 },
                 "regions": {
                     "entry_port": {
@@ -262,6 +291,26 @@ def _write_precise_scene_config(tmp_path: Path) -> Path:
                         "size_m": [0.08, 0.06, 0.04],
                     },
                 },
+                "exploration_start": {
+                    "frame": "engine",
+                    "point_m": [0.442, 1.58169, 1.74693],
+                    "normal": [0.0, -0.96436878, 0.26456163],
+                    "description": "Initial exploration start point.",
+                },
+                "exploration_paths": [
+                    {
+                        "name": "nozzle_axis_entry",
+                        "type": "polyline",
+                        "frame": "engine",
+                        "enabled": True,
+                        "points_m": [
+                            [0.442, 1.58169, 1.74693],
+                            [0.442, 0.37281, 2.07857],
+                        ],
+                        "radius_m": 0.008,
+                        "rgba": [0.1, 1.0, 0.3, 0.8],
+                    }
+                ],
             },
             sort_keys=False,
         ),

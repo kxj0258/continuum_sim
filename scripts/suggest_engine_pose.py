@@ -223,7 +223,7 @@ def _write_aligned_config(
     if output == source:
         raise ValueError("--write-aligned-config must not overwrite the source config.")
     raw = yaml.safe_load(source.read_text(encoding="utf-8"))
-    raw["name"] = "engine_cleaning_aligned"
+    raw["name"] = output.stem
     raw["metadata"] = {
         "generated_from": generated_from,
         "alignment_mode": "grounded",

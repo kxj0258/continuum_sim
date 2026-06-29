@@ -15,53 +15,58 @@ from scripts.preview_engine_scene_mujoco import build_engine_preview_mjcf
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-ALIGNED_CONFIG = PROJECT_ROOT / "configs" / "scenes" / "engine_cleaning_aligned.yaml"
-NOZZLE_CONFIG = PROJECT_ROOT / "configs" / "scenes" / "engine_cleaning_nozzle_collision.yaml"
+SCENE_CONFIG = PROJECT_ROOT / "configs" / "scenes" / "engine_cleaning.yaml"
 
 
-def test_aligned_scene_config_loads_and_preserves_y_forward_pose() -> None:
-    config = load_engine_scene_config(ALIGNED_CONFIG)
+def test_engine_scene_config_loads_with_identity_engine_pose() -> None:
+    config = load_engine_scene_config(SCENE_CONFIG)
 
     assert config.engine.scale == pytest.approx(0.001)
     assert config.engine.pose.position_m.tolist() == pytest.approx([0.0, 0.0, 0.0])
     assert config.engine.pose.quat_wxyz.tolist() == pytest.approx([1.0, 0.0, 0.0, 0.0])
 
 
-def test_aligned_scene_allows_non_strict_asset_validation() -> None:
-    config = load_engine_scene_config(ALIGNED_CONFIG)
+def test_engine_scene_allows_non_strict_asset_validation() -> None:
+    config = load_engine_scene_config(SCENE_CONFIG)
 
     validate_engine_scene_config(config, strict_assets=False)
 
 
-def test_nozzle_collision_candidate_keeps_aligned_scene_and_disabled_hints() -> None:
-    aligned_config = load_engine_scene_config(ALIGNED_CONFIG)
-    config = load_engine_scene_config(NOZZLE_CONFIG)
+def test_engine_scene_preserves_entry_region_and_exploration_metadata() -> None:
+    config = load_engine_scene_config(SCENE_CONFIG)
 
     hints = list(iter_primitive_collision_geoms(config))
 
     assert config.engine.scale == pytest.approx(0.001)
-    assert config.engine.pose.position_m.tolist() == pytest.approx(aligned_config.engine.pose.position_m.tolist())
-    assert config.engine.pose.quat_wxyz.tolist() == pytest.approx(aligned_config.engine.pose.quat_wxyz.tolist())
     assert config.engine.pose.position_m.tolist() == pytest.approx([0.0, 0.0, 0.0])
     assert config.engine.pose.quat_wxyz.tolist() == pytest.approx([1.0, 0.0, 0.0, 0.0])
     assert set(config.regions) == {"entry_port"}
-    assert [hint.name for hint in hints] == [
-        "nozzle_collision_capsule_hint",
-        "nozzle_collision_box_hint",
-    ]
-    assert [hint.enabled for hint in hints] == [False, False]
-    assert config.engine.assets.collision_mesh_offset_m.tolist() == pytest.approx(
-        [0.0, 0.0, 0.0]
-    )
-    assert hints[0].fromto_m.tolist() == pytest.approx(
-        [-4.394531e-06, -0.838058312988, 1.78673425293, -4.394531e-06, 0.838058312989, 1.78673425293]
-    )
+    assert len(hints) == 1
+    assert hints[0].name == "debug_box_1"
+    assert hints[0].frame == "world"
+    assert hints[0].enabled is True
+    assert config.engine.assets.collision_mesh_offset_m.tolist() == pytest.approx([0.0, 0.0, 0.0])
+    assert config.exploration_start is not None
+    assert config.exploration_start.frame == "engine"
+    assert config.exploration_start.point_m.tolist() == pytest.approx([0.442, 1.58169, 1.74693])
+    assert config.exploration_start.normal.tolist() == pytest.approx([0.0, -0.96436878, 0.26456163])
     assert len(config.exploration_paths) == 1
     path = config.exploration_paths[0]
     assert path.name == "nozzle_axis_entry"
     assert path.frame == "engine"
     assert path.points_m[0].tolist() == pytest.approx([0.442, 1.58169, 1.74693])
     assert path.points_m[1].tolist() == pytest.approx([0.442, 0.37281, 2.07857])
+
+
+def test_preview_mjcf_includes_engine_axes_and_exploration_overlays_for_repository_scene() -> None:
+    xml_text = build_engine_preview_mjcf(SCENE_CONFIG)
+
+    assert 'name="engine_x_axis"' in xml_text
+    assert 'name="engine_y_axis"' in xml_text
+    assert 'name="engine_z_axis"' in xml_text
+    assert 'name="exploration_nozzle_axis_entry_segment_0"' in xml_text
+    assert 'name="exploration_start_point"' in xml_text
+    assert 'name="exploration_start_normal"' in xml_text
 
 
 def test_engine_scene_loader_exposes_primitive_collision_geoms(tmp_path: Path) -> None:
@@ -125,12 +130,12 @@ f 1 2 3
 """
     visual_mesh.write_text(mesh_text, encoding="utf-8")
     collision_mesh.write_text(mesh_text, encoding="utf-8")
-    config_path = tmp_path / "engine_cleaning_aligned.yaml"
+    config_path = tmp_path / "engine_cleaning.yaml"
     config_path.write_text(
         yaml.safe_dump(
             {
                 "schema_version": 1,
-                "name": "engine_cleaning_aligned",
+                "name": "engine_cleaning",
                 "scene_type": "engine_cleaning",
                 "engine": {
                     "assets": {

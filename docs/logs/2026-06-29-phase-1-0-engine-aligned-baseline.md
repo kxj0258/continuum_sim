@@ -36,8 +36,7 @@ config.engine.pose.position_m 实际为 [0.0, 0.0, 0.0]
 
 ## 原因分析
 
-当前 `configs/scenes/engine_cleaning_aligned.yaml` 与
-`configs/scenes/engine_cleaning_nozzle_collision.yaml` 都显式使用：
+当时的 engine 对齐/喷管碰撞派生场景配置都显式使用：
 
 ```text
 engine.pose.position_m = [0.0, 0.0, 0.0]

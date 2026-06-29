@@ -43,7 +43,7 @@ exploration_paths:
 The polyline accepts two or more points so later planning code can replace the
 initial straight axis with a sampled or generated route.
 
-Update `engine_cleaning_nozzle_collision.yaml` so `regions` contains only:
+Update the active engine scene config so `regions` contains only:
 
 ```yaml
 regions:

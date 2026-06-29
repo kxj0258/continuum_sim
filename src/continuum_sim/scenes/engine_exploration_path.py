@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 import numpy as np
+from continuum_sim.config_validation import geom_group as _geom_group
 
 
 EXPLORATION_PATH_TYPES = ("polyline",)
@@ -22,6 +23,10 @@ class ExplorationPathConfig:
     points_m: np.ndarray
     radius_m: float
     rgba: tuple[float, float, float, float]
+    start_marker_rgba: tuple[float, float, float, float] | None = None
+    end_marker_rgba: tuple[float, float, float, float] | None = None
+    marker_radius_m: float | None = None
+    group: int | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -42,6 +47,22 @@ class ExplorationPathConfig:
         rgba = _rgba(self.rgba, f"{self.name}.rgba")
         object.__setattr__(self, "points_m", points)
         object.__setattr__(self, "rgba", rgba)
+        if self.start_marker_rgba is not None:
+            object.__setattr__(
+                self,
+                "start_marker_rgba",
+                _rgba(self.start_marker_rgba, f"{self.name}.start_marker_rgba"),
+            )
+        if self.end_marker_rgba is not None:
+            object.__setattr__(
+                self,
+                "end_marker_rgba",
+                _rgba(self.end_marker_rgba, f"{self.name}.end_marker_rgba"),
+            )
+        if self.marker_radius_m is not None and self.marker_radius_m <= 0.0:
+            raise ValueError(f"{self.name}.marker_radius_m must be positive.")
+        if self.group is not None:
+            object.__setattr__(self, "group", _geom_group(self.group, f"{self.name}.group"))
 
     def with_points(self, points_m: object) -> "ExplorationPathConfig":
         """Return a validated copy with a new ordered point sequence."""
@@ -83,6 +104,22 @@ def _load_exploration_path(index: int, raw_value: object) -> ExplorationPathConf
             raw_value.get("rgba", (0.1, 1.0, 0.3, 0.8)),
             f"exploration_paths[{index}].rgba",
         ),
+        start_marker_rgba=_optional_rgba(
+            raw_value.get("start_marker_rgba"),
+            f"exploration_paths[{index}].start_marker_rgba",
+        ),
+        end_marker_rgba=_optional_rgba(
+            raw_value.get("end_marker_rgba"),
+            f"exploration_paths[{index}].end_marker_rgba",
+        ),
+        marker_radius_m=_optional_positive_float(
+            raw_value.get("marker_radius_m"),
+            f"exploration_paths[{index}].marker_radius_m",
+        ),
+        group=_optional_group(
+            raw_value.get("group"),
+            f"exploration_paths[{index}].group",
+        ),
     )
 
 
@@ -113,6 +150,24 @@ def _rgba(raw_value: object, name: str) -> tuple[float, float, float, float]:
     if not np.all(np.isfinite(values)) or np.any(values < 0.0) or np.any(values > 1.0):
         raise ValueError(f"{name} values must be finite and within [0, 1].")
     return tuple(float(value) for value in values)
+
+
+def _optional_rgba(raw_value: object, name: str) -> tuple[float, float, float, float] | None:
+    if raw_value is None:
+        return None
+    return _rgba(raw_value, name)
+
+
+def _optional_positive_float(raw_value: object, name: str) -> float | None:
+    if raw_value is None:
+        return None
+    return _positive_float(raw_value, name)
+
+
+def _optional_group(raw_value: object, name: str) -> int | None:
+    if raw_value is None:
+        return None
+    return _geom_group(raw_value, name)
 
 
 def _required(values: dict, name: str, index: int) -> object:

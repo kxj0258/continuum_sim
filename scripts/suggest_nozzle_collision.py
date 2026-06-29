@@ -97,15 +97,14 @@ def main(argv: list[str] | None = None) -> int:
     print("warning: bbox-based primitive hints require manual viewer confirmation.")
     print(
         "next: python scripts/preview_engine_scene_mujoco.py "
-        f"--config {output_config_text} --viewer --show-bbox --show-regions --show-axes "
-        "--show-primitive-collision --show-disabled-hints"
+        f"--config {output_config_text} --viewer --show-primitive-collision --show-disabled-hints"
     )
     return 0
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=Path("configs/scenes/engine_cleaning_aligned.yaml"))
+    parser.add_argument("--config", type=Path, default=Path("configs/scenes/engine_cleaning.yaml"))
     parser.add_argument("--root", type=Path, default=None)
     parser.add_argument("--source", choices=("collision", "visual"), default="collision")
     parser.add_argument("--primitive", choices=("capsule", "box"), default="capsule")
@@ -114,7 +113,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--output-config",
         type=Path,
-        default=Path("configs/scenes/engine_cleaning_nozzle_collision.yaml"),
+        default=Path("configs/scenes/engine_cleaning_with_nozzle_collision.yaml"),
     )
     parser.add_argument("--enable-hint", action="store_true")
     return parser.parse_args(argv)
@@ -141,14 +140,14 @@ def _write_output_config(
     if output_path == source_path:
         raise ValueError("--output-config must not overwrite the source config.")
     raw = yaml.safe_load(source_path.read_text(encoding="utf-8"))
-    raw["name"] = "engine_cleaning_nozzle_collision"
+    raw["name"] = output_path.stem
     metadata = dict(raw.get("metadata", {}))
     metadata.update(
         {
             "generated_from": source_config.as_posix(),
             "collision_hint_source": source,
             "collision_hint_primitive": primitive,
-            "note": "Derived from aligned mesh bbox diagnostics; verify manually in viewer.",
+            "note": "Derived from engine mesh bbox diagnostics; verify manually in viewer.",
         }
     )
     raw["metadata"] = metadata

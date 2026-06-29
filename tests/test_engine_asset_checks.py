@@ -145,6 +145,44 @@ f 1 2 3
     assert visual.recommended_grounded_pose_position == pytest.approx((-0.5, -1.0, 0.0))
 
 
+def test_collect_scene_diagnostics_applies_frame_offset_to_engine_frame_region_only(
+    tmp_path: Path,
+) -> None:
+    visual_mesh = tmp_path / "visual.obj"
+    visual_mesh.write_text(
+        """v 0 0 0
+v 2 2 2
+v 0 2 0
+f 1 2 3
+""",
+        encoding="utf-8",
+    )
+    config_path = _write_scene_config(
+        tmp_path,
+        visual_mesh.name,
+        "",
+        position_m=[1.0, 2.0, 3.0],
+        frame_offset_m=[0.25, -0.5, 0.75],
+        regions={
+            "entry_port": {
+                "type": "circular_port",
+                "frame": "engine",
+                "center_m": [0.0, 0.0, 0.0],
+                "normal": [1.0, 0.0, 0.0],
+                "radius_m": 0.1,
+            }
+        },
+    )
+
+    diagnostics = collect_engine_scene_diagnostics(config_path, strict_assets=False)
+    visual = diagnostics.asset_reports[0]
+    region = diagnostics.region_reports[0]
+
+    assert visual.bbox_min_world == pytest.approx((1.0, 2.0, 3.0))
+    assert visual.bbox_max_world == pytest.approx((3.0, 4.0, 5.0))
+    assert region.reference_point == pytest.approx((1.25, 1.5, 3.75))
+
+
 def test_collision_mesh_offset_aligns_collision_bbox_center_to_visual_bbox_center(
     tmp_path: Path,
 ) -> None:
@@ -261,7 +299,11 @@ f 1 2 3
     assert 'name="engine_collision"' in both
     assert 'name="bbox_edge_0"' in both
     assert 'name="region_entry_port"' in both
-    assert 'name="world_x_axis"' in both
+    assert 'name="engine_x_axis"' in both
+    assert 'name="exploration_nozzle_axis_entry_segment_0"' in both
+    assert 'name="exploration_nozzle_axis_entry_start"' in both
+    assert 'name="exploration_start_point"' in both
+    assert 'name="exploration_start_normal"' in both
     assert "0.72 0.76 0.80 0.4" in both
     assert "0.9 0.2 0.15 0.2" in both
     assert 'name="engine_collision"' not in visual_only
@@ -291,6 +333,43 @@ f 1 2 3
     assert 'pos="0.25 -0.5 0"' in xml_text
 
 
+def test_preview_mjcf_applies_frame_offset_only_to_engine_frame_markers(
+    tmp_path: Path,
+) -> None:
+    visual_mesh = tmp_path / "visual.obj"
+    mesh_text = """v 0 0 0
+v 1 1 1
+v 0 1 0
+f 1 2 3
+"""
+    visual_mesh.write_text(mesh_text, encoding="utf-8")
+    config_path = _write_scene_config(
+        tmp_path,
+        visual_mesh.name,
+        "",
+        position_m=[1.0, 2.0, 3.0],
+        frame_offset_m=[0.25, -0.5, 0.75],
+        regions={
+            "entry_port": {
+                "type": "circular_port",
+                "frame": "engine",
+                "center_m": [0.0, 0.0, 0.0],
+                "normal": [1.0, 0.0, 0.0],
+                "radius_m": 0.1,
+            }
+        },
+    )
+
+    xml_text = build_engine_preview_mjcf(config_path)
+
+    assert 'body name="engine" pos="1 2 3"' in xml_text
+    assert 'name="region_entry_port"' in xml_text
+    assert 'pos="1.25 1.5 3.75"' in xml_text
+    assert 'name="engine_x_axis" type="capsule" fromto="1.25 1.5 3.75 1.6 1.5 3.75"' in xml_text
+    assert 'site name="exploration_start_point" type="sphere" pos="1.25 1.5 3.75"' in xml_text
+    assert 'geom name="exploration_nozzle_axis_entry_segment_0" type="capsule" fromto="1.25 1.5 3.75 1.45 1.5 3.75"' in xml_text
+
+
 def _write_scene_config(
     tmp_path: Path,
     visual_mesh: str,
@@ -298,6 +377,7 @@ def _write_scene_config(
     *,
     scale: float = 1.0,
     position_m: list[float] | None = None,
+    frame_offset_m: list[float] | None = None,
     collision_mesh_offset_m: list[float] | None = None,
     regions: dict[str, object] | None = None,
 ) -> Path:
@@ -307,6 +387,12 @@ def _write_scene_config(
         assets["collision_mesh"] = collision_mesh
     if collision_mesh_offset_m is not None:
         assets["collision_mesh_offset_m"] = collision_mesh_offset_m
+    pose = {
+        "position_m": position_m or [0.0, 0.0, 0.0],
+        "quat_wxyz": [1.0, 0.0, 0.0, 0.0],
+    }
+    if frame_offset_m is not None:
+        pose["frame_offset_m"] = frame_offset_m
     config_path.write_text(
         yaml.safe_dump(
             {
@@ -315,10 +401,7 @@ def _write_scene_config(
                 "engine": {
                     "assets": assets,
                     "scale": scale,
-                    "pose": {
-                        "position_m": position_m or [0.0, 0.0, 0.0],
-                        "quat_wxyz": [1.0, 0.0, 0.0, 0.0],
-                    },
+                    "pose": pose,
                 },
                 "regions": regions
                 or {
@@ -329,6 +412,26 @@ def _write_scene_config(
                         "radius_m": 0.1,
                     }
                 },
+                "exploration_start": {
+                    "frame": "engine",
+                    "point_m": [0.0, 0.0, 0.0],
+                    "normal": [1.0, 0.0, 0.0],
+                    "description": "Test exploration start.",
+                },
+                "exploration_paths": [
+                    {
+                        "name": "nozzle_axis_entry",
+                        "type": "polyline",
+                        "frame": "engine",
+                        "enabled": True,
+                        "points_m": [
+                            [0.0, 0.0, 0.0],
+                            [0.2, 0.0, 0.0],
+                        ],
+                        "radius_m": 0.01,
+                        "rgba": [0.1, 1.0, 0.3, 0.8],
+                    }
+                ],
             },
             sort_keys=False,
         ),

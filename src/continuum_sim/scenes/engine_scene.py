@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
 import warnings
@@ -12,9 +12,11 @@ import numpy as np
 from continuum_sim.config import load_yaml
 from continuum_sim.config_validation import (
     choice_value as _choice_value,
+    geom_group as _geom_group,
     optional_section as _optional_section,
     position_vector as _position_vector,
     positive_float_value as _positive_float_value,
+    rgba_tuple as _rgba_tuple,
     required as _required,
     resolve_path as _resolve_config_path,
     section as _section,
@@ -47,6 +49,7 @@ class EnginePoseConfig:
 
     position_m: np.ndarray
     quat_wxyz: np.ndarray
+    frame_offset_m: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -81,7 +84,58 @@ class EngineRegionConfig:
     radius_m: float | None = None
     size_m: np.ndarray | None = None
     extents_m: np.ndarray | None = None
+    preview_rgba: tuple[float, float, float, float] | None = None
     description: str = ""
+
+
+@dataclass(frozen=True)
+class ExplorationStartConfig:
+    """Optional exploration start point and nominal insertion direction."""
+
+    frame: str
+    point_m: np.ndarray
+    normal: np.ndarray
+    point_rgba: tuple[float, float, float, float] | None = None
+    point_radius_m: float | None = None
+    normal_rgba: tuple[float, float, float, float] | None = None
+    normal_length_m: float | None = None
+    normal_radius_m: float | None = None
+    group: int | None = None
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class PreviewVisualizationConfig:
+    """Preview-only style settings loaded from the engine scene YAML."""
+
+    visual_mesh_rgba: tuple[float, float, float, float] = (0.72, 0.76, 0.80, 0.45)
+    collision_mesh_rgba: tuple[float, float, float, float] = (0.9, 0.2, 0.15, 0.28)
+    bbox_rgba: tuple[float, float, float, float] = (1.0, 1.0, 0.0, 0.85)
+    bbox_edge_radius_m: float | None = None
+    engine_axis_length_m: float | None = None
+    engine_axis_radius_m: float | None = None
+    engine_x_rgba: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 1.0)
+    engine_y_rgba: tuple[float, float, float, float] = (0.0, 0.8, 0.0, 1.0)
+    engine_z_rgba: tuple[float, float, float, float] = (0.1, 0.2, 1.0, 1.0)
+    region_default_rgba_by_type: dict[str, tuple[float, float, float, float]] = field(
+        default_factory=lambda: {
+            "circular_port": (0.1, 0.6, 1.0, 0.6),
+            "roi_sphere": (0.2, 1.0, 0.4, 0.35),
+            "roi_box": (0.2, 1.0, 0.4, 0.35),
+            "surface_patch": (1.0, 0.7, 0.1, 0.55),
+            "box": (1.0, 0.1, 0.1, 0.35),
+        }
+    )
+    exploration_start_point_rgba: tuple[float, float, float, float] = (1.0, 0.45, 0.1, 0.95)
+    exploration_start_point_radius_m: float | None = None
+    exploration_start_normal_rgba: tuple[float, float, float, float] = (1.0, 0.7, 0.1, 0.9)
+    exploration_start_normal_length_m: float | None = None
+    exploration_start_normal_radius_m: float | None = None
+    exploration_start_group: int = 0
+    exploration_path_start_marker_rgba: tuple[float, float, float, float] = (0.1, 0.7, 1.0, 0.95)
+    exploration_path_end_marker_rgba: tuple[float, float, float, float] = (1.0, 0.85, 0.1, 0.95)
+    exploration_path_marker_radius_m: float | None = None
+    exploration_path_group: int = 0
 
 
 @dataclass(frozen=True)
@@ -102,6 +156,8 @@ class EngineSceneConfig:
     scene_type: str
     engine: EngineModelConfig
     regions: dict[str, EngineRegionConfig]
+    preview_visualization: PreviewVisualizationConfig = field(default_factory=PreviewVisualizationConfig)
+    exploration_start: ExplorationStartConfig | None = None
     exploration_paths: tuple[ExplorationPathConfig, ...] = ()
     primitive_collision_geoms: tuple[PrimitiveCollisionGeomConfig, ...] = ()
 
@@ -114,6 +170,7 @@ def load_engine_scene_config(path: str | Path) -> EngineSceneConfig:
     engine = _section(raw, "engine")
     assets = _section(engine, "assets")
     pose = _section(engine, "pose")
+    _reject_legacy_pose_fields(pose)
     regions_raw = _required(raw, "regions")
     if not isinstance(regions_raw, dict):
         raise ValueError("regions must be a mapping of region-name -> config.")
@@ -148,6 +205,10 @@ def load_engine_scene_config(path: str | Path) -> EngineSceneConfig:
             scale=_positive_float_value(_required(engine, "scale"), "engine.scale"),
             pose=EnginePoseConfig(
                 position_m=_position_vector(_required(pose, "position_m"), "engine.pose.position_m"),
+                frame_offset_m=_optional_position(
+                    pose.get("frame_offset_m", _MISSING),
+                    "engine.pose.frame_offset_m",
+                ),
                 quat_wxyz=_quaternion(_required(pose, "quat_wxyz"), "engine.pose.quat_wxyz"),
             ),
         ),
@@ -155,6 +216,10 @@ def load_engine_scene_config(path: str | Path) -> EngineSceneConfig:
             name: _load_engine_region_config(name, values)
             for name, values in regions_raw.items()
         },
+        preview_visualization=_load_preview_visualization_config(
+            raw.get("preview_visualization", _MISSING)
+        ),
+        exploration_start=_load_exploration_start_config(raw.get("exploration_start", _MISSING)),
         exploration_paths=tuple(load_exploration_paths(raw.get("exploration_paths"))),
         primitive_collision_geoms=tuple(
             load_primitive_collision_geoms(raw.get("primitive_collision_geoms"))
@@ -236,6 +301,16 @@ def resolve_engine_asset_paths(
     )
 
 
+def effective_engine_frame_position(config: EngineSceneConfig) -> np.ndarray:
+    """Return the world translation used by objects defined in the engine-local frame."""
+
+    position = np.asarray(config.engine.pose.position_m, dtype=float)
+    offset = config.engine.pose.frame_offset_m
+    if offset is None:
+        return position.copy()
+    return position + np.asarray(offset, dtype=float)
+
+
 def _load_engine_region_config(name: object, values: object) -> EngineRegionConfig:
     region_name = str(name)
     if not isinstance(values, dict):
@@ -270,8 +345,158 @@ def _load_engine_region_config(name: object, values: object) -> EngineRegionConf
             values.get("extents_m", _MISSING),
             f"regions.{region_name}.extents_m",
         ),
+        preview_rgba=_optional_rgba(
+            _optional_section(values, "visualization").get("rgba", _MISSING),
+            f"regions.{region_name}.visualization.rgba",
+        ),
         description=str(values.get("description", "")),
     )
+
+
+def _load_exploration_start_config(raw_value: object) -> ExplorationStartConfig | None:
+    if raw_value is _MISSING:
+        return None
+    if not isinstance(raw_value, dict):
+        raise ValueError("exploration_start must be a mapping.")
+    visualization = _optional_section(raw_value, "visualization")
+    return ExplorationStartConfig(
+        frame=_choice_value(
+            raw_value.get("frame", "world"),
+            "exploration_start.frame",
+            ("world", "engine"),
+        ),
+        point_m=_position_vector(_required(raw_value, "point_m"), "exploration_start.point_m"),
+        normal=_position_vector(_required(raw_value, "normal"), "exploration_start.normal"),
+        point_rgba=_optional_rgba(
+            visualization.get("point_rgba", _MISSING),
+            "exploration_start.visualization.point_rgba",
+        ),
+        point_radius_m=_optional_positive_float(
+            visualization.get("point_radius_m", _MISSING),
+            "exploration_start.visualization.point_radius_m",
+        ),
+        normal_rgba=_optional_rgba(
+            visualization.get("normal_rgba", _MISSING),
+            "exploration_start.visualization.normal_rgba",
+        ),
+        normal_length_m=_optional_positive_float(
+            visualization.get("normal_length_m", _MISSING),
+            "exploration_start.visualization.normal_length_m",
+        ),
+        normal_radius_m=_optional_positive_float(
+            visualization.get("normal_radius_m", _MISSING),
+            "exploration_start.visualization.normal_radius_m",
+        ),
+        group=_optional_group(
+            visualization.get("group", _MISSING),
+            "exploration_start.visualization.group",
+        ),
+        description=str(raw_value.get("description", "")),
+    )
+
+
+def _load_preview_visualization_config(raw_value: object) -> PreviewVisualizationConfig:
+    if raw_value is _MISSING:
+        return PreviewVisualizationConfig()
+    if not isinstance(raw_value, dict):
+        raise ValueError("preview_visualization must be a mapping.")
+    regions = _optional_section(raw_value, "regions")
+    default_rgba_by_type = PreviewVisualizationConfig().region_default_rgba_by_type.copy()
+    for region_type in ENGINE_REGION_TYPES:
+        if region_type in regions:
+            default_rgba_by_type[region_type] = _rgba_tuple(
+                regions[region_type],
+                f"preview_visualization.regions.{region_type}",
+            )
+    return PreviewVisualizationConfig(
+        visual_mesh_rgba=_rgba_tuple(
+            raw_value.get("visual_mesh_rgba", (0.72, 0.76, 0.80, 0.45)),
+            "preview_visualization.visual_mesh_rgba",
+        ),
+        collision_mesh_rgba=_rgba_tuple(
+            raw_value.get("collision_mesh_rgba", (0.9, 0.2, 0.15, 0.28)),
+            "preview_visualization.collision_mesh_rgba",
+        ),
+        bbox_rgba=_rgba_tuple(
+            raw_value.get("bbox_rgba", (1.0, 1.0, 0.0, 0.85)),
+            "preview_visualization.bbox_rgba",
+        ),
+        bbox_edge_radius_m=_optional_positive_float(
+            raw_value.get("bbox_edge_radius_m", _MISSING),
+            "preview_visualization.bbox_edge_radius_m",
+        ),
+        engine_axis_length_m=_optional_positive_float(
+            raw_value.get("engine_axis_length_m", _MISSING),
+            "preview_visualization.engine_axis_length_m",
+        ),
+        engine_axis_radius_m=_optional_positive_float(
+            raw_value.get("engine_axis_radius_m", _MISSING),
+            "preview_visualization.engine_axis_radius_m",
+        ),
+        engine_x_rgba=_rgba_tuple(
+            raw_value.get("engine_x_rgba", (1.0, 0.0, 0.0, 1.0)),
+            "preview_visualization.engine_x_rgba",
+        ),
+        engine_y_rgba=_rgba_tuple(
+            raw_value.get("engine_y_rgba", (0.0, 0.8, 0.0, 1.0)),
+            "preview_visualization.engine_y_rgba",
+        ),
+        engine_z_rgba=_rgba_tuple(
+            raw_value.get("engine_z_rgba", (0.1, 0.2, 1.0, 1.0)),
+            "preview_visualization.engine_z_rgba",
+        ),
+        region_default_rgba_by_type=default_rgba_by_type,
+        exploration_start_point_rgba=_rgba_tuple(
+            raw_value.get("exploration_start_point_rgba", (1.0, 0.45, 0.1, 0.95)),
+            "preview_visualization.exploration_start_point_rgba",
+        ),
+        exploration_start_point_radius_m=_optional_positive_float(
+            raw_value.get("exploration_start_point_radius_m", _MISSING),
+            "preview_visualization.exploration_start_point_radius_m",
+        ),
+        exploration_start_normal_rgba=_rgba_tuple(
+            raw_value.get("exploration_start_normal_rgba", (1.0, 0.7, 0.1, 0.9)),
+            "preview_visualization.exploration_start_normal_rgba",
+        ),
+        exploration_start_normal_length_m=_optional_positive_float(
+            raw_value.get("exploration_start_normal_length_m", _MISSING),
+            "preview_visualization.exploration_start_normal_length_m",
+        ),
+        exploration_start_normal_radius_m=_optional_positive_float(
+            raw_value.get("exploration_start_normal_radius_m", _MISSING),
+            "preview_visualization.exploration_start_normal_radius_m",
+        ),
+        exploration_start_group=_optional_group(
+            raw_value.get("exploration_start_group", _MISSING),
+            "preview_visualization.exploration_start_group",
+        )
+        or 0,
+        exploration_path_start_marker_rgba=_rgba_tuple(
+            raw_value.get("exploration_path_start_marker_rgba", (0.1, 0.7, 1.0, 0.95)),
+            "preview_visualization.exploration_path_start_marker_rgba",
+        ),
+        exploration_path_end_marker_rgba=_rgba_tuple(
+            raw_value.get("exploration_path_end_marker_rgba", (1.0, 0.85, 0.1, 0.95)),
+            "preview_visualization.exploration_path_end_marker_rgba",
+        ),
+        exploration_path_marker_radius_m=_optional_positive_float(
+            raw_value.get("exploration_path_marker_radius_m", _MISSING),
+            "preview_visualization.exploration_path_marker_radius_m",
+        ),
+        exploration_path_group=_optional_group(
+            raw_value.get("exploration_path_group", _MISSING),
+            "preview_visualization.exploration_path_group",
+        )
+        or 0,
+    )
+
+
+def _reject_legacy_pose_fields(pose: dict[object, object]) -> None:
+    if "world_offset_m" in pose:
+        raise ValueError(
+            "engine.pose.world_offset_m is no longer supported; "
+            "use engine.pose.frame_offset_m instead."
+        )
 
 
 def _validate_region_geometry(region: EngineRegionConfig) -> None:
@@ -324,10 +549,22 @@ def _optional_position(raw_value: object, name: str) -> np.ndarray | None:
     return _position_vector(raw_value, name)
 
 
+def _optional_rgba(raw_value: object, name: str) -> tuple[float, float, float, float] | None:
+    if raw_value is _MISSING:
+        return None
+    return _rgba_tuple(raw_value, name)
+
+
 def _optional_positive_float(raw_value: object, name: str) -> float | None:
     if raw_value is _MISSING:
         return None
     return _positive_float_value(raw_value, name)
+
+
+def _optional_group(raw_value: object, name: str) -> int | None:
+    if raw_value is _MISSING:
+        return None
+    return _geom_group(raw_value, name)
 
 
 def _quaternion(raw_value: object, name: str) -> np.ndarray:

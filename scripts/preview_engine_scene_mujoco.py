@@ -22,6 +22,7 @@ from continuum_sim.config import load_yaml  # noqa: E402
 from continuum_sim.scenes.engine_scene import (  # noqa: E402
     EngineSceneConfig,
     EngineRegionConfig,
+    effective_engine_frame_position,
     load_engine_scene_config,
     resolve_engine_asset_paths,
 )
@@ -68,9 +69,6 @@ def main(argv: list[str] | None = None) -> int:
             mesh_overrides=mesh_overrides,
             visual_only=args.visual_only,
             collision_only=args.collision_only,
-            show_bbox=args.show_bbox,
-            show_regions=args.show_regions,
-            show_axes=args.show_axes,
             alpha_visual=args.alpha_visual,
             alpha_collision=args.alpha_collision,
             show_primitive_collision=args.show_primitive_collision,
@@ -125,8 +123,8 @@ def build_engine_preview_mjcf(
     show_bbox: bool = True,
     show_regions: bool = True,
     show_axes: bool = True,
-    alpha_visual: float = 0.45,
-    alpha_collision: float = 0.28,
+    alpha_visual: float | None = None,
+    alpha_collision: float | None = None,
     show_primitive_collision: bool = True,
     show_disabled_hints: bool = False,
     primitive_alpha: float = 0.55,
@@ -177,15 +175,15 @@ def build_engine_preview_mjcf(
         (report for report in diagnostics.asset_reports if report.asset_name == "visual_mesh"),
         None,
     )
+    preview = config.preview_visualization
     axis_length = _marker_scale_from_bbox(visual_report)
-    if show_axes:
-        _add_world_axes(worldbody, axis_length=axis_length)
+    engine_position = np.asarray(config.engine.pose.position_m, dtype=float)
     body = ElementTree.SubElement(
         worldbody,
         "body",
         {
             "name": "engine",
-            "pos": _mujoco_vec(config.engine.pose.position_m),
+            "pos": _mujoco_vec(engine_position),
             "quat": _mujoco_vec(config.engine.pose.quat_wxyz),
         },
     )
@@ -200,7 +198,7 @@ def build_engine_preview_mjcf(
                 "contype": "0",
                 "conaffinity": "0",
                 "group": "1",
-                "rgba": f"0.72 0.76 0.80 {float(alpha_visual):.6g}",
+                "rgba": _rgba_with_optional_alpha(preview.visual_mesh_rgba, alpha_visual),
             },
         )
     if include_collision:
@@ -209,7 +207,7 @@ def build_engine_preview_mjcf(
             "type": "mesh",
             "mesh": "engine_collision_mesh",
             "group": "0",
-            "rgba": f"0.9 0.2 0.15 {float(alpha_collision):.6g}",
+            "rgba": _rgba_with_optional_alpha(preview.collision_mesh_rgba, alpha_collision),
         }
         collision_offset = config.engine.assets.collision_mesh_offset_m
         if collision_offset is not None:
@@ -220,12 +218,17 @@ def build_engine_preview_mjcf(
             collision_attrs,
         )
 
+    if show_axes:
+        _add_engine_axes(worldbody, config, axis_length=axis_length)
+
     if show_bbox and visual_report is not None:
-        _add_bbox_marker(worldbody, visual_report)
+        _add_bbox_marker(worldbody, visual_report, config)
 
     if show_regions:
         for region in config.regions.values():
             _add_region_site(worldbody, region, config=config)
+
+    _add_exploration_start(worldbody, config, axis_length=axis_length)
 
     if show_exploration_paths:
         _add_exploration_paths(worldbody, config)
@@ -312,25 +315,17 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--visual-only", action="store_true", help="Show only the visual mesh geom.")
     parser.add_argument("--collision-only", action="store_true", help="Show only the collision mesh geom.")
     parser.add_argument(
-        "--show-bbox",
-        action="store_true",
-        default=True,
-        help="Show visual mesh world bbox markers.",
+        "--alpha-visual",
+        type=float,
+        default=None,
+        help="Override the alpha channel of preview_visualization.visual_mesh_rgba.",
     )
     parser.add_argument(
-        "--show-regions",
-        action="store_true",
-        default=True,
-        help="Show configured engine region markers.",
+        "--alpha-collision",
+        type=float,
+        default=None,
+        help="Override the alpha channel of preview_visualization.collision_mesh_rgba.",
     )
-    parser.add_argument(
-        "--show-axes",
-        action="store_true",
-        default=True,
-        help="Show world X/Y/Z axes markers.",
-    )
-    parser.add_argument("--alpha-visual", type=float, default=0.45, help="Visual mesh alpha.")
-    parser.add_argument("--alpha-collision", type=float, default=0.28, help="Collision mesh alpha.")
     parser.add_argument(
         "--show-primitive-collision",
         action="store_true",
@@ -356,44 +351,71 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _add_world_axes(worldbody: ElementTree.Element, *, axis_length: float) -> None:
-    radius = max(axis_length * 0.01, 0.003)
+def _add_engine_axes(
+    worldbody: ElementTree.Element,
+    config: EngineSceneConfig,
+    *,
+    axis_length: float,
+) -> None:
+    preview = config.preview_visualization
+    axis_length = preview.engine_axis_length_m or axis_length
+    radius = preview.engine_axis_radius_m or max(axis_length * 0.01, 0.003)
+    origin = effective_engine_frame_position(config)
+    quat = tuple(float(value) for value in config.engine.pose.quat_wxyz)
+    x_axis = transform_points(
+        [[0.0, 0.0, 0.0], [axis_length, 0.0, 0.0]],
+        position=tuple(float(value) for value in origin),
+        quat_wxyz=quat,
+        scale=1.0,
+    )
+    y_axis = transform_points(
+        [[0.0, 0.0, 0.0], [0.0, axis_length, 0.0]],
+        position=tuple(float(value) for value in origin),
+        quat_wxyz=quat,
+        scale=1.0,
+    )
+    z_axis = transform_points(
+        [[0.0, 0.0, 0.0], [0.0, 0.0, axis_length]],
+        position=tuple(float(value) for value in origin),
+        quat_wxyz=quat,
+        scale=1.0,
+    )
     ElementTree.SubElement(
         worldbody,
         "site",
         {
-            "name": "world_x_axis",
+            "name": "engine_x_axis",
             "type": "capsule",
-            "fromto": f"0 0 0 {axis_length:.12g} 0 0",
+            "fromto": f"{_mujoco_vec(x_axis[0])} {_mujoco_vec(x_axis[1])}",
             "size": f"{radius:.12g}",
-            "rgba": "1 0 0 1",
+            "rgba": _mujoco_vec(preview.engine_x_rgba),
         },
     )
     ElementTree.SubElement(
         worldbody,
         "site",
         {
-            "name": "world_y_axis",
+            "name": "engine_y_axis",
             "type": "capsule",
-            "fromto": f"0 0 0 0 {axis_length:.12g} 0",
+            "fromto": f"{_mujoco_vec(y_axis[0])} {_mujoco_vec(y_axis[1])}",
             "size": f"{radius:.12g}",
-            "rgba": "0 0.8 0 1",
+            "rgba": _mujoco_vec(preview.engine_y_rgba),
         },
     )
     ElementTree.SubElement(
         worldbody,
         "site",
         {
-            "name": "world_z_axis",
+            "name": "engine_z_axis",
             "type": "capsule",
-            "fromto": f"0 0 0 0 0 {axis_length:.12g}",
+            "fromto": f"{_mujoco_vec(z_axis[0])} {_mujoco_vec(z_axis[1])}",
             "size": f"{radius:.12g}",
-            "rgba": "0.1 0.2 1 1",
+            "rgba": _mujoco_vec(preview.engine_z_rgba),
         },
     )
 
 
-def _add_bbox_marker(worldbody: ElementTree.Element, visual_report) -> None:
+def _add_bbox_marker(worldbody: ElementTree.Element, visual_report, config: EngineSceneConfig) -> None:
     bbox_min = visual_report.bbox_min_world
     bbox_max = visual_report.bbox_max_world
     bbox_size = visual_report.bbox_size_world
@@ -425,7 +447,8 @@ def _add_bbox_marker(worldbody: ElementTree.Element, visual_report) -> None:
         (2, 6),
         (3, 7),
     ]
-    radius = max(max(bbox_size) * 0.002, 0.002)
+    preview = config.preview_visualization
+    radius = preview.bbox_edge_radius_m or max(max(bbox_size) * 0.002, 0.002)
     for index, (start_index, end_index) in enumerate(edges):
         ElementTree.SubElement(
             worldbody,
@@ -435,7 +458,7 @@ def _add_bbox_marker(worldbody: ElementTree.Element, visual_report) -> None:
                 "type": "capsule",
                 "fromto": f"{_mujoco_vec(corners[start_index])} {_mujoco_vec(corners[end_index])}",
                 "size": f"{radius:.12g}",
-                "rgba": "1 1 0 0.85",
+                "rgba": _mujoco_vec(preview.bbox_rgba),
             },
         )
 
@@ -448,7 +471,7 @@ def _add_region_site(
 ) -> None:
     attrs = {
         "name": f"region_{region.name}",
-        "rgba": _region_rgba(region.type),
+        "rgba": _region_rgba(region, config),
     }
     if region.type == "circular_port" and region.center_m is not None:
         attrs.update(
@@ -487,13 +510,63 @@ def _add_region_site(
     ElementTree.SubElement(worldbody, "site", attrs)
 
 
+def _add_exploration_start(
+    worldbody: ElementTree.Element,
+    config: EngineSceneConfig,
+    *,
+    axis_length: float,
+) -> None:
+    start = config.exploration_start
+    if start is None:
+        return
+    preview = config.preview_visualization
+    point = _exploration_point_world(start.point_m, start.frame, config)
+    normal = _exploration_normal_world(start.normal, start.frame, config)
+    marker_size = start.point_radius_m or preview.exploration_start_point_radius_m or max(axis_length * 0.025, 0.008)
+    normal_length = start.normal_length_m or preview.exploration_start_normal_length_m or max(axis_length * 0.35, 0.12)
+    normal_radius = (
+        start.normal_radius_m
+        or preview.exploration_start_normal_radius_m
+        or max(marker_size * 0.35, 0.003)
+    )
+    group = start.group if start.group is not None else preview.exploration_start_group
+    normal_end = point + normal * normal_length
+
+    ElementTree.SubElement(
+        worldbody,
+        "site",
+        {
+            "name": "exploration_start_point",
+            "type": "sphere",
+            "pos": _mujoco_vec(point),
+            "size": f"{marker_size:.12g}",
+            "rgba": _mujoco_vec(start.point_rgba or preview.exploration_start_point_rgba),
+            "group": str(group),
+        },
+    )
+    ElementTree.SubElement(
+        worldbody,
+        "site",
+        {
+            "name": "exploration_start_normal",
+            "type": "capsule",
+            "fromto": f"{_mujoco_vec(point)} {_mujoco_vec(normal_end)}",
+            "size": f"{normal_radius:.12g}",
+            "rgba": _mujoco_vec(start.normal_rgba or preview.exploration_start_normal_rgba),
+            "group": str(group),
+        },
+    )
+
+
 def _add_exploration_paths(
     worldbody: ElementTree.Element,
     config: EngineSceneConfig,
 ) -> None:
+    preview = config.preview_visualization
     for path in config.exploration_paths:
         if not path.enabled:
             continue
+        group = path.group if path.group is not None else preview.exploration_path_group
         points = (
             _engine_frame_points_to_world(path.points_m, config)
             if path.frame == "engine"
@@ -511,10 +584,14 @@ def _add_exploration_paths(
                     "rgba": _mujoco_vec(path.rgba),
                     "contype": "0",
                     "conaffinity": "0",
-                    "group": "3",
+                    "group": str(group),
                 },
             )
-        marker_size = max(path.radius_m * 1.8, 0.006)
+        marker_size = (
+            path.marker_radius_m
+            or preview.exploration_path_marker_radius_m
+            or max(path.radius_m * 1.8, 0.006)
+        )
         ElementTree.SubElement(
             worldbody,
             "site",
@@ -523,8 +600,8 @@ def _add_exploration_paths(
                 "type": "sphere",
                 "pos": _mujoco_vec(points[0]),
                 "size": f"{marker_size:.12g}",
-                "rgba": "0.1 0.7 1 0.95",
-                "group": "3",
+                "rgba": _mujoco_vec(path.start_marker_rgba or preview.exploration_path_start_marker_rgba),
+                "group": str(group),
             },
         )
         ElementTree.SubElement(
@@ -535,8 +612,8 @@ def _add_exploration_paths(
                 "type": "sphere",
                 "pos": _mujoco_vec(points[-1]),
                 "size": f"{marker_size:.12g}",
-                "rgba": "1 0.85 0.1 0.95",
-                "group": "3",
+                "rgba": _mujoco_vec(path.end_marker_rgba or preview.exploration_path_end_marker_rgba),
+                "group": str(group),
             },
         )
 
@@ -551,13 +628,42 @@ def _region_point_world(
     return np.asarray(point_m, dtype=float)
 
 
+def _exploration_point_world(
+    point_m: object,
+    frame: str,
+    config: EngineSceneConfig,
+) -> np.ndarray:
+    if frame == "engine":
+        return _engine_frame_points_to_world([point_m], config)[0]
+    return np.asarray(point_m, dtype=float)
+
+
+def _exploration_normal_world(
+    normal: object,
+    frame: str,
+    config: EngineSceneConfig,
+) -> np.ndarray:
+    vector = np.asarray(normal, dtype=float)
+    if frame == "engine":
+        vector = transform_points(
+            [vector],
+            position=(0.0, 0.0, 0.0),
+            quat_wxyz=tuple(float(value) for value in config.engine.pose.quat_wxyz),
+            scale=1.0,
+        )[0]
+    norm = float(np.linalg.norm(vector))
+    if norm <= 1.0e-12:
+        return np.array([1.0, 0.0, 0.0], dtype=float)
+    return vector / norm
+
+
 def _engine_frame_points_to_world(
     points_m: object,
     config: EngineSceneConfig,
 ) -> np.ndarray:
     return transform_points(
         points_m,
-        position=tuple(float(value) for value in config.engine.pose.position_m),
+        position=tuple(float(value) for value in effective_engine_frame_position(config)),
         quat_wxyz=tuple(float(value) for value in config.engine.pose.quat_wxyz),
         scale=1.0,
     )
@@ -673,7 +779,7 @@ def _primitive_fromto_world(
 def _engine_local_to_world(values: object, config: EngineSceneConfig) -> tuple[float, float, float]:
     transformed = transform_points(
         [values],
-        position=tuple(float(value) for value in config.engine.pose.position_m),
+        position=tuple(float(value) for value in effective_engine_frame_position(config)),
         quat_wxyz=tuple(float(value) for value in config.engine.pose.quat_wxyz),
         scale=float(config.engine.scale),
     )
@@ -723,18 +829,27 @@ def _primitive_rgba(geom: PrimitiveCollisionGeomConfig, alpha: float) -> str:
     return _mujoco_vec((rgba[0], rgba[1], rgba[2], alpha))
 
 
-def _region_rgba(region_type: str) -> str:
-    if region_type == "circular_port":
-        return "0.1 0.6 1.0 0.6"
-    if region_type == "surface_patch":
-        return "1.0 0.7 0.1 0.55"
-    if region_type == "box":
-        return "1.0 0.1 0.1 0.35"
-    return "0.2 1.0 0.4 0.35"
+def _region_rgba(region: EngineRegionConfig, config: EngineSceneConfig) -> str:
+    rgba = region.preview_rgba
+    if rgba is None:
+        rgba = config.preview_visualization.region_default_rgba_by_type.get(
+            region.type,
+            (0.2, 1.0, 0.4, 0.35),
+        )
+    return _mujoco_vec(rgba)
 
 
 def _mujoco_vec(values: object) -> str:
     return " ".join(f"{float(value):.12g}" for value in values)
+
+
+def _rgba_with_optional_alpha(
+    rgba: tuple[float, float, float, float],
+    alpha_override: float | None,
+) -> str:
+    if alpha_override is None:
+        return _mujoco_vec(rgba)
+    return _mujoco_vec((rgba[0], rgba[1], rgba[2], float(alpha_override)))
 
 
 def _marker_scale_from_bbox(visual_report) -> float:
@@ -744,21 +859,23 @@ def _marker_scale_from_bbox(visual_report) -> float:
 
 
 def _suggest_camera(config_path: Path) -> dict[str, object]:
+    config = load_engine_scene_config(config_path)
     diagnostics = collect_engine_scene_diagnostics(config_path)
     visual_report = next(
         (report for report in diagnostics.asset_reports if report.asset_name == "visual_mesh"),
         None,
     )
-    if visual_report is None or visual_report.bbox_center_world is None or visual_report.bbox_size_world is None:
+    engine_position = tuple(float(value) for value in config.engine.pose.position_m)
+    if visual_report is None or visual_report.bbox_size_world is None:
         return {
-            "lookat": (0.0, 0.0, 0.0),
+            "lookat": engine_position,
             "distance": 1.0,
             "azimuth": 135.0,
             "elevation": -25.0,
         }
     max_size = max(visual_report.bbox_size_world)
     return {
-        "lookat": visual_report.bbox_center_world,
+        "lookat": engine_position,
         "distance": max(max_size * 2.2, 0.5),
         "azimuth": 135.0,
         "elevation": -25.0,

@@ -116,15 +116,12 @@ docs/long_term_engine_dual_arm_plan.md
 
 ```text
 configs/scenes/engine_cleaning.yaml
-configs/scenes/engine_cleaning_aligned.yaml
-configs/scenes/engine_cleaning_nozzle_collision.yaml
 ```
 
 其中：
 
-* `engine_cleaning.yaml`：原始真实 engine mesh 接入配置；
-* `engine_cleaning_aligned.yaml`：根据 mesh bbox 生成的 grounded 对齐配置；
-* `engine_cleaning_nozzle_collision.yaml`：在 aligned 配置基础上增加喷管 primitive collision hint。
+* `engine_cleaning.yaml`：当前唯一的 canonical engine scene 配置，包含 engine mesh、entry region、`exploration_start` 和 `exploration_paths`；
+* 如需 grounded pose 建议或喷管 primitive collision hint，请基于该文件生成新的派生配置，而不是依赖仓库中预置的 aligned / nozzle collision YAML。
 
 ### 5.2 真实资产目录
 
@@ -155,20 +152,18 @@ assets/engine/
 
 ```bash
 python scripts/check_engine_assets.py --config configs/scenes/engine_cleaning.yaml
-python scripts/check_engine_assets.py --config configs/scenes/engine_cleaning_aligned.yaml
-python scripts/check_engine_assets.py --config configs/scenes/engine_cleaning_nozzle_collision.yaml
 ```
 
 严格检查资产是否存在：
 
 ```bash
-python scripts/check_engine_assets.py --config configs/scenes/engine_cleaning_aligned.yaml --strict-assets
+python scripts/check_engine_assets.py --config configs/scenes/engine_cleaning.yaml --strict-assets
 ```
 
 输出 JSON：
 
 ```bash
-python scripts/check_engine_assets.py --config configs/scenes/engine_cleaning_aligned.yaml --json
+python scripts/check_engine_assets.py --config configs/scenes/engine_cleaning.yaml --json
 ```
 
 该脚本会输出：
@@ -194,7 +189,7 @@ python scripts/suggest_engine_pose.py --config configs/scenes/engine_cleaning.ya
 写出建议配置，不覆盖原始文件：
 
 ```bash
-python scripts/suggest_engine_pose.py --config configs/scenes/engine_cleaning.yaml --mode grounded --write-aligned-config configs/scenes/engine_cleaning_aligned.yaml
+python scripts/suggest_engine_pose.py --config configs/scenes/engine_cleaning.yaml --mode grounded --write-aligned-config configs/scenes/engine_cleaning_grounded.generated.yaml
 ```
 
 ### 5.5 MuJoCo 预览 engine scene
@@ -202,19 +197,21 @@ python scripts/suggest_engine_pose.py --config configs/scenes/engine_cleaning.ya
 headless 检查：
 
 ```bash
-python scripts/preview_engine_scene_mujoco.py --config configs/scenes/engine_cleaning_aligned.yaml --headless-check
+python scripts/preview_engine_scene_mujoco.py --config configs/scenes/engine_cleaning.yaml --headless-check
 ```
 
 打开 viewer：
 
 ```bash
-python scripts/preview_engine_scene_mujoco.py --config configs/scenes/engine_cleaning_aligned.yaml --viewer --show-bbox --show-regions --show-axes
+python scripts/preview_engine_scene_mujoco.py --config configs/scenes/engine_cleaning.yaml --viewer
 ```
+
+当前 preview 默认显示 bbox、regions、engine 坐标轴，以及 `exploration_start` / `exploration_paths`。
 
 预览喷管 primitive collision hint：
 
 ```bash
-python scripts/preview_engine_scene_mujoco.py --config configs/scenes/engine_cleaning_nozzle_collision.yaml --viewer --show-bbox --show-regions --show-axes --show-primitive-collision --show-disabled-hints
+python scripts/preview_engine_scene_mujoco.py --config configs/scenes/engine_cleaning_with_nozzle_collision.yaml --viewer --show-primitive-collision --show-disabled-hints
 ```
 
 ### 5.6 喷管 primitive collision 建议
@@ -222,13 +219,13 @@ python scripts/preview_engine_scene_mujoco.py --config configs/scenes/engine_cle
 从 collision mesh bbox 自动生成 capsule/box hint：
 
 ```bash
-python scripts/suggest_nozzle_collision.py --config configs/scenes/engine_cleaning_aligned.yaml --source collision --primitive capsule --output-config configs/scenes/engine_cleaning_nozzle_collision.yaml
+python scripts/suggest_nozzle_collision.py --config configs/scenes/engine_cleaning.yaml --source collision --primitive capsule --output-config configs/scenes/engine_cleaning_with_nozzle_collision.yaml
 ```
 
 可选启用 hint：
 
 ```bash
-python scripts/suggest_nozzle_collision.py --config configs/scenes/engine_cleaning_aligned.yaml --source collision --primitive capsule --output-config configs/scenes/engine_cleaning_nozzle_collision.yaml --enable-hint
+python scripts/suggest_nozzle_collision.py --config configs/scenes/engine_cleaning.yaml --source collision --primitive capsule --output-config configs/scenes/engine_cleaning_with_nozzle_collision.yaml --enable-hint
 ```
 
 默认生成的 primitive collision hint 是辅助可视化和诊断，不建议未经人工确认就作为最终接触碰撞模型。
@@ -623,13 +620,13 @@ python scripts/check_engine_assets.py --config configs/scenes/engine_cleaning.ya
 ### 14.2 检查 aligned engine 配置
 
 ```bash
-python scripts/check_engine_assets.py --config configs/scenes/engine_cleaning_aligned.yaml
+python scripts/check_engine_assets.py --config configs/scenes/engine_cleaning.yaml
 ```
 
 ### 14.3 检查 nozzle collision 配置
 
 ```bash
-python scripts/check_engine_assets.py --config configs/scenes/engine_cleaning_nozzle_collision.yaml
+python scripts/check_engine_assets.py --config configs/scenes/engine_cleaning_with_nozzle_collision.yaml
 ```
 
 ### 14.4 生成 engine pose 建议
@@ -641,25 +638,25 @@ python scripts/suggest_engine_pose.py --config configs/scenes/engine_cleaning.ya
 ### 14.5 生成 nozzle primitive collision hint
 
 ```bash
-python scripts/suggest_nozzle_collision.py --config configs/scenes/engine_cleaning_aligned.yaml --source collision --primitive capsule --output-config configs/scenes/engine_cleaning_nozzle_collision.yaml
+python scripts/suggest_nozzle_collision.py --config configs/scenes/engine_cleaning.yaml --source collision --primitive capsule --output-config configs/scenes/engine_cleaning_with_nozzle_collision.yaml
 ```
 
 ### 14.6 MuJoCo headless 预览检查
 
 ```bash
-python scripts/preview_engine_scene_mujoco.py --config configs/scenes/engine_cleaning_aligned.yaml --headless-check
+python scripts/preview_engine_scene_mujoco.py --config configs/scenes/engine_cleaning.yaml --headless-check
 ```
 
-### 14.7 MuJoCo viewer 预览 aligned scene
+### 14.7 MuJoCo viewer 预览 engine scene
 
 ```bash
-python scripts/preview_engine_scene_mujoco.py --config configs/scenes/engine_cleaning_aligned.yaml --viewer --show-bbox --show-regions --show-axes
+python scripts/preview_engine_scene_mujoco.py --config configs/scenes/engine_cleaning.yaml --viewer
 ```
 
 ### 14.8 MuJoCo viewer 预览 nozzle collision hint
 
 ```bash
-python scripts/preview_engine_scene_mujoco.py --config configs/scenes/engine_cleaning_nozzle_collision.yaml --viewer --show-bbox --show-regions --show-axes --show-primitive-collision --show-disabled-hints
+python scripts/preview_engine_scene_mujoco.py --config configs/scenes/engine_cleaning_with_nozzle_collision.yaml --viewer --show-primitive-collision --show-disabled-hints
 ```
 
 ---
@@ -675,8 +672,6 @@ configs/
     dual_continuum.yaml
   scenes/
     engine_cleaning.yaml
-    engine_cleaning_aligned.yaml
-    engine_cleaning_nozzle_collision.yaml
   tasks/
     engine_surface_path.yaml
   tools/
@@ -783,3 +778,19 @@ The long-term development baseline is documented in:
 - `docs/development_log_template.md`
 
 For future engine scene alignment, mobile base control, dual-arm import, and engine interaction tasks, use `feat/engine-dual-arm-foundation` as the main development branch.
+
+## Engine Preview Visualization Config
+
+Preview colors and sizes for `scripts/preview_engine_scene_mujoco.py` can now be configured in `configs/scenes/engine_cleaning.yaml`.
+
+Relevant fields:
+
+- `preview_visualization`: global preview-only styles for visual mesh, collision mesh, bbox edges, and engine axes
+- `regions.<name>.visualization.rgba`: per-region preview color override
+- `exploration_start.visualization`: preview color and size for the start-point marker and normal marker
+- `exploration_start.visualization.group`: MuJoCo geom/site group for `exploration_start`
+- `exploration_paths[*].rgba` and `radius_m`: path segment color and radius
+- `exploration_paths[*].start_marker_rgba`, `end_marker_rgba`, `marker_radius_m`, `group`: per-path marker styles and MuJoCo group
+- `preview_visualization.exploration_start_group` and `preview_visualization.exploration_path_group`: default MuJoCo groups for these overlays, now defaulting to `0`
+
+If `--alpha-visual` or `--alpha-collision` is passed on the CLI, it only overrides the alpha channel of the corresponding mesh preview color.

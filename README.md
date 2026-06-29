@@ -1,5 +1,14 @@
 # continuum_sim
 
+## Mobile-Base Baseline
+
+The maintained baseline commands now run under a unified `6D mobile base + tendon-driven continuum arm` architecture.
+
+- `configs/main_config.yaml` resolves `mobile_base_config` by default.
+- The legacy fixed-base behavior is preserved as the identity/locked special case of the new base layer.
+- Pure PCC tools still solve the arm locally and render in world coordinates through the configured base and mount transform.
+- MuJoCo viewer, tendon-debug, tracking, navigation, and wiping flows now share the same mobile-base wrapper path when configured.
+
 `continuum_sim` 是一个面向三段腱驱连续体机械臂的轻量研究仿真代码库。项目当前维护两条并行能力：
 
 1. 原有稳定主链：单连续体 PCC / MuJoCo tracking、navigation、wiping 仿真；

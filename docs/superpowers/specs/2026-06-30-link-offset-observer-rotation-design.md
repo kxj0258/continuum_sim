@@ -1,5 +1,7 @@
 # Link Outlet Offsets and Observer Rotation
 
+> Superseded by `2026-06-30-segment-terminal-routing-design.md`.
+
 ## Goal
 
 Move the 0.5 mm outlet adjustment from shared odd/even templates to the two physical links where it applies, and rotate the observer arm's tendon layout by 30 degrees.
@@ -43,6 +45,8 @@ Keep executor configuration unchanged. Rotate observer geometry by +30 degrees:
 - Every observer physical tendon's `hole_index` increases by one modulo 12.
 
 This keeps segment parameters, fallback geometry, explicit hole routing, generated spatial tendons, and viewer overlays consistent.
+
+The observer terminal outlet set rotates with the route to holes 05, 09, and 01. The executor terminal outlet set remains holes 04, 08, and 12.
 
 ## Validation
 

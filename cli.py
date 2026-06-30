@@ -315,6 +315,7 @@ def view_mujoco(config_path: str | Path) -> int:
             _configure_viewer_groups,
             draw_tendon_path_overlay_if_enabled,
             resolve_runtime_xml_path,
+            selected_tendon_overlay_arm_names,
             sleep_for_realtime,
         )
     except ModuleNotFoundError:
@@ -335,9 +336,25 @@ def view_mujoco(config_path: str | Path) -> int:
 
     overlay_params = None
     overlay_tendons = ()
+    overlay_arm_name = None
+    overlay_arm_names = None
+    overlay_hole_pattern = None
+    overlay_dual_robot = None
     if config.viewer.overlays.tendon_paths:
         overlay_params = ThreeSegmentRobotParams.from_yaml(config.robot_config_path)
         overlay_tendons = load_physical_tendons_from_yaml(config.robot_config_path)
+        if config.model.type == "dual_distributed_links":
+            from continuum_sim.model.dual_arm_robot import load_dual_arm_robot_config
+            from continuum_sim.model.hole_pattern import load_tendon_hole_pattern
+
+            dual_robot = load_dual_arm_robot_config(config.robot_config_path)
+            overlay_dual_robot = dual_robot
+            overlay_arm_name = dual_robot.default_arm
+            overlay_arm_names = selected_tendon_overlay_arm_names(config, dual_robot)
+            if config.dual_arm_hole_pattern_config_path is not None:
+                overlay_hole_pattern = load_tendon_hole_pattern(
+                    config.dual_arm_hole_pattern_config_path
+                )
 
     with mujoco.viewer.launch_passive(backend.model, backend.data) as viewer:
         _configure_viewer_groups(viewer, config, config.viewer.show_collision_geoms)
@@ -353,6 +370,10 @@ def view_mujoco(config_path: str | Path) -> int:
                     config,
                     overlay_params,
                     overlay_tendons,
+                    arm_name=overlay_arm_name,
+                    arm_names=overlay_arm_names,
+                    hole_pattern=overlay_hole_pattern,
+                    dual_robot=overlay_dual_robot,
                 )
                 viewer.sync()
             if config.viewer.realtime:
@@ -381,10 +402,16 @@ def debug_mujoco_tendons(config_path: str | Path) -> int:
         _configure_viewer_groups,
         draw_tendon_path_overlay_if_enabled,
         resolve_runtime_xml_path,
+        selected_tendon_overlay_arm_names,
     )
 
     params = ThreeSegmentRobotParams.from_yaml(config.robot_config_path)
     physical_tendons = load_physical_tendons_from_yaml(config.robot_config_path)
+    if config.model.type == "dual_distributed_links":
+        from continuum_sim.model.dual_arm_robot import load_dual_arm_robot_config
+
+        dual_robot = load_dual_arm_robot_config(config.robot_config_path)
+        physical_tendons = dual_robot.physical_tendons
     runtime_xml_path = resolve_runtime_xml_path(config, config.viewer.use_segment_visuals)
     backend = MujocoBackend.from_config(config, override_xml_path=runtime_xml_path)
     control_dt = max(
@@ -410,6 +437,23 @@ def debug_mujoco_tendons(config_path: str | Path) -> int:
 
     overlay_params = params if config.viewer.overlays.tendon_paths else None
     overlay_tendons = physical_tendons if config.viewer.overlays.tendon_paths else ()
+    overlay_arm_name = None
+    overlay_arm_names = None
+    overlay_hole_pattern = None
+    overlay_dual_robot = None
+    if config.viewer.overlays.tendon_paths and config.model.type == "dual_distributed_links":
+        from continuum_sim.model.dual_arm_robot import load_dual_arm_robot_config
+        from continuum_sim.model.hole_pattern import load_tendon_hole_pattern
+
+        dual_robot = load_dual_arm_robot_config(config.robot_config_path)
+        overlay_dual_robot = dual_robot
+        overlay_arm_name = dual_robot.default_arm
+        overlay_arm_names = selected_tendon_overlay_arm_names(config, dual_robot)
+        overlay_tendons = dual_robot.default_arm_tendons
+        if config.dual_arm_hole_pattern_config_path is not None:
+            overlay_hole_pattern = load_tendon_hole_pattern(
+                config.dual_arm_hole_pattern_config_path
+            )
 
     with mujoco.viewer.launch_passive(backend.model, backend.data) as sim_viewer:
         _configure_viewer_groups(
@@ -428,6 +472,10 @@ def debug_mujoco_tendons(config_path: str | Path) -> int:
                 config,
                 overlay_params,
                 overlay_tendons,
+                arm_name=overlay_arm_name,
+                arm_names=overlay_arm_names,
+                hole_pattern=overlay_hole_pattern,
+                dual_robot=overlay_dual_robot,
             )
             sim_viewer.sync()
 

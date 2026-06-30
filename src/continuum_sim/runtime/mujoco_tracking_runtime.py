@@ -121,11 +121,11 @@ def run_mujoco_trajectory_tracking(
         override_xml_path=scene_xml_path,
     )
     observed_state = backend.reset()
-    tendon_overlay = TendonOverlayContext(
+    tendon_overlay = make_tendon_overlay_context(
         backend=backend,
+        config=mujoco_config,
         params=params,
         physical_tendons=physical_tendons,
-        links_per_segment=mujoco_config.links_per_segment,
     )
 
     motor_position = task_config.simulation.initial_motor_position_rad.copy()
@@ -218,7 +218,10 @@ def run_mujoco_trajectory_tracking(
                 mujoco_control = joint_targets
             elif mujoco_config.control_mode == "tendon_position":
                 if task_config.mujoco.feedback_mode == "mujoco_actual":
-                    tendon_delta = observed_state.tendon_length.copy()
+                    tendon_delta = default_arm_tendon_delta(
+                        mujoco_config,
+                        observed_state.tendon_length,
+                    )
                     controller_motor_position = tendon_delta_to_motor_position(
                         tendon_delta,
                         motor_params,
@@ -265,7 +268,11 @@ def run_mujoco_trajectory_tracking(
                 raise ValueError(
                     f"Unsupported MuJoCo control_mode {mujoco_config.control_mode!r}."
                 )
-            state = backend.step(mujoco_control, n_substeps=n_substeps)
+            backend_control = _mujoco_runtime_utils.append_zero_mobile_base_control(
+                mujoco_config,
+                mujoco_control,
+            )
+            state = backend.step(backend_control, n_substeps=n_substeps)
             observed_state = state
             _sync_tendon_live_panel(
                 tendon_monitor_panel,
@@ -287,7 +294,7 @@ def run_mujoco_trajectory_tracking(
             tendon_delta_history.append(tendon_delta.copy())
             q_history.append(q_est.copy())
             joint_target_history.append(joint_targets.copy())
-            mujoco_control_history.append(mujoco_control.copy())
+            mujoco_control_history.append(backend_control.copy())
             qpos_history.append(state.qpos.copy())
             qvel_history.append(state.qvel.copy())
             mocap_pos_history.append(_state_mocap_pos(state))
@@ -315,7 +322,7 @@ def run_mujoco_trajectory_tracking(
                 target_advance_mode == "tolerance"
                 and error_norm <= controller_config.position_tolerance_m
             ):
-                if waypoint_index < len(target_positions) - 1:
+                if waypoint_index < len(target_positions_local) - 1:
                     waypoint_index += 1
                 elif task_config.simulation.stop_on_completion:
                     _sync_tracking_viewer(
@@ -513,6 +520,8 @@ def _maybe_hold_tracking_viewer_open_after_run(
 
 
 TendonOverlayContext = _mujoco_runtime_utils.TendonOverlayContext
+make_tendon_overlay_context = _mujoco_runtime_utils.make_tendon_overlay_context
+default_arm_tendon_delta = _mujoco_runtime_utils.default_arm_tendon_delta
 _resolve_runtime_xml_path = _mujoco_runtime_utils.resolve_runtime_xml_path
 _configure_viewer_groups = _mujoco_runtime_utils._configure_viewer_groups
 _configure_viewer_camera = _mujoco_runtime_utils._configure_viewer_camera

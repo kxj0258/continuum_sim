@@ -49,14 +49,23 @@ def _create_tendon_live_panel(
         MujocoTendonMonitorPanel,
     )
 
+    tendon_indices = None
+    if getattr(config.model, "type", None) == "dual_distributed_links":
+        from continuum_sim.model.dual_arm_robot import load_dual_arm_robot_config
+
+        dual_robot = load_dual_arm_robot_config(config.robot_config_path)
+        arm_index = dual_robot.arm_names.index(dual_robot.default_arm)
+        start = arm_index * len(tuple(physical_tendons))
+        tendon_indices = np.arange(start, start + len(tuple(physical_tendons)), dtype=int)
     panel = MujocoTendonMonitorPanel(
         config,
         params,
         tuple(physical_tendons),
         title="continuum_sim MuJoCo tendon tracking monitor",
+        tendon_indices=tendon_indices,
     )
     panel.update_from_state(
-        np.zeros(config.tendon_model.count, dtype=float),
+        np.zeros(len(tuple(physical_tendons)), dtype=float),
         initial_state,
         redraw=False,
     )

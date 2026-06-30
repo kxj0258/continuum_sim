@@ -8,6 +8,7 @@ The maintained baseline commands now run under a unified `6D mobile base + tendo
 - The legacy fixed-base behavior is preserved as the identity/locked special case of the new base layer.
 - Pure PCC tools still solve the arm locally and render in world coordinates through the configured base and mount transform.
 - MuJoCo viewer, tendon-debug, tracking, navigation, and wiping flows now share the same mobile-base wrapper path when configured.
+- 基线命令的实现细节和当前工作流见 `docs/baseline_command_workflow.md`。
 
 `continuum_sim` 是一个面向三段腱驱连续体机械臂的轻量研究仿真代码库。项目当前维护两条并行能力：
 
@@ -785,6 +786,8 @@ The long-term development baseline is documented in:
 
 - `docs/development_baseline.md`
 - `docs/development_log_template.md`
+- 双臂 SolidWorks STL 的命名和放置规范见 `assets/meshes/dual_arm/README.md`，机器可读清单见 `configs/robots/dual_arm_meshes.yaml`。
+- 双臂 MuJoCo 生成、加载和基线任务调用说明见 `docs/dual_arm_mujoco_landing.md`。
 
 For future engine scene alignment, mobile base control, dual-arm import, and engine interaction tasks, use `feat/engine-dual-arm-foundation` as the main development branch.
 

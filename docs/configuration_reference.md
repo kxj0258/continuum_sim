@@ -158,7 +158,7 @@ python scripts/check_mujoco_offscreen_renderer.py --config configs/mujoco.yaml
 | `gravity.enabled`                 | bool         | 是否启用重力。                                   |
 | `gravity.vector_m_s2`             | list[float]  | 重力向量。                                       |
 | `joints.hinge.*`                  | scalar       | hinge damping、armature、limit、range、stiffness 和 springref。 |
-| `tendon_model.*`                  | scalar       | fixed tendon 数量、限幅、damping、stiffness 和 coefficient source。 |
+| `tendon_model.*`                  | scalar       | tendon model 类型、数量、限幅、damping、stiffness 和 coefficient source。 |
 | `actuators.tendon_position.*`     | scalar       | tendon position gain、命令范围和力范围。         |
 | `actuators.joint_position.*`      | scalar       | joint position gain、命令范围和力矩范围。        |
 | `sensors.*`                       | bool         | tendon length、velocity 和 actuator force sensor 开关。 |

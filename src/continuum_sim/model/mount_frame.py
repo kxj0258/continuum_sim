@@ -49,12 +49,21 @@ class MobileBaseVisualizationConfig:
 
 
 @dataclass(frozen=True)
+class MobileBaseInertialConfig:
+    """Mass properties required when the mobile base has MuJoCo DOFs."""
+
+    mass_kg: float
+    diaginertia_kg_m2: np.ndarray
+
+
+@dataclass(frozen=True)
 class MobileBaseConfig:
     """Configured 6D mobile-base pose and optional limits."""
 
     name: str
     frame: str
     pose: Pose6D
+    inertial: MobileBaseInertialConfig
     limits: MobileBaseLimitsConfig
     manual_control: MobileBaseManualControlConfig
     visualization: MobileBaseVisualizationConfig
@@ -149,12 +158,25 @@ def _load_mobile_base(values: dict[str, object]) -> MobileBaseConfig:
     visualization_raw = values.get("visualization", {})
     if not isinstance(visualization_raw, dict):
         raise ValueError("mobile_base.visualization must be a mapping when provided.")
+    inertial_raw = values.get("inertial", {})
+    if not isinstance(inertial_raw, dict):
+        raise ValueError("mobile_base.inertial must be a mapping when provided.")
 
     return MobileBaseConfig(
         name=str(values.get("name", "mobile_base_pose")),
         frame=str(values.get("frame", "world")),
         type=str(values.get("type", "prescribed_pose")),
         pose=Pose6D.from_dict(pose_raw),
+        inertial=MobileBaseInertialConfig(
+            mass_kg=_positive_float(
+                inertial_raw.get("mass_kg", 1.0),
+                "mobile_base.inertial.mass_kg",
+            ),
+            diaginertia_kg_m2=_positive_vector3(
+                inertial_raw.get("diaginertia_kg_m2", (0.001, 0.001, 0.001)),
+                "mobile_base.inertial.diaginertia_kg_m2",
+            ),
+        ),
         limits=MobileBaseLimitsConfig(
             position_min_m=_vector3(
                 limits_raw.get("position_min_m", limits_raw.get("xyz_min", (-1.0, -1.0, -1.0))),
@@ -216,6 +238,20 @@ def _vector3(raw_value: object, name: str) -> np.ndarray:
     if values.shape != (3,):
         raise ValueError(f"{name} must have shape (3,), got {values.shape}.")
     return values.copy()
+
+
+def _positive_vector3(raw_value: object, name: str) -> np.ndarray:
+    values = _vector3(raw_value, name)
+    if np.any(values <= 0.0):
+        raise ValueError(f"{name} entries must be > 0, got {values}.")
+    return values
+
+
+def _positive_float(raw_value: object, name: str) -> float:
+    value = float(raw_value)
+    if value <= 0.0:
+        raise ValueError(f"{name} must be > 0, got {value}.")
+    return value
 
 
 def _rgba4(raw_value: object, name: str) -> tuple[float, float, float, float]:

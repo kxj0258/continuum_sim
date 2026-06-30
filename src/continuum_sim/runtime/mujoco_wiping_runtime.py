@@ -148,11 +148,11 @@ def run_mujoco_wiping(
         override_xml_path=scene_xml_path,
     )
     observed_state = backend.reset()
-    tendon_overlay = TendonOverlayContext(
+    tendon_overlay = make_tendon_overlay_context(
         backend=backend,
+        config=mujoco_config,
         params=params,
         physical_tendons=physical_tendons,
-        links_per_segment=mujoco_config.links_per_segment,
     )
 
     motor_position = task_config.simulation.initial_motor_position_rad.copy()
@@ -275,7 +275,10 @@ def run_mujoco_wiping(
                 )
 
             if task_config.mujoco.feedback_mode == "mujoco_actual":
-                tendon_delta = observed_state.tendon_length.copy()
+                tendon_delta = default_arm_tendon_delta(
+                    mujoco_config,
+                    observed_state.tendon_length,
+                )
                 controller_motor_position = tendon_delta_to_motor_position(
                     tendon_delta,
                     motor_params,
@@ -380,7 +383,11 @@ def run_mujoco_wiping(
                     mujoco_config.actuators.tendon_position.ctrlrange_m,
                 )
 
-            state = backend.step(mujoco_control, n_substeps=n_substeps)
+            backend_control = _mujoco_runtime_utils.append_zero_mobile_base_control(
+                mujoco_config,
+                mujoco_control,
+            )
+            state = backend.step(backend_control, n_substeps=n_substeps)
             observed_state = state
             _sync_tendon_live_panel(
                 tendon_monitor_panel,
@@ -440,7 +447,7 @@ def run_mujoco_wiping(
             predicted_qddot_history.append(_info_vector(info, "predicted_qddot", params.q_size))
             stiffness_diag_history.append(_info_vector(info, "stiffness_diag", params.q_size))
             damping_diag_history.append(_info_vector(info, "damping_diag", params.q_size))
-            mujoco_control_history.append(mujoco_control.copy())
+            mujoco_control_history.append(backend_control.copy())
             qpos_history.append(state.qpos.copy())
             qvel_history.append(state.qvel.copy())
             mocap_pos_history.append(_state_mocap_pos(state))
@@ -799,6 +806,8 @@ def _safe_name(value: str) -> str:
 
 
 TendonOverlayContext = _mujoco_runtime_utils.TendonOverlayContext
+make_tendon_overlay_context = _mujoco_runtime_utils.make_tendon_overlay_context
+default_arm_tendon_delta = _mujoco_runtime_utils.default_arm_tendon_delta
 _resolve_visual_xml_path = _mujoco_runtime_utils._resolve_visual_xml_path
 _configure_viewer_groups = _mujoco_runtime_utils._configure_viewer_groups
 _configure_viewer_camera = _mujoco_runtime_utils._configure_viewer_camera

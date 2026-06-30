@@ -17,6 +17,7 @@ from continuum_sim.control.cbf_qp_kinematics import (
     cbf_lower_bound,
     solve_cbf_qp_velocity,
 )
+from continuum_sim.control.dual_arm_adapter import DualArmCommandAdapter
 from continuum_sim.control.hybrid_force_position import (
     ContactMeasurement,
     compute_wiping_motor_velocity_command_from_observation,
@@ -59,6 +60,7 @@ __all__ = [
     "AdaptiveImpedanceConfig",
     "CBFQPConfig",
     "DifferentialIKConfig",
+    "DualArmCommandAdapter",
     "EngineCleaningCommand",
     "EngineCleaningController",
     "EngineCleaningControllerGains",

@@ -1,0 +1,312 @@
+schema_version: 1
+name: dual_arm_12_hole_spatial_pattern
+
+units:
+  length: m
+  angle: deg
+
+hole_pattern:
+  description: >-
+    Shared 12-hole templates for each arm base and every continuum link.
+    Even link: in delta=|y|tan15, out delta=|x|tan15.
+    Odd link: in delta=|x|tan15, out delta=|y|tan15.
+    Each segment's final link has arm-specific absolute outlet coordinates.
+  frame:
+    type: local
+    x_axis: cad_local_x
+
+  site_generation:
+    site_size_m: 0.0006
+    in_site_rgba: [1.0, 0.2, 0.1, 1.0]
+    out_site_rgba: [0.1, 0.4, 1.0, 1.0]
+
+  visualization:
+    hole_display: all
+    show_tendons: true
+
+  segment_terminal_links:
+    - segment_number: 1
+      link_number: 4
+      in_holes_from: link_even
+      exclusive_out_holes: false
+      out_holes:
+        executor:
+          - {id: hole_03, index: 2, z_m: 0.007}
+          - {id: hole_07, index: 6, z_m: 0.007}
+          - {id: hole_11, index: 10, z_m: 0.007}
+        observer:
+          - {id: hole_01, index: 0, z_m: 0.007}
+          - {id: hole_05, index: 4, z_m: 0.007}
+          - {id: hole_09, index: 8, z_m: 0.007}
+    - segment_number: 2
+      link_number: 4
+      in_holes_from: link_even
+      exclusive_out_holes: false
+      out_holes:
+        executor:
+          - {id: hole_01, index: 0, z_m: 0.007}
+          - {id: hole_05, index: 4, z_m: 0.007}
+          - {id: hole_09, index: 8, z_m: 0.007}
+        observer:
+          - {id: hole_03, index: 2, z_m: 0.007}
+          - {id: hole_07, index: 6, z_m: 0.007}
+          - {id: hole_11, index: 10, z_m: 0.007}
+    - segment_number: 3
+      link_number: 4
+      in_holes_from: link_even
+      exclusive_out_holes: true
+      out_holes:
+        executor:
+          - {id: hole_04, index: 3, z_m: 0.007}
+          - {id: hole_08, index: 7, z_m: 0.007}
+          - {id: hole_12, index: 11, z_m: 0.007}
+        observer:
+          - {id: hole_02, index: 1, z_m: 0.007}
+          - {id: hole_06, index: 5, z_m: 0.007}
+          - {id: hole_10, index: 9, z_m: 0.007}
+
+  link_even:
+    description: >-
+      Even-numbered link segments;
+      in_z = abs(y)*tan15; out_z = 0.010 - abs(x)*tan15
+    frame:
+      origin: proximal_section_center
+      z_axis: link_axis_distal
+    link_length_m: 0.010
+    holes:
+      - id: hole_01
+        index: 0
+        angle_deg: 0.0
+        xy_m: [0.005, 0.0]
+        in_z_m: 0.0
+        out_z_m: 0.00866025
+      - id: hole_02
+        index: 1
+        angle_deg: 30.0
+        xy_m: [0.00433013, 0.0025]
+        in_z_m: 0.00066987
+        out_z_m: 0.00883975
+      - id: hole_03
+        index: 2
+        angle_deg: 60.0
+        xy_m: [0.0025, 0.00433013]
+        in_z_m: 0.00116025
+        out_z_m: 0.00933013
+      - id: hole_04
+        index: 3
+        angle_deg: 90.0
+        xy_m: [0.0, 0.005]
+        in_z_m: 0.00133975
+        out_z_m: 0.010
+      - id: hole_05
+        index: 4
+        angle_deg: 120.0
+        xy_m: [-0.0025, 0.00433013]
+        in_z_m: 0.00116025
+        out_z_m: 0.00933013
+      - id: hole_06
+        index: 5
+        angle_deg: 150.0
+        xy_m: [-0.00433013, 0.0025]
+        in_z_m: 0.00066987
+        out_z_m: 0.00883975
+      - id: hole_07
+        index: 6
+        angle_deg: 180.0
+        xy_m: [-0.005, 0.0]
+        in_z_m: 0.0
+        out_z_m: 0.00866025
+      - id: hole_08
+        index: 7
+        angle_deg: 210.0
+        xy_m: [-0.00433013, -0.0025]
+        in_z_m: 0.00066987
+        out_z_m: 0.00883975
+      - id: hole_09
+        index: 8
+        angle_deg: 240.0
+        xy_m: [-0.0025, -0.00433013]
+        in_z_m: 0.00116025
+        out_z_m: 0.00933013
+      - id: hole_10
+        index: 9
+        angle_deg: 270.0
+        xy_m: [0.0, -0.005]
+        in_z_m: 0.00133975
+        out_z_m: 0.010
+      - id: hole_11
+        index: 10
+        angle_deg: 300.0
+        xy_m: [0.0025, -0.00433013]
+        in_z_m: 0.00116025
+        out_z_m: 0.00933013
+      - id: hole_12
+        index: 11
+        angle_deg: 330.0
+        xy_m: [0.00433013, -0.0025]
+        in_z_m: 0.00066987
+        out_z_m: 0.00883975
+
+  link_odd:
+    description: >-
+      Odd-numbered link segments;
+      in_z = abs(x)*tan15; out_z = 0.010 - abs(y)*tan15
+    frame:
+      origin: proximal_section_center
+      z_axis: link_axis_distal
+    link_length_m: 0.010
+    holes:
+      - id: hole_01
+        index: 0
+        angle_deg: 0.0
+        xy_m: [0.005, 0.0]
+        in_z_m: 0.00133975
+        out_z_m: 0.010
+      - id: hole_02
+        index: 1
+        angle_deg: 30.0
+        xy_m: [0.00433013, 0.0025]
+        in_z_m: 0.00116025
+        out_z_m: 0.00933013
+      - id: hole_03
+        index: 2
+        angle_deg: 60.0
+        xy_m: [0.0025, 0.00433013]
+        in_z_m: 0.00066987
+        out_z_m: 0.00883975
+      - id: hole_04
+        index: 3
+        angle_deg: 90.0
+        xy_m: [0.0, 0.005]
+        in_z_m: 0.0
+        out_z_m: 0.00866025
+      - id: hole_05
+        index: 4
+        angle_deg: 120.0
+        xy_m: [-0.0025, 0.00433013]
+        in_z_m: 0.00066987
+        out_z_m: 0.00883975
+      - id: hole_06
+        index: 5
+        angle_deg: 150.0
+        xy_m: [-0.00433013, 0.0025]
+        in_z_m: 0.00116025
+        out_z_m: 0.00933013
+      - id: hole_07
+        index: 6
+        angle_deg: 180.0
+        xy_m: [-0.005, 0.0]
+        in_z_m: 0.00133975
+        out_z_m: 0.010
+      - id: hole_08
+        index: 7
+        angle_deg: 210.0
+        xy_m: [-0.00433013, -0.0025]
+        in_z_m: 0.00116025
+        out_z_m: 0.00933013
+      - id: hole_09
+        index: 8
+        angle_deg: 240.0
+        xy_m: [-0.0025, -0.00433013]
+        in_z_m: 0.00066987
+        out_z_m: 0.00883975
+      - id: hole_10
+        index: 9
+        angle_deg: 270.0
+        xy_m: [0.0, -0.005]
+        in_z_m: 0.0
+        out_z_m: 0.00866025
+      - id: hole_11
+        index: 10
+        angle_deg: 300.0
+        xy_m: [0.0025, -0.00433013]
+        in_z_m: 0.00066987
+        out_z_m: 0.00883975
+      - id: hole_12
+        index: 11
+        angle_deg: 330.0
+        xy_m: [0.00433013, -0.0025]
+        in_z_m: 0.00116025
+        out_z_m: 0.00933013
+
+  base:
+    description: >-
+      Per-arm base tendon holes. Base z axis points downward.
+      Base out_z base formula: 0 - abs(x)*tan15
+    frame:
+      origin: base_top_section_center
+      z_axis: base_axis_down
+    height_m: 0.020
+    holes:
+      - id: base_hole_01
+        index: 0
+        angle_deg: 0.0
+        xy_m: [0.005, 0.0]
+        in_z_m: -0.020
+        out_z_m: -0.00133975
+      - id: base_hole_02
+        index: 1
+        angle_deg: 30.0
+        xy_m: [0.00433013, 0.0025]
+        in_z_m: -0.020
+        out_z_m: -0.00116025
+      - id: base_hole_03
+        index: 2
+        angle_deg: 60.0
+        xy_m: [0.0025, 0.00433013]
+        in_z_m: -0.020
+        out_z_m: -0.00066987
+      - id: base_hole_04
+        index: 3
+        angle_deg: 90.0
+        xy_m: [0.0, 0.005]
+        in_z_m: -0.020
+        out_z_m: 0.0
+      - id: base_hole_05
+        index: 4
+        angle_deg: 120.0
+        xy_m: [-0.0025, 0.00433013]
+        in_z_m: -0.020
+        out_z_m: -0.00066987
+      - id: base_hole_06
+        index: 5
+        angle_deg: 150.0
+        xy_m: [-0.00433013, 0.0025]
+        in_z_m: -0.020
+        out_z_m: -0.00116025
+      - id: base_hole_07
+        index: 6
+        angle_deg: 180.0
+        xy_m: [-0.005, 0.0]
+        in_z_m: -0.020
+        out_z_m: -0.00133975
+      - id: base_hole_08
+        index: 7
+        angle_deg: 210.0
+        xy_m: [-0.00433013, -0.0025]
+        in_z_m: -0.020
+        out_z_m: -0.00116025
+      - id: base_hole_09
+        index: 8
+        angle_deg: 240.0
+        xy_m: [-0.0025, -0.00433013]
+        in_z_m: -0.020
+        out_z_m: -0.00066987
+      - id: base_hole_10
+        index: 9
+        angle_deg: 270.0
+        xy_m: [0.0, -0.005]
+        in_z_m: -0.020
+        out_z_m: 0.0
+      - id: base_hole_11
+        index: 10
+        angle_deg: 300.0
+        xy_m: [0.0025, -0.00433013]
+        in_z_m: -0.020
+        out_z_m: -0.00066987
+      - id: base_hole_12
+        index: 11
+        angle_deg: 330.0
+        xy_m: [0.00433013, -0.0025]
+        in_z_m: -0.020
+        out_z_m: -0.00116025

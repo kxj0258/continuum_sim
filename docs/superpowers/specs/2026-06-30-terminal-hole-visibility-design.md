@@ -1,5 +1,7 @@
 # Terminal Hole and Visibility Controls
 
+> Superseded by `2026-06-30-segment-terminal-routing-design.md` for terminal geometry. The visibility controls remain applicable.
+
 ## Goal
 
 Model the physical outlet holes on each arm's `segment_3_link_4` and provide YAML controls for hole-site and tendon visualization without changing tendon physics.
@@ -14,12 +16,17 @@ terminal_link:
   link_number: 4
   in_holes_from: link_even
   out_holes:
-    - {id: hole_04, index: 3, z_m: 0.007}
-    - {id: hole_08, index: 7, z_m: 0.007}
-    - {id: hole_12, index: 11, z_m: 0.007}
+    executor:
+      - {id: hole_04, index: 3, z_m: 0.007}
+      - {id: hole_08, index: 7, z_m: 0.007}
+      - {id: hole_12, index: 11, z_m: 0.007}
+    observer:
+      - {id: hole_05, index: 4, z_m: 0.007}
+      - {id: hole_09, index: 8, z_m: 0.007}
+      - {id: hole_01, index: 0, z_m: 0.007}
 ```
 
-The terminal link keeps all twelve inlet holes from the even-link template. Its outlet set contains only holes 04, 08, and 12, each at local z = 0.007 m. Outlet x/y coordinates come from the matching inlet hole, avoiding duplicated coordinates.
+The terminal link keeps all twelve inlet holes from the even-link template. Executor outlets are holes 04, 08, and 12; observer outlets are holes 05, 09, and 01 after its 30-degree rotation. Every terminal outlet uses local z = 0.007 m. Outlet x/y coordinates come from the matching inlet hole, avoiding duplicated coordinates.
 
 The loader must reject duplicate terminal outlet indices, unknown indices, mismatched ids, or an unsupported `in_holes_from` value.
 

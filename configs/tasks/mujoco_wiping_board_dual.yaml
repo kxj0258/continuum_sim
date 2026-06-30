@@ -1,0 +1,73 @@
+schema_version: 1
+name: mujoco_wiping_board_dual
+mujoco_backend_config: ../mujoco_dual.yaml
+
+robot:
+  config_path: configs/robots/dual_arm_3seg.yaml
+
+scene:
+  config_path: ../scenes/wiping_board.yaml
+  generated_xml_path: ../../assets/mujoco/generated/wiping_board_dual.xml
+
+tool:
+  type: spherical_pad
+  radius_m: 0.005
+  offset_m: [0.0, 0.0, 0.0]
+  rgba: [0.05, 0.15, 0.18, 1.0]
+  geom_name: tool_contact_pad
+  body_name: tool_contact_pad_body
+  contact_site_name: tool_contact_site
+  site_radius_m: 0.002
+  contype: 1
+  conaffinity: 1
+
+simulation:
+  dt: 0.02
+  max_steps: 2000
+  stop_on_completion: true
+  position_limit_rad: 2.0
+  initial_motor_position_rad: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+controller:
+  type: hybrid_force_position
+  damping: 1.0e-3
+  tangent_position_gain: 5.0
+  normal_force_gain: 0.04
+  normal_position_gain: 1.0
+  target_normal_force_n: 1.5
+  force_proxy_stiffness_n_m: 600.0
+  target_contact_distance_m: -0.0075
+  max_normal_velocity_m_s: 0.03
+  max_tangent_velocity_m_s: 0.02
+  max_motor_velocity_rad_s: 1.0
+  position_tolerance_m: 0.005
+  force_tolerance_n: 0.25
+  max_contact_force_n: 5.0
+  contact_loss_tolerance_steps: 500
+  finite_difference_step_rad: 1.0e-5
+
+motion:
+  type: raster_wipe
+  surface_id: board_surface
+  patch_id: center_patch
+  center_m: [0.0375, 0.0, 0.095]
+  width_m: 0.040
+  height_m: 0.025
+  line_count: 5
+  samples_per_line: 30
+  approach_offset_m: 0.005
+  contact_offset_m: -0.0025
+  waypoint_tolerance_m: 0.005
+
+mujoco:
+  feedback_mode: pcc_command
+  show_live_tendon_panel: false
+  live_tendon_panel_stride: 1
+  show_live_force_panel: true
+  live_force_panel_stride: 1
+  live_force_panel_history_points: 300
+  hold_viewer_open_after_run: false
+  show_summary: false
+
+visualization:
+  show: true

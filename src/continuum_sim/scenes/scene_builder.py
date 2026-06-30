@@ -187,6 +187,22 @@ def _attach_mobile_base_wrapper(
     )
     ET.SubElement(
         mobile_base_body,
+        "inertial",
+        {
+            "pos": "0 0 0",
+            "mass": _format_float(config.mobile_base.inertial.mass_kg),
+            "diaginertia": _format_vec(config.mobile_base.inertial.diaginertia_kg_m2),
+        },
+    )
+    ET.SubElement(
+        mobile_base_body,
+        "freejoint",
+        {
+            "name": "mobile_base_freejoint",
+        },
+    )
+    ET.SubElement(
+        mobile_base_body,
         "site",
         {
             "name": "mobile_base_frame",

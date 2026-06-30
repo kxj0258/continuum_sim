@@ -23,7 +23,7 @@ mobile_base:
   visualization:
     enabled: true
     type: box
-    size_m: [0.10, 0.06, 0.04]
+    size_m: [0.02, 0.02, 0.001]
     rgba: [0.35, 0.35, 0.35, 1.0]
 
 mounts:
@@ -31,5 +31,5 @@ mounts:
     name: continuum_arm_mount
     parent_frame: mobile_base
     child_frame: continuum_arm_root
-    position_m: [0.0, 0.0, 0.04]
+    position_m: [0.0, 0.0, 0.025]
     quat_wxyz: [1.0, 0.0, 0.0, 0.0]

@@ -1,0 +1,150 @@
+schema_version: 1
+backend: mujoco
+enabled: true
+robot_config_path: robots/dual_arm_3seg.yaml
+multi_arm_config_path: robots/dual_continuum.yaml
+dual_arm_mesh_config_path: robots/dual_arm_meshes.yaml
+dual_arm_hole_pattern_config_path: robots/dual_arm_hole_pattern.yaml
+mobile_base_config_path: robots/dual_mobile_base_pose.yaml
+xml_path: ../assets/mujoco/dual_three_segment_arm_tendon_with_visuals.xml
+tendon_xml_path: ../assets/mujoco/dual_three_segment_arm_tendon_with_visuals.xml
+generated_xml_path: ../assets/mujoco/dual_three_segment_arm_tendon_with_visuals.xml
+tendon_generated_xml_path: ../assets/mujoco/dual_three_segment_arm_tendon_with_visuals.xml
+asset_scale: 0.001
+links_per_segment: 4
+control_mode: tendon_position
+model:
+  type: dual_distributed_links
+  follower_samples_per_segment: 4
+  follower_collision: true
+  follower_visuals: true
+  contact_force_projection: false
+  apply_projected_qfrc: false
+visuals:
+  enabled: true
+  frame_mode: cad_global
+  cad_origin_mm: [0.0, 0.0, 0.0]
+  mesh_unit: mm
+  mesh_scale: 0.001
+  directory: ../assets/meshes/dual_arm
+  template_path: ../assets/mujoco/segmented_visuals_template.xml
+  collision_mode: capsule
+  visual_geom_group: 1
+  collision_geom_group: 0
+  expected_meshes:
+    - shared_base/dual_base_visual.stl
+    - executor/base_visual.stl
+    - executor/segment_1_link_1_visual.stl
+    - executor/segment_1_link_2_visual.stl
+    - executor/segment_1_link_3_visual.stl
+    - executor/segment_1_link_4_visual.stl
+    - executor/segment_2_link_1_visual.stl
+    - executor/segment_2_link_2_visual.stl
+    - executor/segment_2_link_3_visual.stl
+    - executor/segment_2_link_4_visual.stl
+    - executor/segment_3_link_1_visual.stl
+    - executor/segment_3_link_2_visual.stl
+    - executor/segment_3_link_3_visual.stl
+    - executor/segment_3_link_4_visual.stl
+    - observer/base_visual.stl
+    - observer/segment_1_link_1_visual.stl
+    - observer/segment_1_link_2_visual.stl
+    - observer/segment_1_link_3_visual.stl
+    - observer/segment_1_link_4_visual.stl
+    - observer/segment_2_link_1_visual.stl
+    - observer/segment_2_link_2_visual.stl
+    - observer/segment_2_link_3_visual.stl
+    - observer/segment_2_link_4_visual.stl
+    - observer/segment_3_link_1_visual.stl
+    - observer/segment_3_link_2_visual.stl
+    - observer/segment_3_link_3_visual.stl
+    - observer/segment_3_link_4_visual.stl
+viewer:
+  show: true
+  steps: 1000
+  use_segment_visuals: false
+  show_collision_geoms: true
+  sync_interval_steps: 1
+  realtime: true
+  realtime_factor: 1.0
+  camera:
+    lookat: [0.025, 0.0, 0.095]
+    distance: 0.25
+    azimuth: 315.0
+    elevation: -25.0
+  overlays:
+    target_marker: true
+    target_marker_radius: 0.004
+    target_marker_rgba: [1.0, 0.12, 0.08, 1.0]
+    tip_trail: true
+    target_trail: true
+    trail_max_points: 250
+    trail_stride: 1
+    tip_trail_radius: 0.0012
+    target_trail_radius: 0.001
+    tip_trail_rgba: [0.05, 0.65, 1.0, 0.75]
+    target_trail_rgba: [1.0, 0.35, 0.08, 0.45]
+    tendon_paths: true
+    tendon_path_radius: 0.0002
+    tendon_path_stride: 1
+    tendon_path_arms: both
+solver:
+  timestep: 0.001
+  integrator: implicitfast
+  iterations: 50
+gravity:
+  enabled: false
+  vector_m_s2: [0.0, 0.0, -9.81]
+joints:
+  hinge:
+    damping: 0.05
+    armature: 0.0001
+    limited: true
+    range_rad: [-0.25, 0.25]
+    stiffness: 0.02
+    springref: 0.0
+tendon_model:
+  enabled: true
+  type: spatial
+  count: 18
+  limited: true
+  length_range_m: [-0.020, 0.020]
+  damping: 0.0
+  stiffness: 0.0
+  coefficient_source: robot_physical_tendons
+  include_axial_strain: false
+actuators:
+  tendon_position:
+    kp: 500000.0
+    ctrllimited: true
+    ctrlrange_m: [-0.020, 0.020]
+    forcelimited: true
+    forcerange_n: [-20.0, 20.0]
+  joint_position:
+    kp: 2.0
+    ctrllimited: true
+    ctrlrange_rad: [-0.25, 0.25]
+    forcelimited: true
+    forcerange_nm: [-0.5, 0.5]
+sensors:
+  tendon_length: true
+  tendon_velocity: true
+  actuator_force: true
+smoke_tests:
+  duration_s: 0.25
+  zero_command_tolerance_m: 0.002
+  single_tendon_delta_m: -0.003
+  symmetric_tendon_delta_m: -0.003
+rendering:
+  offscreen_width: 640
+  offscreen_height: 480
+site_names:
+  base: executor_base_site
+  segments:
+    - executor_segment_1_tip
+    - executor_segment_2_tip
+    - executor_segment_3_tip
+  tip: executor_tip
+notes:
+  - This dual-arm config embeds the unified SolidWorks base mesh directly in the generated MuJoCo XML.
+  - Executor is the task-facing arm. Observer is visual and tendon-controllable, but collision-disabled.

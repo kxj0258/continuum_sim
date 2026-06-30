@@ -1,0 +1,38 @@
+schema_version: 1
+name: dual_mobile_base_pose
+
+mobile_base:
+  name: mobile_base
+  type: prescribed_pose
+  frame: world
+  pose:
+    position_m: [0.0, 0.0, 0.0]
+    quat_wxyz: [1.0, 0.0, 0.0, 0.0]
+  inertial:
+    mass_kg: 1.0
+    diaginertia_kg_m2: [0.001, 0.001, 0.001]
+  limits:
+    position_min_m: [-1.0, -1.0, -1.0]
+    position_max_m: [1.0, 1.0, 1.0]
+    rpy_min_deg: [-180.0, -180.0, -180.0]
+    rpy_max_deg: [180.0, 180.0, 180.0]
+    max_linear_speed: 0.05
+    max_angular_speed: 0.30
+  manual_control:
+    translation_step_m: 0.01
+    rotation_step_deg: 2.0
+    fine_translation_step_m: 0.002
+    fine_rotation_step_deg: 0.5
+  visualization:
+    enabled: false
+    type: box
+    size_m: [0.02, 0.02, 0.001]
+    rgba: [0.35, 0.35, 0.35, 1.0]
+
+mounts:
+  dual_arm_mount:
+    name: dual_arm_mount
+    parent_frame: mobile_base
+    child_frame: dual_mobile_base
+    position_m: [0.0, 0.0, 0.0]
+    quat_wxyz: [1.0, 0.0, 0.0, 0.0]

@@ -19,7 +19,7 @@ class SegmentParams:
 
     length: float
     tendon_radius: float
-    tendon_angles_deg: tuple[float, float, float] = (0.0, 120.0, 240.0)
+    tendon_angles_deg: tuple[float, ...] = (0.0, 120.0, 240.0)
 
     @property
     def routing(self) -> TendonRouting:
@@ -41,6 +41,10 @@ class ThreeSegmentRobotParams:
     @classmethod
     def from_yaml(cls, path: str | Path) -> "ThreeSegmentRobotParams":
         """Create robot parameters from the project's robot YAML file."""
+        from continuum_sim.model.dual_arm_robot import is_dual_arm_robot_config, load_dual_arm_robot_config
+
+        if is_dual_arm_robot_config(path):
+            return load_dual_arm_robot_config(path).default_arm_params
         config = load_yaml(path)
         segments = []
         for segment in config["segments"]:

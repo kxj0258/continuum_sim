@@ -19,10 +19,27 @@ class PhysicalTendonPath:
     angle_deg: float
     radial_offset: float
     path_segment_indices: tuple[int, ...]
+    hole_index: int | None = None
 
 
 def load_physical_tendons_from_yaml(path: str | Path) -> tuple[PhysicalTendonPath, ...]:
     """Load and validate physical tendon paths from the robot YAML file."""
+    from continuum_sim.model.dual_arm_robot import is_dual_arm_robot_config, load_dual_arm_robot_config
+
+    if is_dual_arm_robot_config(path):
+        return tuple(
+            PhysicalTendonPath(
+                id=tendon.id,
+                global_index=index,
+                motor_index=index,
+                anchor_segment_index=tendon.anchor_segment_index,
+                angle_deg=tendon.angle_deg,
+                radial_offset=tendon.radial_offset,
+                path_segment_indices=tendon.path_segment_indices,
+                hole_index=tendon.hole_index,
+            )
+            for index, tendon in enumerate(load_dual_arm_robot_config(path).default_arm_tendons)
+        )
     config = load_yaml(path)
     robot = config.get("robot", {})
     segment_count = int(robot.get("segment_count", len(config.get("segments", []))))
@@ -77,4 +94,5 @@ def _physical_tendon_from_dict(item: dict[str, object]) -> PhysicalTendonPath:
         angle_deg=float(item["angle_deg"]),
         radial_offset=float(item["radial_offset"]),
         path_segment_indices=tuple(int(v) for v in item["path_segment_indices"]),  # type: ignore[index]
+        hole_index=(None if "hole_index" not in item else int(item["hole_index"])),
     )

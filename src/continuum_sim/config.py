@@ -52,10 +52,22 @@ DEFAULT_MUJOCO_VISUAL_MESHES: tuple[str, ...] = (
     "segment_3_link_4_visual.stl",
 )
 
+MUJOCO_TENDON_PATH_ARM_MODES: tuple[str, ...] = (
+    "default",
+    "executor",
+    "observer",
+    "both",
+    "none",
+)
+
 MUJOCO_CONTROL_MODES: tuple[str, ...] = ("position_joint", "tendon_position")
-MUJOCO_TENDON_TYPES: tuple[str, ...] = ("fixed",)
+MUJOCO_TENDON_TYPES: tuple[str, ...] = ("spatial",)
 MUJOCO_TENDON_COEFFICIENT_SOURCES: tuple[str, ...] = ("robot_physical_tendons",)
-MUJOCO_MODEL_TYPES: tuple[str, ...] = ("distributed_links", "segment_2dof_followers")
+MUJOCO_MODEL_TYPES: tuple[str, ...] = (
+    "distributed_links",
+    "segment_2dof_followers",
+    "dual_distributed_links",
+)
 MUJOCO_POSE_SOURCES: tuple[str, ...] = ("pcc_fk", "mujoco_site")
 
 
@@ -143,6 +155,7 @@ class MujocoViewerOverlayConfig:
     tendon_paths: bool
     tendon_path_radius: float
     tendon_path_stride: int
+    tendon_path_arms: str
 
 
 @dataclass(frozen=True)
@@ -181,7 +194,7 @@ class MujocoJointConfig:
 
 @dataclass(frozen=True)
 class MujocoTendonModelConfig:
-    """YAML-backed fixed tendon model parameters."""
+    """YAML-backed spatial tendon model parameters."""
 
     enabled: bool
     type: str
@@ -258,6 +271,9 @@ class MujocoConfig:
     path: Path
     robot_config_path: Path
     mobile_base_config_path: Path | None
+    multi_arm_config_path: Path | None
+    dual_arm_mesh_config_path: Path | None
+    dual_arm_hole_pattern_config_path: Path | None
     xml_path: Path
     tendon_xml_path: Path
     generated_xml_path: Path
@@ -310,7 +326,17 @@ def load_mujoco_config(
     if not robot_config_path.is_file():
         raise FileNotFoundError(f"Robot config file does not exist: {robot_config_path}")
     physical_tendon_count = _load_robot_physical_tendon_count(robot_config_path)
+    robot_config_is_dual = _is_dual_arm_robot_config(robot_config_path)
     mobile_base_config_path = _optional_config_path(config_path, raw.get("mobile_base_config_path"))
+    multi_arm_config_path = _optional_config_path(config_path, raw.get("multi_arm_config_path"))
+    dual_arm_mesh_config_path = _optional_config_path(
+        config_path,
+        raw.get("dual_arm_mesh_config_path"),
+    )
+    dual_arm_hole_pattern_config_path = _optional_config_path(
+        config_path,
+        raw.get("dual_arm_hole_pattern_config_path"),
+    )
 
     xml_path = _resolve_path(config_path, _required(raw, "xml_path"))
     if require_xml and not xml_path.is_file():
@@ -349,7 +375,12 @@ def load_mujoco_config(
     viewer = _load_mujoco_viewer_config(raw)
     model = _load_mujoco_model_config(raw)
     joints = _load_mujoco_joint_config(raw)
-    tendon_model = _load_mujoco_tendon_model_config(raw, physical_tendon_count)
+    tendon_model = _load_mujoco_tendon_model_config(
+        raw,
+        physical_tendon_count,
+        model_type=model.type,
+        robot_config_is_dual=robot_config_is_dual,
+    )
     actuators = _load_mujoco_actuator_config(raw)
     sensors = _load_mujoco_sensor_config(raw)
     smoke_tests = _load_mujoco_smoke_test_config(raw)
@@ -359,6 +390,9 @@ def load_mujoco_config(
         path=config_path,
         robot_config_path=robot_config_path,
         mobile_base_config_path=mobile_base_config_path,
+        multi_arm_config_path=multi_arm_config_path,
+        dual_arm_mesh_config_path=dual_arm_mesh_config_path,
+        dual_arm_hole_pattern_config_path=dual_arm_hole_pattern_config_path,
         xml_path=xml_path,
         tendon_xml_path=tendon_xml_path,
         generated_xml_path=generated_xml_path,
@@ -594,10 +628,19 @@ def _load_mujoco_viewer_overlay_config(
             values.get("tendon_path_stride", 1),
             "viewer.overlays.tendon_path_stride",
         ),
+        tendon_path_arms=_choice_value(
+            values.get("tendon_path_arms", "default"),
+            "viewer.overlays.tendon_path_arms",
+            MUJOCO_TENDON_PATH_ARM_MODES,
+        ),
     )
 
 
 def _load_robot_physical_tendon_count(robot_config_path: Path) -> int:
+    if _is_dual_arm_robot_config(robot_config_path):
+        from continuum_sim.model.dual_arm_robot import load_dual_arm_robot_config
+
+        return len(load_dual_arm_robot_config(robot_config_path).physical_tendons)
     robot_config = load_yaml(robot_config_path)
     robot_values = _optional_section(robot_config, "robot")
     declared_count = int(robot_values.get("total_tendon_count", 0))
@@ -643,13 +686,19 @@ def _load_mujoco_joint_config(raw: dict[str, Any]) -> MujocoJointConfig:
 def _load_mujoco_tendon_model_config(
     raw: dict[str, Any],
     physical_tendon_count: int,
+    *,
+    model_type: str,
+    robot_config_is_dual: bool,
 ) -> MujocoTendonModelConfig:
     values = _section(raw, "tendon_model")
     count = _positive_int(values, "count")
-    if count != physical_tendon_count:
+    expected_count = physical_tendon_count
+    if model_type == "dual_distributed_links" and not robot_config_is_dual:
+        expected_count *= 2
+    if count != expected_count:
         raise ValueError(
-            "tendon_model.count must match robot physical_tendons count, got "
-            f"{count} and {physical_tendon_count}."
+            "tendon_model.count must match the expected MuJoCo tendon count, got "
+            f"{count} and {expected_count}."
         )
     return MujocoTendonModelConfig(
         enabled=_required_bool(values, "enabled"),
@@ -669,6 +718,12 @@ def _load_mujoco_tendon_model_config(
         ),
         include_axial_strain=_required_bool(values, "include_axial_strain"),
     )
+
+
+def _is_dual_arm_robot_config(robot_config_path: Path) -> bool:
+    from continuum_sim.model.dual_arm_robot import is_dual_arm_robot_config
+
+    return is_dual_arm_robot_config(robot_config_path)
 
 
 def _load_mujoco_actuator_config(raw: dict[str, Any]) -> MujocoActuatorConfig:

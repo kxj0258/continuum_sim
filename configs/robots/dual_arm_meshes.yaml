@@ -1,0 +1,71 @@
+schema_version: 1
+name: dual_arm_solidworks_visual_meshes
+
+units:
+  mesh_unit: mm
+  mesh_scale: 0.001
+
+alignment:
+  frame_mode: cad_global
+  cad_origin_mm: [0.0, 0.0, 0.0]
+
+root: ../../assets/meshes/dual_arm
+
+assembly_preview:
+  enabled: true
+  file: assembly_preview.stl
+  purpose: reference_only
+
+shared_base:
+  visual_mesh: shared_base/dual_base_visual.stl
+  collision_enabled: false
+
+arms:
+  executor:
+    role: executor
+    visual_enabled: true
+    collision_enabled: false
+    base_visual_mesh: executor/base_visual.stl
+    link_visual_meshes:
+      segment_1:
+        link_1: executor/segment_1_link_1_visual.stl
+        link_2: executor/segment_1_link_2_visual.stl
+        link_3: executor/segment_1_link_3_visual.stl
+        link_4: executor/segment_1_link_4_visual.stl
+      segment_2:
+        link_1: executor/segment_2_link_1_visual.stl
+        link_2: executor/segment_2_link_2_visual.stl
+        link_3: executor/segment_2_link_3_visual.stl
+        link_4: executor/segment_2_link_4_visual.stl
+      segment_3:
+        link_1: executor/segment_3_link_1_visual.stl
+        link_2: executor/segment_3_link_2_visual.stl
+        link_3: executor/segment_3_link_3_visual.stl
+        link_4: executor/segment_3_link_4_visual.stl
+
+  observer:
+    role: observer
+    visual_enabled: true
+    collision_enabled: false
+    base_visual_mesh: observer/base_visual.stl
+    link_visual_meshes:
+      segment_1:
+        link_1: observer/segment_1_link_1_visual.stl
+        link_2: observer/segment_1_link_2_visual.stl
+        link_3: observer/segment_1_link_3_visual.stl
+        link_4: observer/segment_1_link_4_visual.stl
+      segment_2:
+        link_1: observer/segment_2_link_1_visual.stl
+        link_2: observer/segment_2_link_2_visual.stl
+        link_3: observer/segment_2_link_3_visual.stl
+        link_4: observer/segment_2_link_4_visual.stl
+      segment_3:
+        link_1: observer/segment_3_link_1_visual.stl
+        link_2: observer/segment_3_link_2_visual.stl
+        link_3: observer/segment_3_link_3_visual.stl
+        link_4: observer/segment_3_link_4_visual.stl
+
+notes:
+  - The shared base is the unified rigid base for both arms.
+  - The assembly preview mesh is not used for articulated runtime motion.
+  - Observer arm meshes are visual-only in the initial dual-arm baseline.

@@ -189,20 +189,6 @@ def _append_worldbody(
 ) -> None:
     worldbody = ElementTree.SubElement(root, "worldbody")
     base = ElementTree.SubElement(worldbody, "body", {"name": "base", "pos": "0 0 0"})
-    ElementTree.SubElement(
-        base,
-        "geom",
-        {
-            "name": "base_geom",
-            "type": "cylinder",
-            "size": "0.012 0.004",
-            "pos": "0 0 -0.004",
-            "rgba": "0.12 0.12 0.12 1",
-            "group": str(config.visuals.collision_geom_group),
-            "contype": "0",
-            "conaffinity": "0",
-        },
-    )
     ElementTree.SubElement(base, "site", {"name": "base_site", "pos": "0 0 0", "quat": "1 0 0 0"})
 
     parent = base

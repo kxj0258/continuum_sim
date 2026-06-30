@@ -11,6 +11,8 @@ import numpy as np
 
 from continuum_sim.backends import BackendState, MujocoBackend
 from continuum_sim.model import ThreeSegmentRobotParams
+from continuum_sim.model.dual_arm_robot import DualArmRobotConfig
+from continuum_sim.model.hole_pattern import TendonHolePattern
 from continuum_sim.visualization.mujoco_tendon_path_overlay import (
     draw_tendon_path_overlay,
 )
@@ -18,12 +20,90 @@ from continuum_sim.visualization.mujoco_tendon_path_overlay import (
 
 @dataclass(frozen=True)
 class TendonOverlayContext:
-    """Viewer-only context for explanatory fixed-tendon overlays."""
+    """Viewer-only context for explanatory tendon path overlays."""
 
     backend: MujocoBackend
     params: ThreeSegmentRobotParams
     physical_tendons: tuple
     links_per_segment: int
+    arm_name: str | None = None
+    arm_names: tuple[str, ...] = ()
+    hole_pattern: TendonHolePattern | None = None
+    dual_robot: DualArmRobotConfig | None = None
+
+
+def selected_tendon_overlay_arm_names(config, dual_robot: DualArmRobotConfig) -> tuple[str, ...]:
+    """Return the dual-arm names requested by viewer.overlays.tendon_path_arms."""
+    mode = config.viewer.overlays.tendon_path_arms
+    if not config.viewer.overlays.tendon_paths or mode == "none":
+        return ()
+    if mode == "both":
+        return dual_robot.arm_names
+    if mode == "default":
+        return (dual_robot.default_arm,)
+    if mode not in dual_robot.arm_names:
+        raise ValueError(
+            "viewer.overlays.tendon_path_arms must be 'default', 'both', 'none', "
+            f"or one of {dual_robot.arm_names}; got {mode!r}."
+        )
+    return (mode,)
+
+
+def _draw_selected_tendon_path_overlays(
+    scene,
+    mujoco_module,
+    backend: MujocoBackend,
+    config,
+    params: ThreeSegmentRobotParams | None,
+    physical_tendons: Sequence | None,
+    *,
+    arm_name: str | None = None,
+    arm_names: Sequence[str] | None = None,
+    hole_pattern: TendonHolePattern | None = None,
+    dual_robot: DualArmRobotConfig | None = None,
+) -> None:
+    if (
+        hole_pattern is not None
+        and not hole_pattern.visualization.show_tendons
+    ):
+        return
+    if dual_robot is not None:
+        selected_arm_names = tuple(
+            arm_names
+            if arm_names is not None
+            else selected_tendon_overlay_arm_names(config, dual_robot)
+        )
+        for selected_arm_name in selected_arm_names:
+            draw_tendon_path_overlay(
+                scene,
+                mujoco_module,
+                backend.model,
+                backend.data,
+                dual_robot.params_by_arm[selected_arm_name],
+                dual_robot.tendons_by_arm[selected_arm_name],
+                links_per_segment=config.links_per_segment,
+                radius=config.viewer.overlays.tendon_path_radius,
+                stride=config.viewer.overlays.tendon_path_stride,
+                arm_name=selected_arm_name,
+                hole_pattern=hole_pattern,
+            )
+        return
+
+    if params is None:
+        return
+    draw_tendon_path_overlay(
+        scene,
+        mujoco_module,
+        backend.model,
+        backend.data,
+        params,
+        tuple(physical_tendons or ()),
+        links_per_segment=config.links_per_segment,
+        radius=config.viewer.overlays.tendon_path_radius,
+        stride=config.viewer.overlays.tendon_path_stride,
+        arm_name=arm_name,
+        hole_pattern=hole_pattern,
+    )
 
 
 def _generated_visual_xml_path(config) -> Path:
@@ -107,25 +187,94 @@ def draw_tendon_path_overlay_if_enabled(
     config,
     params: ThreeSegmentRobotParams | None,
     physical_tendons: Sequence | None,
+    *,
+    arm_name: str | None = None,
+    arm_names: Sequence[str] | None = None,
+    hole_pattern: TendonHolePattern | None = None,
+    dual_robot: DualArmRobotConfig | None = None,
 ) -> None:
     """Draw the configured tendon path overlay into a passive viewer scene."""
     scene = getattr(viewer, "user_scn", None)
     if scene is None:
         return
     scene.ngeom = 0
-    if not config.viewer.overlays.tendon_paths or params is None:
+    if (
+        not config.viewer.overlays.tendon_paths
+        or config.viewer.overlays.tendon_path_arms == "none"
+    ):
         return
-    draw_tendon_path_overlay(
+    _draw_selected_tendon_path_overlays(
         scene,
         backend._mujoco,
-        backend.model,
-        backend.data,
+        backend,
+        config,
         params,
-        tuple(physical_tendons or ()),
-        links_per_segment=config.links_per_segment,
-        radius=config.viewer.overlays.tendon_path_radius,
-        stride=config.viewer.overlays.tendon_path_stride,
+        physical_tendons,
+        arm_name=arm_name,
+        arm_names=arm_names,
+        hole_pattern=hole_pattern,
+        dual_robot=dual_robot,
     )
+
+
+def make_tendon_overlay_context(
+    *,
+    backend: MujocoBackend,
+    config,
+    params: ThreeSegmentRobotParams,
+    physical_tendons: Sequence,
+) -> TendonOverlayContext:
+    arm_name = None
+    hole_pattern = None
+    dual_robot = None
+    if getattr(config.model, "type", None) == "dual_distributed_links":
+        from continuum_sim.model.dual_arm_robot import load_dual_arm_robot_config
+        from continuum_sim.model.hole_pattern import load_tendon_hole_pattern
+
+        dual_robot = load_dual_arm_robot_config(config.robot_config_path)
+        arm_name = dual_robot.default_arm
+        arm_names = selected_tendon_overlay_arm_names(config, dual_robot)
+        if config.dual_arm_hole_pattern_config_path is not None:
+            hole_pattern = load_tendon_hole_pattern(config.dual_arm_hole_pattern_config_path)
+    else:
+        arm_names = ()
+    return TendonOverlayContext(
+        backend=backend,
+        params=params,
+        physical_tendons=tuple(physical_tendons),
+        links_per_segment=config.links_per_segment,
+        arm_name=arm_name,
+        arm_names=arm_names,
+        hole_pattern=hole_pattern,
+        dual_robot=dual_robot,
+    )
+
+
+def default_arm_tendon_delta(config, tendon_delta: np.ndarray) -> np.ndarray:
+    """Return the task-facing arm tendon delta from a MuJoCo tendon vector."""
+
+    values = np.asarray(tendon_delta, dtype=float)
+    if getattr(config.model, "type", None) != "dual_distributed_links":
+        return values
+    from continuum_sim.control.dual_arm_adapter import DualArmCommandAdapter
+
+    adapter = DualArmCommandAdapter.from_robot_config(config.robot_config_path)
+    if values.shape == (adapter.tendons_per_arm,):
+        return values
+    return adapter.target_arm_view(values)
+
+
+def append_zero_mobile_base_control(config, tendon_control: np.ndarray) -> np.ndarray:
+    """Append a zero xyz+rpy mobile-base command when a mobile base is configured."""
+
+    values = np.asarray(tendon_control, dtype=float)
+    if config.mobile_base_config_path is None:
+        return values
+    if getattr(config.model, "type", None) == "dual_distributed_links":
+        from continuum_sim.control.dual_arm_adapter import DualArmCommandAdapter
+
+        values = DualArmCommandAdapter.from_robot_config(config.robot_config_path).adapt(values)
+    return np.concatenate((values, np.zeros((6,), dtype=float)))
 
 
 def sleep_for_realtime(
@@ -236,7 +385,27 @@ def _draw_tracking_overlays(
             overlay_config.target_trail_radius,
             overlay_config.target_trail_rgba,
         )
-    if overlay_config.tendon_paths and tendon_overlay is not None:
+    if (
+        overlay_config.tendon_paths
+        and overlay_config.tendon_path_arms != "none"
+        and tendon_overlay is not None
+    ):
+        if tendon_overlay.dual_robot is not None:
+            for selected_arm_name in tendon_overlay.arm_names:
+                draw_tendon_path_overlay(
+                    scene,
+                    mujoco_module,
+                    tendon_overlay.backend.model,
+                    tendon_overlay.backend.data,
+                    tendon_overlay.dual_robot.params_by_arm[selected_arm_name],
+                    tendon_overlay.dual_robot.tendons_by_arm[selected_arm_name],
+                    links_per_segment=tendon_overlay.links_per_segment,
+                    radius=overlay_config.tendon_path_radius,
+                    stride=overlay_config.tendon_path_stride,
+                    arm_name=selected_arm_name,
+                    hole_pattern=tendon_overlay.hole_pattern,
+                )
+            return
         draw_tendon_path_overlay(
             scene,
             mujoco_module,
@@ -247,6 +416,8 @@ def _draw_tracking_overlays(
             links_per_segment=tendon_overlay.links_per_segment,
             radius=overlay_config.tendon_path_radius,
             stride=overlay_config.tendon_path_stride,
+            arm_name=tendon_overlay.arm_name,
+            hole_pattern=tendon_overlay.hole_pattern,
         )
 
 

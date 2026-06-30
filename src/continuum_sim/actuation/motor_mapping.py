@@ -25,6 +25,22 @@ class MotorParams:
 
 def load_motor_params_from_yaml(path: str | Path) -> tuple[MotorParams, ...]:
     """Load and validate motor parameters from the robot YAML file."""
+    from continuum_sim.model.dual_arm_robot import is_dual_arm_robot_config, load_dual_arm_robot_config
+
+    if is_dual_arm_robot_config(path):
+        dual_config = load_dual_arm_robot_config(path)
+        return tuple(
+            MotorParams(
+                id=motor.id,
+                motor_index=index,
+                tendon_global_index=index,
+                spool_radius=motor.spool_radius,
+                gear_ratio=motor.gear_ratio,
+                direction_sign=motor.direction_sign,
+                zero_position=motor.zero_position,
+            )
+            for index, motor in enumerate(dual_config.default_arm_motors)
+        )
     config = load_yaml(path)
     robot = config.get("robot", {})
     expected_count = int(robot.get("total_tendon_count", 0))

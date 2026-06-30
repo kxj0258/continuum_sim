@@ -9,6 +9,7 @@ import numpy as np
 
 from continuum_sim.backends.base_types import BackendState
 from continuum_sim.config import MujocoConfig, load_mujoco_config
+from continuum_sim.control.dual_arm_adapter import DualArmCommandAdapter
 from continuum_sim.model.robot_params import ThreeSegmentRobotParams
 from continuum_sim.model.segment_followers import (
     SEGMENT_2DOF_Q_SIZE,
@@ -59,14 +60,23 @@ class MujocoBackend:
         )
 
         self.data = self._mujoco.MjData(self.model)
+        self._neutral_tendon_length = np.zeros((getattr(self.model, "ntendon", 0),), dtype=float)
         self._segment_site_ids = tuple(
             self._site_id(name) for name in config.site_names.segments
         )
         self._tip_site_id = self._site_id(config.site_names.tip)
         self._base_site_id = self._site_id(config.site_names.base)
+        self._mobile_base_qpos_addr = self._joint_qpos_addr("mobile_base_freejoint")
+        self._mobile_base_qvel_addr = self._joint_qvel_addr("mobile_base_freejoint")
+        self._neutral_mobile_base_pose_rpy = np.zeros((6,), dtype=float)
         self._robot_params = (
             ThreeSegmentRobotParams.from_yaml(config.robot_config_path)
             if self._uses_segment_2dof_followers()
+            else None
+        )
+        self._dual_arm_command_adapter = (
+            DualArmCommandAdapter.from_robot_config(config.robot_config_path)
+            if config.model.type == "dual_distributed_links"
             else None
         )
         self._follower_mocap_ids = self._resolve_follower_mocap_ids()
@@ -93,6 +103,8 @@ class MujocoBackend:
         self._mujoco.mj_resetData(self.model, self.data)
         self.update_follower_poses()
         self._mujoco.mj_forward(self.model, self.data)
+        self._neutral_tendon_length = self._absolute_tendon_length()
+        self._neutral_mobile_base_pose_rpy = self._absolute_mobile_base_pose_rpy()
         self.update_follower_poses()
         self._mujoco.mj_forward(self.model, self.data)
         return self.get_state()
@@ -100,13 +112,15 @@ class MujocoBackend:
     def step(self, control: np.ndarray, n_substeps: int = 20) -> BackendState:
         """Apply a control vector and advance the simulation."""
 
-        control_array = np.asarray(control, dtype=float)
+        control_array, base_pose_rpy = self._split_control_array(control)
         if control_array.shape != (self.model.nu,):
             raise ValueError(f"Expected control with shape ({self.model.nu},), got {control_array.shape}.")
         if n_substeps <= 0:
             raise ValueError(f"n_substeps must be positive, got {n_substeps}.")
 
-        self.data.ctrl[:] = control_array
+        if base_pose_rpy is not None:
+            self.set_mobile_base_pose_rpy(base_pose_rpy)
+        self.data.ctrl[:] = self._absolute_control_for_model(control_array)
         self.update_follower_poses()
         for _ in range(n_substeps):
             self._mujoco.mj_step(self.model, self.data)
@@ -180,7 +194,15 @@ class MujocoBackend:
             )
 
     def get_tendon_length(self) -> np.ndarray:
-        """Return MuJoCo tendon lengths, or an empty array for joint-only models."""
+        """Return tendon length deltas from the reset neutral length."""
+
+        values = self._absolute_tendon_length()
+        if values.size == 0:
+            return values
+        return values - self._neutral_tendon_length
+
+    def _absolute_tendon_length(self) -> np.ndarray:
+        """Return MuJoCo absolute tendon lengths, or an empty array."""
 
         values = getattr(self.data, "ten_length", None)
         if values is None:
@@ -215,6 +237,38 @@ class MujocoBackend:
             raise ValueError(f"MuJoCo model is missing site {name!r}.")
         return int(site_id)
 
+    def set_mobile_base_pose_rpy(self, pose_rpy: np.ndarray) -> None:
+        """Set the optional mobile-base freejoint pose as xyz + roll/pitch/yaw."""
+
+        if self._mobile_base_qpos_addr is None:
+            raise ValueError("MuJoCo model does not define mobile_base_freejoint.")
+        values = np.asarray(pose_rpy, dtype=float)
+        if values.shape != (6,):
+            raise ValueError(f"Expected mobile base pose with shape (6,), got {values.shape}.")
+        qpos_addr = self._mobile_base_qpos_addr
+        target_pose = self._neutral_mobile_base_pose_rpy + values
+        self.data.qpos[qpos_addr : qpos_addr + 3] = target_pose[:3]
+        self.data.qpos[qpos_addr + 3 : qpos_addr + 7] = _rpy_to_quat_wxyz(target_pose[3:])
+        if self._mobile_base_qvel_addr is not None:
+            qvel_addr = self._mobile_base_qvel_addr
+            self.data.qvel[qvel_addr : qvel_addr + 6] = 0.0
+        self._mujoco.mj_forward(self.model, self.data)
+
+    def get_mobile_base_pose_rpy(self) -> np.ndarray:
+        """Return optional mobile-base freejoint pose as xyz + roll/pitch/yaw."""
+
+        if self._mobile_base_qpos_addr is None:
+            return np.zeros((6,), dtype=float)
+        return self._absolute_mobile_base_pose_rpy() - self._neutral_mobile_base_pose_rpy
+
+    def _absolute_mobile_base_pose_rpy(self) -> np.ndarray:
+        if self._mobile_base_qpos_addr is None:
+            return np.zeros((6,), dtype=float)
+        qpos_addr = self._mobile_base_qpos_addr
+        xyz = np.asarray(self.data.qpos[qpos_addr : qpos_addr + 3], dtype=float)
+        quat = np.asarray(self.data.qpos[qpos_addr + 3 : qpos_addr + 7], dtype=float)
+        return np.concatenate((xyz, _quat_wxyz_to_rpy(quat)))
+
     def _validate_loaded_model_matches_control_mode(self) -> None:
         if self.config.control_mode == "tendon_position":
             if self.model.nu != self.config.tendon_model.count:
@@ -236,6 +290,43 @@ class MujocoBackend:
 
     def _uses_segment_2dof_followers(self) -> bool:
         return self.config.model.type == "segment_2dof_followers"
+
+    def _split_control_array(self, control: np.ndarray) -> tuple[np.ndarray, np.ndarray | None]:
+        control_array = np.asarray(control, dtype=float)
+        if (
+            self._mobile_base_qpos_addr is None
+            and control_array.shape == (self.config.tendon_model.count + 6,)
+        ):
+            raise ValueError(
+                "Received tendon+mobile-base control, but the loaded MuJoCo XML "
+                "does not define mobile_base_freejoint. Regenerate the mobile-base wrapped XML."
+            )
+        if (
+            self._mobile_base_qpos_addr is not None
+            and control_array.shape == (self.config.tendon_model.count + 6,)
+        ):
+            tendon_control = control_array[: self.config.tendon_model.count]
+            return self._control_array_for_model(tendon_control), control_array[-6:]
+        return self._control_array_for_model(control_array), None
+
+    def _control_array_for_model(self, control: np.ndarray) -> np.ndarray:
+        control_array = np.asarray(control, dtype=float)
+        if self._dual_arm_command_adapter is not None:
+            return self._dual_arm_command_adapter.adapt(control_array)
+        return control_array
+
+    def _absolute_control_for_model(self, tendon_delta_control: np.ndarray) -> np.ndarray:
+        if (
+            self.config.control_mode == "tendon_position"
+            and self.config.tendon_model.type == "spatial"
+        ):
+            if self._neutral_tendon_length.shape != tendon_delta_control.shape:
+                raise ValueError(
+                    "Neutral tendon length shape does not match control shape: "
+                    f"{self._neutral_tendon_length.shape} and {tendon_delta_control.shape}."
+                )
+            return self._neutral_tendon_length + tendon_delta_control
+        return tendon_delta_control
 
     def _segment_2dof_qpos(self) -> np.ndarray:
         qpos = np.asarray(self.data.qpos, dtype=float)
@@ -280,6 +371,18 @@ class MujocoBackend:
         if body_id < 0:
             raise ValueError(f"MuJoCo model is missing body {name!r}.")
         return int(body_id)
+
+    def _joint_qpos_addr(self, name: str) -> int | None:
+        joint_id = self._mujoco.mj_name2id(self.model, self._mujoco.mjtObj.mjOBJ_JOINT, name)
+        if joint_id < 0:
+            return None
+        return int(self.model.jnt_qposadr[joint_id])
+
+    def _joint_qvel_addr(self, name: str) -> int | None:
+        joint_id = self._mujoco.mj_name2id(self.model, self._mujoco.mjtObj.mjOBJ_JOINT, name)
+        if joint_id < 0:
+            return None
+        return int(self.model.jnt_dofadr[joint_id])
 
 
 def _import_mujoco() -> Any:
@@ -362,3 +465,39 @@ def _rotation_matrix_to_quat_wxyz(rotation: np.ndarray) -> np.ndarray:
     if norm <= 0.0:
         return np.array([1.0, 0.0, 0.0, 0.0], dtype=float)
     return quat / norm
+
+
+def _rpy_to_quat_wxyz(rpy: np.ndarray) -> np.ndarray:
+    roll, pitch, yaw = np.asarray(rpy, dtype=float)
+    cr = np.cos(0.5 * roll)
+    sr = np.sin(0.5 * roll)
+    cp = np.cos(0.5 * pitch)
+    sp = np.sin(0.5 * pitch)
+    cy = np.cos(0.5 * yaw)
+    sy = np.sin(0.5 * yaw)
+    quat = np.array(
+        [
+            cr * cp * cy + sr * sp * sy,
+            sr * cp * cy - cr * sp * sy,
+            cr * sp * cy + sr * cp * sy,
+            cr * cp * sy - sr * sp * cy,
+        ],
+        dtype=float,
+    )
+    norm = float(np.linalg.norm(quat))
+    if norm <= 0.0:
+        return np.array([1.0, 0.0, 0.0, 0.0], dtype=float)
+    return quat / norm
+
+
+def _quat_wxyz_to_rpy(quat: np.ndarray) -> np.ndarray:
+    q = np.asarray(quat, dtype=float)
+    norm = float(np.linalg.norm(q))
+    if norm <= 0.0:
+        return np.zeros((3,), dtype=float)
+    w, x, y, z = q / norm
+    roll = np.arctan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y))
+    sin_pitch = 2.0 * (w * y - z * x)
+    pitch = np.arcsin(np.clip(sin_pitch, -1.0, 1.0))
+    yaw = np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+    return np.array([roll, pitch, yaw], dtype=float)

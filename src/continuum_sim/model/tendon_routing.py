@@ -18,7 +18,7 @@ class TendonRouting:
     [0, 120, 240] degrees.
     """
 
-    angles_deg: tuple[float, float, float] = (0.0, 120.0, 240.0)
+    angles_deg: tuple[float, ...] = (0.0, 120.0, 240.0)
     radial_offset: float = 0.005
 
     @property

@@ -46,11 +46,9 @@ def test_mujoco_xml_contains_reduced_order_chain_structure() -> None:
     link_length = 0.01
     assert 3 * config.links_per_segment * link_length == sum(params.segment_lengths)
     default_geom = root.find("./default/geom")
-    base_geom = root.find(".//geom[@name='base_geom']")
     assert default_geom is not None
-    assert base_geom is not None
     assert default_geom.get("group") == str(config.visuals.collision_geom_group)
-    assert base_geom.get("group") == str(config.visuals.collision_geom_group)
+    assert root.find(".//geom[@name='base_geom']") is None
 
 
 def test_mujoco_xml_visual_background_does_not_add_physics_geoms() -> None:

@@ -642,6 +642,12 @@ def _load_robot_physical_tendon_count(robot_config_path: Path) -> int:
 
         return len(load_dual_arm_robot_config(robot_config_path).physical_tendons)
     robot_config = load_yaml(robot_config_path)
+    spatial_arm = robot_config.get("spatial_arm")
+    if isinstance(spatial_arm, dict):
+        count = int(spatial_arm.get("tendon_count", 0))
+        if count <= 0:
+            raise ValueError("spatial_arm.tendon_count must be positive.")
+        return count
     robot_values = _optional_section(robot_config, "robot")
     declared_count = int(robot_values.get("total_tendon_count", 0))
     physical_tendons = robot_config.get("physical_tendons", [])

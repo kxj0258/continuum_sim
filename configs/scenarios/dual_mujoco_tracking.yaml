@@ -1,0 +1,29 @@
+schema_version: 1
+scenario:
+  name: dual_mujoco_tracking
+  assembly_config_path: ../robots/assemblies/dual_spatial.yaml
+  backend:
+    type: mujoco
+    mujoco_config_path: ../mujoco_dual.yaml
+    source_xml_path: ../../assets/mujoco/dual_three_segment_arm_tendon_with_visuals_mobile_base.xml
+    generated_xml_path: ../../output/generated/scenario_dual_tracking.xml
+  scene: {}
+  task:
+    type: tracking
+    waypoint_tolerance_m: 0.001
+    observer_roi_world: [0.010, 0.000, 0.135]
+    loop: false
+    waypoints_world:
+      - [0.000, 0.010, 0.140]
+      - [0.010, 0.010, 0.137]
+      - [0.010, 0.020, 0.134]
+  runtime:
+    controller_dt_s: 0.02
+    n_substeps: 20
+    max_steps: 1000
+  hooks:
+    recorder: true
+    tendon_debug: true
+    tendon_debug_stride: 5
+    viewer: mujoco
+    keep_viewer_open: true

@@ -1,5 +1,10 @@
 # Mobile Base 6D Control
 
+> This document records the earlier base scaffold. The authoritative command
+> contract is now `docs/coordinate_conventions.md`: world-frame 6D twist only,
+> integrated as a prescribed pose with calibration limits supplied by assembly
+> configuration.
+
 ## Coordinate Chain
 
 `T_world_tip = T_world_mobile_base * T_mobile_base_mount * T_mount_tip`

@@ -1,0 +1,168 @@
+"""Weighted whole-body velocity solver for base-plus-spatial-arms systems."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+
+from continuum_sim.kinematics.whole_body import (
+    SingularityConfig,
+    SingularityReport,
+    analyze_singularity,
+)
+from continuum_sim.model.robot_assembly import RobotAssemblyConfig
+from continuum_sim.system.control_layout import ControlLayout
+from continuum_sim.system.types import RobotSystemCommand
+
+
+@dataclass(frozen=True)
+class WholeBodyTask:
+    """One weighted linear velocity objective ``J v ~= target``."""
+
+    name: str
+    jacobian: np.ndarray
+    target_velocity: np.ndarray
+    weight: float
+
+    def __post_init__(self) -> None:
+        jacobian = np.asarray(self.jacobian, dtype=float)
+        target = np.asarray(self.target_velocity, dtype=float)
+        if jacobian.ndim != 2:
+            raise ValueError("WholeBodyTask.jacobian must be 2D.")
+        if target.shape != (jacobian.shape[0],):
+            raise ValueError("WholeBodyTask target size must match Jacobian rows.")
+        if self.weight <= 0.0:
+            raise ValueError("WholeBodyTask.weight must be positive.")
+        object.__setattr__(self, "jacobian", jacobian.copy())
+        object.__setattr__(self, "target_velocity", target.copy())
+
+
+@dataclass(frozen=True)
+class WholeBodyControllerConfig:
+    """Numerical and objective weighting settings."""
+
+    executor_tracking_weight: float = 100.0
+    observer_tracking_weight: float = 40.0
+    executor_collision_avoidance_weight: float = 80.0
+    base_regularization_weight: float = 1.0
+    tendon_regularization_weight: float = 0.2
+    singularity: SingularityConfig = SingularityConfig()
+
+
+@dataclass(frozen=True)
+class WholeBodySolveResult:
+    """Named command and solver diagnostics."""
+
+    command: RobotSystemCommand
+    system_velocity: np.ndarray
+    singularity: SingularityReport
+    residual_norm: float
+
+
+class WholeBodyController:
+    """Solve weighted tasks and return world-base/tendon-rate commands."""
+
+    def __init__(
+        self,
+        assembly: RobotAssemblyConfig,
+        config: WholeBodyControllerConfig = WholeBodyControllerConfig(),
+    ) -> None:
+        self.assembly = assembly
+        self.config = config
+        self.layout = ControlLayout.from_assembly(assembly)
+
+    def solve(self, tasks: list[WholeBodyTask] | tuple[WholeBodyTask, ...]) -> WholeBodySolveResult:
+        if not tasks:
+            command = RobotSystemCommand.zeros(
+                {
+                    arm.name: arm.spatial_arm.tendon_count
+                    for arm in self.assembly.enabled_arms
+                }
+            )
+            return WholeBodySolveResult(
+                command=command,
+                system_velocity=self.layout.flatten(command),
+                singularity=analyze_singularity(
+                    np.zeros((0, self.layout.size), dtype=float),
+                    self.config.singularity,
+                ),
+                residual_norm=0.0,
+            )
+        for task in tasks:
+            if task.jacobian.shape[1] != self.layout.size:
+                raise ValueError(
+                    f"Task {task.name!r} Jacobian must have {self.layout.size} columns."
+                )
+        weighted_jacobian = np.vstack(
+            [np.sqrt(task.weight) * task.jacobian for task in tasks]
+        )
+        weighted_target = np.concatenate(
+            [np.sqrt(task.weight) * task.target_velocity for task in tasks]
+        )
+        regularization = self._regularization_matrix()
+        augmented_jacobian = np.vstack((weighted_jacobian, regularization))
+        augmented_target = np.concatenate(
+            (weighted_target, np.zeros(regularization.shape[0], dtype=float))
+        )
+        singularity = analyze_singularity(weighted_jacobian, self.config.singularity)
+        damping = singularity.damping
+        lhs = (
+            augmented_jacobian.T @ augmented_jacobian
+            + damping**2 * np.eye(self.layout.size, dtype=float)
+        )
+        rhs = augmented_jacobian.T @ augmented_target
+        velocity = np.linalg.solve(lhs, rhs) * singularity.velocity_scale
+        velocity = self._apply_limits(velocity)
+        command = self.layout.unflatten(velocity)
+        residual = weighted_jacobian @ velocity - weighted_target
+        return WholeBodySolveResult(
+            command=command,
+            system_velocity=velocity,
+            singularity=singularity,
+            residual_norm=float(np.linalg.norm(residual)),
+        )
+
+    def weight_for(self, objective: str) -> float:
+        """Return configured weights for standard executor/observer objectives."""
+
+        weights = {
+            "executor_tracking": self.config.executor_tracking_weight,
+            "observer_tracking": self.config.observer_tracking_weight,
+            "executor_collision_avoidance": self.config.executor_collision_avoidance_weight,
+        }
+        try:
+            return weights[objective]
+        except KeyError as exc:
+            raise KeyError(f"Unknown whole-body objective {objective!r}.") from exc
+
+    def _regularization_matrix(self) -> np.ndarray:
+        diagonal = np.full(
+            self.layout.size,
+            np.sqrt(self.config.tendon_regularization_weight),
+            dtype=float,
+        )
+        diagonal[self.layout.base] = np.sqrt(self.config.base_regularization_weight)
+        return np.diag(diagonal)
+
+    def _apply_limits(self, velocity: np.ndarray) -> np.ndarray:
+        result = np.asarray(velocity, dtype=float).copy()
+        if self.assembly.base.control_mode == "fixed":
+            result[self.layout.base] = 0.0
+        else:
+            result[self.layout.base.start : self.layout.base.start + 3] = np.clip(
+                result[self.layout.base.start : self.layout.base.start + 3],
+                -self.assembly.base.max_linear_speed_mps,
+                self.assembly.base.max_linear_speed_mps,
+            )
+            result[self.layout.base.start + 3 : self.layout.base.stop] = np.clip(
+                result[self.layout.base.start + 3 : self.layout.base.stop],
+                -self.assembly.base.max_angular_speed_rad_s,
+                self.assembly.base.max_angular_speed_rad_s,
+            )
+        for arm in self.assembly.enabled_arms:
+            arm_slice = self.layout.arms[arm.name]
+            rate_limit = arm.spatial_arm.limits.max_tendon_rate_mps
+            result[arm_slice] = np.clip(result[arm_slice], -rate_limit, rate_limit)
+        return result
+

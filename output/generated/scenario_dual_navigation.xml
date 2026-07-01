@@ -1,0 +1,1461 @@
+<mujoco model="dual_three_segment_arm">
+  <compiler angle="radian" />
+  <option timestep="0.001" integrator="implicitfast" iterations="50" gravity="0 0 0" />
+  <visual>
+    <global azimuth="315" elevation="-25" offwidth="640" offheight="480" />
+    <headlight ambient="0.35 0.35 0.35" diffuse="0.75 0.75 0.75" specular="0.2 0.2 0.2" />
+    <map znear="0.001" zfar="2" />
+    <quality shadowsize="2048" />
+  </visual>
+  <asset>
+    <mesh name="shared_base_visual_mesh" file="../../assets/meshes/dual_arm/shared_base/dual_base_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="executor_base_visual_mesh" file="../../assets/meshes/dual_arm/executor/base_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="executor_segment_1_link_1_visual_mesh" file="../../assets/meshes/dual_arm/executor/segment_1_link_1_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="executor_segment_1_link_2_visual_mesh" file="../../assets/meshes/dual_arm/executor/segment_1_link_2_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="executor_segment_1_link_3_visual_mesh" file="../../assets/meshes/dual_arm/executor/segment_1_link_3_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="executor_segment_1_link_4_visual_mesh" file="../../assets/meshes/dual_arm/executor/segment_1_link_4_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="executor_segment_2_link_1_visual_mesh" file="../../assets/meshes/dual_arm/executor/segment_2_link_1_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="executor_segment_2_link_2_visual_mesh" file="../../assets/meshes/dual_arm/executor/segment_2_link_2_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="executor_segment_2_link_3_visual_mesh" file="../../assets/meshes/dual_arm/executor/segment_2_link_3_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="executor_segment_2_link_4_visual_mesh" file="../../assets/meshes/dual_arm/executor/segment_2_link_4_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="executor_segment_3_link_1_visual_mesh" file="../../assets/meshes/dual_arm/executor/segment_3_link_1_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="executor_segment_3_link_2_visual_mesh" file="../../assets/meshes/dual_arm/executor/segment_3_link_2_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="executor_segment_3_link_3_visual_mesh" file="../../assets/meshes/dual_arm/executor/segment_3_link_3_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="executor_segment_3_link_4_visual_mesh" file="../../assets/meshes/dual_arm/executor/segment_3_link_4_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="observer_base_visual_mesh" file="../../assets/meshes/dual_arm/observer/base_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="observer_segment_1_link_1_visual_mesh" file="../../assets/meshes/dual_arm/observer/segment_1_link_1_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="observer_segment_1_link_2_visual_mesh" file="../../assets/meshes/dual_arm/observer/segment_1_link_2_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="observer_segment_1_link_3_visual_mesh" file="../../assets/meshes/dual_arm/observer/segment_1_link_3_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="observer_segment_1_link_4_visual_mesh" file="../../assets/meshes/dual_arm/observer/segment_1_link_4_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="observer_segment_2_link_1_visual_mesh" file="../../assets/meshes/dual_arm/observer/segment_2_link_1_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="observer_segment_2_link_2_visual_mesh" file="../../assets/meshes/dual_arm/observer/segment_2_link_2_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="observer_segment_2_link_3_visual_mesh" file="../../assets/meshes/dual_arm/observer/segment_2_link_3_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="observer_segment_2_link_4_visual_mesh" file="../../assets/meshes/dual_arm/observer/segment_2_link_4_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="observer_segment_3_link_1_visual_mesh" file="../../assets/meshes/dual_arm/observer/segment_3_link_1_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="observer_segment_3_link_2_visual_mesh" file="../../assets/meshes/dual_arm/observer/segment_3_link_2_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="observer_segment_3_link_3_visual_mesh" file="../../assets/meshes/dual_arm/observer/segment_3_link_3_visual.stl" scale="0.001 0.001 0.001" />
+    <mesh name="observer_segment_3_link_4_visual_mesh" file="../../assets/meshes/dual_arm/observer/segment_3_link_4_visual.stl" scale="0.001 0.001 0.001" />
+  </asset>
+  <default>
+    <joint damping="0.05" armature="0.0001" limited="true" range="-0.25 0.25" stiffness="0.02" springref="0" />
+    <geom type="capsule" size="0.004" density="1100" rgba="0.2 0.45 0.85 1" group="0" />
+    <site size="0.003" rgba="0.95 0.25 0.2 1" />
+  </default>
+  <worldbody>
+    <body name="mobile_base" pos="0 0 0" quat="1 0 0 0">
+      <inertial pos="0 0 0" mass="1" diaginertia="0.001 0.001 0.001" />
+      <freejoint name="mobile_base_freejoint" />
+      <site name="mobile_base_frame" type="sphere" pos="0 0 0" size="0.002" rgba="0.2 0.6 1 0.8" group="2" />
+      <site name="dual_arm_mount" type="sphere" pos="0 0 0" quat="1 0 0 0" size="0.002" rgba="0.95 0.55 0.12 0.85" group="2" />
+      <body name="dual_mobile_base" pos="0 0 0" quat="1 0 0 0">
+        <site name="dual_mobile_base_frame" pos="0 0 0" quat="1 0 0 0" />
+        <geom name="dual_mobile_base_visual" type="mesh" mesh="shared_base_visual_mesh" pos="-0 -0 -0" contype="0" conaffinity="0" density="0" group="1" />
+        <body name="executor_base" pos="0 0.01 0.02" quat="1 0 0 0">
+          <site name="executor_base_site" pos="0 0 0" quat="1 0 0 0" />
+          <site name="executor_base_hole_01_in" pos="0.005 0 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="executor_base_hole_01_out" pos="0.005 0 -0.00133975" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="executor_base_hole_02_in" pos="0.00433013 0.0025 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="executor_base_hole_02_out" pos="0.00433013 0.0025 -0.00116025" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="executor_base_hole_03_in" pos="0.0025 0.00433013 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="executor_base_hole_03_out" pos="0.0025 0.00433013 -0.00066987" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="executor_base_hole_04_in" pos="0 0.005 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="executor_base_hole_04_out" pos="0 0.005 0" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="executor_base_hole_05_in" pos="-0.0025 0.00433013 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="executor_base_hole_05_out" pos="-0.0025 0.00433013 -0.00066987" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="executor_base_hole_06_in" pos="-0.00433013 0.0025 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="executor_base_hole_06_out" pos="-0.00433013 0.0025 -0.00116025" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="executor_base_hole_07_in" pos="-0.005 0 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="executor_base_hole_07_out" pos="-0.005 0 -0.00133975" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="executor_base_hole_08_in" pos="-0.00433013 -0.0025 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="executor_base_hole_08_out" pos="-0.00433013 -0.0025 -0.00116025" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="executor_base_hole_09_in" pos="-0.0025 -0.00433013 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="executor_base_hole_09_out" pos="-0.0025 -0.00433013 -0.00066987" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="executor_base_hole_10_in" pos="0 -0.005 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="executor_base_hole_10_out" pos="0 -0.005 0" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="executor_base_hole_11_in" pos="0.0025 -0.00433013 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="executor_base_hole_11_out" pos="0.0025 -0.00433013 -0.00066987" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="executor_base_hole_12_in" pos="0.00433013 -0.0025 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="executor_base_hole_12_out" pos="0.00433013 -0.0025 -0.00116025" size="0.0006" rgba="0.1 0.4 1 1" />
+          <geom name="executor_base_visual" type="mesh" mesh="executor_base_visual_mesh" pos="-0 -0.01 -0.02" contype="0" conaffinity="0" density="0" group="1" />
+          <body name="executor_segment_1_link_1" pos="0 0 0">
+            <joint name="executor_segment_1_link_1_x" type="hinge" axis="1 0 0" />
+            <joint name="executor_segment_1_link_1_y" type="hinge" axis="0 1 0" />
+            <geom name="executor_segment_1_link_1_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+            <geom name="executor_segment_1_link_1_visual" type="mesh" mesh="executor_segment_1_link_1_visual_mesh" pos="-0 -0.01 -0.02" contype="0" conaffinity="0" density="0" group="1" />
+            <site name="executor_segment_1_link_1_hole_01_in" pos="0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="executor_segment_1_link_1_hole_02_in" pos="0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="executor_segment_1_link_1_hole_03_in" pos="0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="executor_segment_1_link_1_hole_04_in" pos="0 0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="executor_segment_1_link_1_hole_05_in" pos="-0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="executor_segment_1_link_1_hole_06_in" pos="-0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="executor_segment_1_link_1_hole_07_in" pos="-0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="executor_segment_1_link_1_hole_08_in" pos="-0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="executor_segment_1_link_1_hole_09_in" pos="-0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="executor_segment_1_link_1_hole_10_in" pos="0 -0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="executor_segment_1_link_1_hole_11_in" pos="0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="executor_segment_1_link_1_hole_12_in" pos="0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="executor_segment_1_link_1_hole_01_out" pos="0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="executor_segment_1_link_1_hole_02_out" pos="0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="executor_segment_1_link_1_hole_03_out" pos="0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="executor_segment_1_link_1_hole_04_out" pos="0 0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="executor_segment_1_link_1_hole_05_out" pos="-0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="executor_segment_1_link_1_hole_06_out" pos="-0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="executor_segment_1_link_1_hole_07_out" pos="-0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="executor_segment_1_link_1_hole_08_out" pos="-0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="executor_segment_1_link_1_hole_09_out" pos="-0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="executor_segment_1_link_1_hole_10_out" pos="0 -0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="executor_segment_1_link_1_hole_11_out" pos="0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="executor_segment_1_link_1_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+            <body name="executor_segment_1_link_2" pos="0 0 0.01">
+              <joint name="executor_segment_1_link_2_x" type="hinge" axis="1 0 0" />
+              <joint name="executor_segment_1_link_2_y" type="hinge" axis="0 1 0" />
+              <geom name="executor_segment_1_link_2_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+              <geom name="executor_segment_1_link_2_visual" type="mesh" mesh="executor_segment_1_link_2_visual_mesh" pos="-0 -0.01 -0.03" contype="0" conaffinity="0" density="0" group="1" />
+              <site name="executor_segment_1_link_2_hole_01_in" pos="0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="executor_segment_1_link_2_hole_02_in" pos="0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="executor_segment_1_link_2_hole_03_in" pos="0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="executor_segment_1_link_2_hole_04_in" pos="0 0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="executor_segment_1_link_2_hole_05_in" pos="-0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="executor_segment_1_link_2_hole_06_in" pos="-0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="executor_segment_1_link_2_hole_07_in" pos="-0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="executor_segment_1_link_2_hole_08_in" pos="-0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="executor_segment_1_link_2_hole_09_in" pos="-0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="executor_segment_1_link_2_hole_10_in" pos="0 -0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="executor_segment_1_link_2_hole_11_in" pos="0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="executor_segment_1_link_2_hole_12_in" pos="0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="executor_segment_1_link_2_hole_01_out" pos="0.005 0 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="executor_segment_1_link_2_hole_02_out" pos="0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="executor_segment_1_link_2_hole_03_out" pos="0.0025 0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="executor_segment_1_link_2_hole_04_out" pos="0 0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="executor_segment_1_link_2_hole_05_out" pos="-0.0025 0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="executor_segment_1_link_2_hole_06_out" pos="-0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="executor_segment_1_link_2_hole_07_out" pos="-0.005 0 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="executor_segment_1_link_2_hole_08_out" pos="-0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="executor_segment_1_link_2_hole_09_out" pos="-0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="executor_segment_1_link_2_hole_10_out" pos="0 -0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="executor_segment_1_link_2_hole_11_out" pos="0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="executor_segment_1_link_2_hole_12_out" pos="0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+              <body name="executor_segment_1_link_3" pos="0 0 0.01">
+                <joint name="executor_segment_1_link_3_x" type="hinge" axis="1 0 0" />
+                <joint name="executor_segment_1_link_3_y" type="hinge" axis="0 1 0" />
+                <geom name="executor_segment_1_link_3_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                <geom name="executor_segment_1_link_3_visual" type="mesh" mesh="executor_segment_1_link_3_visual_mesh" pos="-0 -0.01 -0.04" contype="0" conaffinity="0" density="0" group="1" />
+                <site name="executor_segment_1_link_3_hole_01_in" pos="0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="executor_segment_1_link_3_hole_02_in" pos="0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="executor_segment_1_link_3_hole_03_in" pos="0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="executor_segment_1_link_3_hole_04_in" pos="0 0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="executor_segment_1_link_3_hole_05_in" pos="-0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="executor_segment_1_link_3_hole_06_in" pos="-0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="executor_segment_1_link_3_hole_07_in" pos="-0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="executor_segment_1_link_3_hole_08_in" pos="-0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="executor_segment_1_link_3_hole_09_in" pos="-0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="executor_segment_1_link_3_hole_10_in" pos="0 -0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="executor_segment_1_link_3_hole_11_in" pos="0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="executor_segment_1_link_3_hole_12_in" pos="0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="executor_segment_1_link_3_hole_01_out" pos="0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="executor_segment_1_link_3_hole_02_out" pos="0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="executor_segment_1_link_3_hole_03_out" pos="0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="executor_segment_1_link_3_hole_04_out" pos="0 0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="executor_segment_1_link_3_hole_05_out" pos="-0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="executor_segment_1_link_3_hole_06_out" pos="-0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="executor_segment_1_link_3_hole_07_out" pos="-0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="executor_segment_1_link_3_hole_08_out" pos="-0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="executor_segment_1_link_3_hole_09_out" pos="-0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="executor_segment_1_link_3_hole_10_out" pos="0 -0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="executor_segment_1_link_3_hole_11_out" pos="0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="executor_segment_1_link_3_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                <body name="executor_segment_1_link_4" pos="0 0 0.01">
+                  <joint name="executor_segment_1_link_4_x" type="hinge" axis="1 0 0" />
+                  <joint name="executor_segment_1_link_4_y" type="hinge" axis="0 1 0" />
+                  <geom name="executor_segment_1_link_4_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                  <geom name="executor_segment_1_link_4_visual" type="mesh" mesh="executor_segment_1_link_4_visual_mesh" pos="-0 -0.01 -0.05" contype="0" conaffinity="0" density="0" group="1" />
+                  <site name="executor_segment_1_tip" pos="0 0 0.01" quat="1 0 0 0" />
+                  <site name="executor_segment_1_link_4_hole_01_in" pos="0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="executor_segment_1_link_4_hole_02_in" pos="0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="executor_segment_1_link_4_hole_03_in" pos="0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="executor_segment_1_link_4_hole_04_in" pos="0 0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="executor_segment_1_link_4_hole_05_in" pos="-0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="executor_segment_1_link_4_hole_06_in" pos="-0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="executor_segment_1_link_4_hole_07_in" pos="-0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="executor_segment_1_link_4_hole_08_in" pos="-0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="executor_segment_1_link_4_hole_09_in" pos="-0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="executor_segment_1_link_4_hole_10_in" pos="0 -0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="executor_segment_1_link_4_hole_11_in" pos="0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="executor_segment_1_link_4_hole_12_in" pos="0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="executor_segment_1_link_4_hole_01_out" pos="0.005 0 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="executor_segment_1_link_4_hole_02_out" pos="0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="executor_segment_1_link_4_hole_03_out" pos="0.0025 0.00433013 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="executor_segment_1_link_4_hole_04_out" pos="0 0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="executor_segment_1_link_4_hole_05_out" pos="-0.0025 0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="executor_segment_1_link_4_hole_06_out" pos="-0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="executor_segment_1_link_4_hole_07_out" pos="-0.005 0 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="executor_segment_1_link_4_hole_08_out" pos="-0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="executor_segment_1_link_4_hole_09_out" pos="-0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="executor_segment_1_link_4_hole_10_out" pos="0 -0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="executor_segment_1_link_4_hole_11_out" pos="0.0025 -0.00433013 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="executor_segment_1_link_4_hole_12_out" pos="0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <body name="executor_segment_2_link_1" pos="0 0 0.01">
+                    <joint name="executor_segment_2_link_1_x" type="hinge" axis="1 0 0" />
+                    <joint name="executor_segment_2_link_1_y" type="hinge" axis="0 1 0" />
+                    <geom name="executor_segment_2_link_1_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                    <geom name="executor_segment_2_link_1_visual" type="mesh" mesh="executor_segment_2_link_1_visual_mesh" pos="-0 -0.01 -0.06" contype="0" conaffinity="0" density="0" group="1" />
+                    <site name="executor_segment_2_link_1_hole_01_in" pos="0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="executor_segment_2_link_1_hole_02_in" pos="0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="executor_segment_2_link_1_hole_03_in" pos="0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="executor_segment_2_link_1_hole_04_in" pos="0 0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="executor_segment_2_link_1_hole_05_in" pos="-0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="executor_segment_2_link_1_hole_06_in" pos="-0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="executor_segment_2_link_1_hole_07_in" pos="-0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="executor_segment_2_link_1_hole_08_in" pos="-0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="executor_segment_2_link_1_hole_09_in" pos="-0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="executor_segment_2_link_1_hole_10_in" pos="0 -0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="executor_segment_2_link_1_hole_11_in" pos="0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="executor_segment_2_link_1_hole_12_in" pos="0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="executor_segment_2_link_1_hole_01_out" pos="0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="executor_segment_2_link_1_hole_02_out" pos="0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="executor_segment_2_link_1_hole_03_out" pos="0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="executor_segment_2_link_1_hole_04_out" pos="0 0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="executor_segment_2_link_1_hole_05_out" pos="-0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="executor_segment_2_link_1_hole_06_out" pos="-0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="executor_segment_2_link_1_hole_07_out" pos="-0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="executor_segment_2_link_1_hole_08_out" pos="-0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="executor_segment_2_link_1_hole_09_out" pos="-0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="executor_segment_2_link_1_hole_10_out" pos="0 -0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="executor_segment_2_link_1_hole_11_out" pos="0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="executor_segment_2_link_1_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <body name="executor_segment_2_link_2" pos="0 0 0.01">
+                      <joint name="executor_segment_2_link_2_x" type="hinge" axis="1 0 0" />
+                      <joint name="executor_segment_2_link_2_y" type="hinge" axis="0 1 0" />
+                      <geom name="executor_segment_2_link_2_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                      <geom name="executor_segment_2_link_2_visual" type="mesh" mesh="executor_segment_2_link_2_visual_mesh" pos="-0 -0.01 -0.07" contype="0" conaffinity="0" density="0" group="1" />
+                      <site name="executor_segment_2_link_2_hole_01_in" pos="0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="executor_segment_2_link_2_hole_02_in" pos="0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="executor_segment_2_link_2_hole_03_in" pos="0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="executor_segment_2_link_2_hole_04_in" pos="0 0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="executor_segment_2_link_2_hole_05_in" pos="-0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="executor_segment_2_link_2_hole_06_in" pos="-0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="executor_segment_2_link_2_hole_07_in" pos="-0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="executor_segment_2_link_2_hole_08_in" pos="-0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="executor_segment_2_link_2_hole_09_in" pos="-0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="executor_segment_2_link_2_hole_10_in" pos="0 -0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="executor_segment_2_link_2_hole_11_in" pos="0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="executor_segment_2_link_2_hole_12_in" pos="0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="executor_segment_2_link_2_hole_01_out" pos="0.005 0 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="executor_segment_2_link_2_hole_02_out" pos="0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="executor_segment_2_link_2_hole_03_out" pos="0.0025 0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="executor_segment_2_link_2_hole_04_out" pos="0 0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="executor_segment_2_link_2_hole_05_out" pos="-0.0025 0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="executor_segment_2_link_2_hole_06_out" pos="-0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="executor_segment_2_link_2_hole_07_out" pos="-0.005 0 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="executor_segment_2_link_2_hole_08_out" pos="-0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="executor_segment_2_link_2_hole_09_out" pos="-0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="executor_segment_2_link_2_hole_10_out" pos="0 -0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="executor_segment_2_link_2_hole_11_out" pos="0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="executor_segment_2_link_2_hole_12_out" pos="0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <body name="executor_segment_2_link_3" pos="0 0 0.01">
+                        <joint name="executor_segment_2_link_3_x" type="hinge" axis="1 0 0" />
+                        <joint name="executor_segment_2_link_3_y" type="hinge" axis="0 1 0" />
+                        <geom name="executor_segment_2_link_3_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                        <geom name="executor_segment_2_link_3_visual" type="mesh" mesh="executor_segment_2_link_3_visual_mesh" pos="-0 -0.01 -0.08" contype="0" conaffinity="0" density="0" group="1" />
+                        <site name="executor_segment_2_link_3_hole_01_in" pos="0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="executor_segment_2_link_3_hole_02_in" pos="0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="executor_segment_2_link_3_hole_03_in" pos="0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="executor_segment_2_link_3_hole_04_in" pos="0 0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="executor_segment_2_link_3_hole_05_in" pos="-0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="executor_segment_2_link_3_hole_06_in" pos="-0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="executor_segment_2_link_3_hole_07_in" pos="-0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="executor_segment_2_link_3_hole_08_in" pos="-0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="executor_segment_2_link_3_hole_09_in" pos="-0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="executor_segment_2_link_3_hole_10_in" pos="0 -0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="executor_segment_2_link_3_hole_11_in" pos="0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="executor_segment_2_link_3_hole_12_in" pos="0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="executor_segment_2_link_3_hole_01_out" pos="0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="executor_segment_2_link_3_hole_02_out" pos="0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="executor_segment_2_link_3_hole_03_out" pos="0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="executor_segment_2_link_3_hole_04_out" pos="0 0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="executor_segment_2_link_3_hole_05_out" pos="-0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="executor_segment_2_link_3_hole_06_out" pos="-0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="executor_segment_2_link_3_hole_07_out" pos="-0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="executor_segment_2_link_3_hole_08_out" pos="-0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="executor_segment_2_link_3_hole_09_out" pos="-0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="executor_segment_2_link_3_hole_10_out" pos="0 -0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="executor_segment_2_link_3_hole_11_out" pos="0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="executor_segment_2_link_3_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <body name="executor_segment_2_link_4" pos="0 0 0.01">
+                          <joint name="executor_segment_2_link_4_x" type="hinge" axis="1 0 0" />
+                          <joint name="executor_segment_2_link_4_y" type="hinge" axis="0 1 0" />
+                          <geom name="executor_segment_2_link_4_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                          <geom name="executor_segment_2_link_4_visual" type="mesh" mesh="executor_segment_2_link_4_visual_mesh" pos="-0 -0.01 -0.09" contype="0" conaffinity="0" density="0" group="1" />
+                          <site name="executor_segment_2_tip" pos="0 0 0.01" quat="1 0 0 0" />
+                          <site name="executor_segment_2_link_4_hole_01_in" pos="0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="executor_segment_2_link_4_hole_02_in" pos="0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="executor_segment_2_link_4_hole_03_in" pos="0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="executor_segment_2_link_4_hole_04_in" pos="0 0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="executor_segment_2_link_4_hole_05_in" pos="-0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="executor_segment_2_link_4_hole_06_in" pos="-0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="executor_segment_2_link_4_hole_07_in" pos="-0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="executor_segment_2_link_4_hole_08_in" pos="-0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="executor_segment_2_link_4_hole_09_in" pos="-0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="executor_segment_2_link_4_hole_10_in" pos="0 -0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="executor_segment_2_link_4_hole_11_in" pos="0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="executor_segment_2_link_4_hole_12_in" pos="0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="executor_segment_2_link_4_hole_01_out" pos="0.005 0 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="executor_segment_2_link_4_hole_02_out" pos="0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="executor_segment_2_link_4_hole_03_out" pos="0.0025 0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="executor_segment_2_link_4_hole_04_out" pos="0 0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="executor_segment_2_link_4_hole_05_out" pos="-0.0025 0.00433013 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="executor_segment_2_link_4_hole_06_out" pos="-0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="executor_segment_2_link_4_hole_07_out" pos="-0.005 0 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="executor_segment_2_link_4_hole_08_out" pos="-0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="executor_segment_2_link_4_hole_09_out" pos="-0.0025 -0.00433013 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="executor_segment_2_link_4_hole_10_out" pos="0 -0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="executor_segment_2_link_4_hole_11_out" pos="0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="executor_segment_2_link_4_hole_12_out" pos="0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <body name="executor_segment_3_link_1" pos="0 0 0.01">
+                            <joint name="executor_segment_3_link_1_x" type="hinge" axis="1 0 0" />
+                            <joint name="executor_segment_3_link_1_y" type="hinge" axis="0 1 0" />
+                            <geom name="executor_segment_3_link_1_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                            <geom name="executor_segment_3_link_1_visual" type="mesh" mesh="executor_segment_3_link_1_visual_mesh" pos="-0 -0.01 -0.1" contype="0" conaffinity="0" density="0" group="1" />
+                            <site name="executor_segment_3_link_1_hole_01_in" pos="0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="executor_segment_3_link_1_hole_02_in" pos="0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="executor_segment_3_link_1_hole_03_in" pos="0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="executor_segment_3_link_1_hole_04_in" pos="0 0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="executor_segment_3_link_1_hole_05_in" pos="-0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="executor_segment_3_link_1_hole_06_in" pos="-0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="executor_segment_3_link_1_hole_07_in" pos="-0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="executor_segment_3_link_1_hole_08_in" pos="-0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="executor_segment_3_link_1_hole_09_in" pos="-0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="executor_segment_3_link_1_hole_10_in" pos="0 -0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="executor_segment_3_link_1_hole_11_in" pos="0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="executor_segment_3_link_1_hole_12_in" pos="0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="executor_segment_3_link_1_hole_01_out" pos="0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="executor_segment_3_link_1_hole_02_out" pos="0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="executor_segment_3_link_1_hole_03_out" pos="0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="executor_segment_3_link_1_hole_04_out" pos="0 0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="executor_segment_3_link_1_hole_05_out" pos="-0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="executor_segment_3_link_1_hole_06_out" pos="-0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="executor_segment_3_link_1_hole_07_out" pos="-0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="executor_segment_3_link_1_hole_08_out" pos="-0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="executor_segment_3_link_1_hole_09_out" pos="-0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="executor_segment_3_link_1_hole_10_out" pos="0 -0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="executor_segment_3_link_1_hole_11_out" pos="0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="executor_segment_3_link_1_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <body name="executor_segment_3_link_2" pos="0 0 0.01">
+                              <joint name="executor_segment_3_link_2_x" type="hinge" axis="1 0 0" />
+                              <joint name="executor_segment_3_link_2_y" type="hinge" axis="0 1 0" />
+                              <geom name="executor_segment_3_link_2_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                              <geom name="executor_segment_3_link_2_visual" type="mesh" mesh="executor_segment_3_link_2_visual_mesh" pos="-0 -0.01 -0.11" contype="0" conaffinity="0" density="0" group="1" />
+                              <site name="executor_segment_3_link_2_hole_01_in" pos="0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="executor_segment_3_link_2_hole_02_in" pos="0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="executor_segment_3_link_2_hole_03_in" pos="0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="executor_segment_3_link_2_hole_04_in" pos="0 0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="executor_segment_3_link_2_hole_05_in" pos="-0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="executor_segment_3_link_2_hole_06_in" pos="-0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="executor_segment_3_link_2_hole_07_in" pos="-0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="executor_segment_3_link_2_hole_08_in" pos="-0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="executor_segment_3_link_2_hole_09_in" pos="-0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="executor_segment_3_link_2_hole_10_in" pos="0 -0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="executor_segment_3_link_2_hole_11_in" pos="0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="executor_segment_3_link_2_hole_12_in" pos="0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="executor_segment_3_link_2_hole_01_out" pos="0.005 0 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="executor_segment_3_link_2_hole_02_out" pos="0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="executor_segment_3_link_2_hole_03_out" pos="0.0025 0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="executor_segment_3_link_2_hole_04_out" pos="0 0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="executor_segment_3_link_2_hole_05_out" pos="-0.0025 0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="executor_segment_3_link_2_hole_06_out" pos="-0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="executor_segment_3_link_2_hole_07_out" pos="-0.005 0 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="executor_segment_3_link_2_hole_08_out" pos="-0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="executor_segment_3_link_2_hole_09_out" pos="-0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="executor_segment_3_link_2_hole_10_out" pos="0 -0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="executor_segment_3_link_2_hole_11_out" pos="0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="executor_segment_3_link_2_hole_12_out" pos="0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <body name="executor_segment_3_link_3" pos="0 0 0.01">
+                                <joint name="executor_segment_3_link_3_x" type="hinge" axis="1 0 0" />
+                                <joint name="executor_segment_3_link_3_y" type="hinge" axis="0 1 0" />
+                                <geom name="executor_segment_3_link_3_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                                <geom name="executor_segment_3_link_3_visual" type="mesh" mesh="executor_segment_3_link_3_visual_mesh" pos="-0 -0.01 -0.12" contype="0" conaffinity="0" density="0" group="1" />
+                                <site name="executor_segment_3_link_3_hole_01_in" pos="0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="executor_segment_3_link_3_hole_02_in" pos="0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="executor_segment_3_link_3_hole_03_in" pos="0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="executor_segment_3_link_3_hole_04_in" pos="0 0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="executor_segment_3_link_3_hole_05_in" pos="-0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="executor_segment_3_link_3_hole_06_in" pos="-0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="executor_segment_3_link_3_hole_07_in" pos="-0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="executor_segment_3_link_3_hole_08_in" pos="-0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="executor_segment_3_link_3_hole_09_in" pos="-0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="executor_segment_3_link_3_hole_10_in" pos="0 -0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="executor_segment_3_link_3_hole_11_in" pos="0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="executor_segment_3_link_3_hole_12_in" pos="0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="executor_segment_3_link_3_hole_01_out" pos="0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="executor_segment_3_link_3_hole_02_out" pos="0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="executor_segment_3_link_3_hole_03_out" pos="0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="executor_segment_3_link_3_hole_04_out" pos="0 0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="executor_segment_3_link_3_hole_05_out" pos="-0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="executor_segment_3_link_3_hole_06_out" pos="-0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="executor_segment_3_link_3_hole_07_out" pos="-0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="executor_segment_3_link_3_hole_08_out" pos="-0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="executor_segment_3_link_3_hole_09_out" pos="-0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="executor_segment_3_link_3_hole_10_out" pos="0 -0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="executor_segment_3_link_3_hole_11_out" pos="0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="executor_segment_3_link_3_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <body name="executor_segment_3_link_4" pos="0 0 0.01">
+                                  <joint name="executor_segment_3_link_4_x" type="hinge" axis="1 0 0" />
+                                  <joint name="executor_segment_3_link_4_y" type="hinge" axis="0 1 0" />
+                                  <geom name="executor_segment_3_link_4_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                                  <geom name="executor_segment_3_link_4_visual" type="mesh" mesh="executor_segment_3_link_4_visual_mesh" pos="-0 -0.01 -0.13" contype="0" conaffinity="0" density="0" group="1" />
+                                  <site name="executor_segment_3_tip" pos="0 0 0.01" quat="1 0 0 0" />
+                                  <site name="executor_tip" pos="0 0 0.01" quat="1 0 0 0" />
+                                  <site name="executor_segment_3_link_4_hole_01_in" pos="0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="executor_segment_3_link_4_hole_02_in" pos="0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="executor_segment_3_link_4_hole_03_in" pos="0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="executor_segment_3_link_4_hole_04_in" pos="0 0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="executor_segment_3_link_4_hole_05_in" pos="-0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="executor_segment_3_link_4_hole_06_in" pos="-0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="executor_segment_3_link_4_hole_07_in" pos="-0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="executor_segment_3_link_4_hole_08_in" pos="-0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="executor_segment_3_link_4_hole_09_in" pos="-0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="executor_segment_3_link_4_hole_10_in" pos="0 -0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="executor_segment_3_link_4_hole_11_in" pos="0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="executor_segment_3_link_4_hole_12_in" pos="0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="executor_segment_3_link_4_hole_04_out" pos="0 0.005 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                                  <site name="executor_segment_3_link_4_hole_08_out" pos="-0.00433013 -0.0025 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                                  <site name="executor_segment_3_link_4_hole_12_out" pos="0.00433013 -0.0025 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                                </body>
+                              </body>
+                            </body>
+                          </body>
+                        </body>
+                      </body>
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+        <body name="observer_base" pos="0 -0.01 0.02" quat="1 0 0 0">
+          <site name="observer_base_site" pos="0 0 0" quat="1 0 0 0" />
+          <site name="observer_base_hole_01_in" pos="0.005 0 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="observer_base_hole_01_out" pos="0.005 0 -0.00133975" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="observer_base_hole_02_in" pos="0.00433013 0.0025 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="observer_base_hole_02_out" pos="0.00433013 0.0025 -0.00116025" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="observer_base_hole_03_in" pos="0.0025 0.00433013 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="observer_base_hole_03_out" pos="0.0025 0.00433013 -0.00066987" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="observer_base_hole_04_in" pos="0 0.005 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="observer_base_hole_04_out" pos="0 0.005 0" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="observer_base_hole_05_in" pos="-0.0025 0.00433013 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="observer_base_hole_05_out" pos="-0.0025 0.00433013 -0.00066987" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="observer_base_hole_06_in" pos="-0.00433013 0.0025 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="observer_base_hole_06_out" pos="-0.00433013 0.0025 -0.00116025" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="observer_base_hole_07_in" pos="-0.005 0 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="observer_base_hole_07_out" pos="-0.005 0 -0.00133975" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="observer_base_hole_08_in" pos="-0.00433013 -0.0025 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="observer_base_hole_08_out" pos="-0.00433013 -0.0025 -0.00116025" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="observer_base_hole_09_in" pos="-0.0025 -0.00433013 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="observer_base_hole_09_out" pos="-0.0025 -0.00433013 -0.00066987" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="observer_base_hole_10_in" pos="0 -0.005 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="observer_base_hole_10_out" pos="0 -0.005 0" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="observer_base_hole_11_in" pos="0.0025 -0.00433013 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="observer_base_hole_11_out" pos="0.0025 -0.00433013 -0.00066987" size="0.0006" rgba="0.1 0.4 1 1" />
+          <site name="observer_base_hole_12_in" pos="0.00433013 -0.0025 -0.02" size="0.0006" rgba="1 0.2 0.1 1" />
+          <site name="observer_base_hole_12_out" pos="0.00433013 -0.0025 -0.00116025" size="0.0006" rgba="0.1 0.4 1 1" />
+          <geom name="observer_base_visual" type="mesh" mesh="observer_base_visual_mesh" pos="-0 0.01 -0.02" contype="0" conaffinity="0" density="0" group="1" />
+          <body name="observer_segment_1_link_1" pos="0 0 0">
+            <joint name="observer_segment_1_link_1_x" type="hinge" axis="1 0 0" />
+            <joint name="observer_segment_1_link_1_y" type="hinge" axis="0 1 0" />
+            <geom name="observer_segment_1_link_1_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+            <geom name="observer_segment_1_link_1_visual" type="mesh" mesh="observer_segment_1_link_1_visual_mesh" pos="-0 0.01 -0.02" contype="0" conaffinity="0" density="0" group="1" />
+            <site name="observer_segment_1_link_1_hole_01_in" pos="0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="observer_segment_1_link_1_hole_02_in" pos="0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="observer_segment_1_link_1_hole_03_in" pos="0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="observer_segment_1_link_1_hole_04_in" pos="0 0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="observer_segment_1_link_1_hole_05_in" pos="-0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="observer_segment_1_link_1_hole_06_in" pos="-0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="observer_segment_1_link_1_hole_07_in" pos="-0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="observer_segment_1_link_1_hole_08_in" pos="-0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="observer_segment_1_link_1_hole_09_in" pos="-0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="observer_segment_1_link_1_hole_10_in" pos="0 -0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="observer_segment_1_link_1_hole_11_in" pos="0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="observer_segment_1_link_1_hole_12_in" pos="0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+            <site name="observer_segment_1_link_1_hole_01_out" pos="0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="observer_segment_1_link_1_hole_02_out" pos="0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="observer_segment_1_link_1_hole_03_out" pos="0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="observer_segment_1_link_1_hole_04_out" pos="0 0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="observer_segment_1_link_1_hole_05_out" pos="-0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="observer_segment_1_link_1_hole_06_out" pos="-0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="observer_segment_1_link_1_hole_07_out" pos="-0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="observer_segment_1_link_1_hole_08_out" pos="-0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="observer_segment_1_link_1_hole_09_out" pos="-0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="observer_segment_1_link_1_hole_10_out" pos="0 -0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="observer_segment_1_link_1_hole_11_out" pos="0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+            <site name="observer_segment_1_link_1_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+            <body name="observer_segment_1_link_2" pos="0 0 0.01">
+              <joint name="observer_segment_1_link_2_x" type="hinge" axis="1 0 0" />
+              <joint name="observer_segment_1_link_2_y" type="hinge" axis="0 1 0" />
+              <geom name="observer_segment_1_link_2_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+              <geom name="observer_segment_1_link_2_visual" type="mesh" mesh="observer_segment_1_link_2_visual_mesh" pos="-0 0.01 -0.03" contype="0" conaffinity="0" density="0" group="1" />
+              <site name="observer_segment_1_link_2_hole_01_in" pos="0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="observer_segment_1_link_2_hole_02_in" pos="0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="observer_segment_1_link_2_hole_03_in" pos="0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="observer_segment_1_link_2_hole_04_in" pos="0 0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="observer_segment_1_link_2_hole_05_in" pos="-0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="observer_segment_1_link_2_hole_06_in" pos="-0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="observer_segment_1_link_2_hole_07_in" pos="-0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="observer_segment_1_link_2_hole_08_in" pos="-0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="observer_segment_1_link_2_hole_09_in" pos="-0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="observer_segment_1_link_2_hole_10_in" pos="0 -0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="observer_segment_1_link_2_hole_11_in" pos="0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="observer_segment_1_link_2_hole_12_in" pos="0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+              <site name="observer_segment_1_link_2_hole_01_out" pos="0.005 0 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="observer_segment_1_link_2_hole_02_out" pos="0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="observer_segment_1_link_2_hole_03_out" pos="0.0025 0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="observer_segment_1_link_2_hole_04_out" pos="0 0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="observer_segment_1_link_2_hole_05_out" pos="-0.0025 0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="observer_segment_1_link_2_hole_06_out" pos="-0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="observer_segment_1_link_2_hole_07_out" pos="-0.005 0 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="observer_segment_1_link_2_hole_08_out" pos="-0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="observer_segment_1_link_2_hole_09_out" pos="-0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="observer_segment_1_link_2_hole_10_out" pos="0 -0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="observer_segment_1_link_2_hole_11_out" pos="0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+              <site name="observer_segment_1_link_2_hole_12_out" pos="0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+              <body name="observer_segment_1_link_3" pos="0 0 0.01">
+                <joint name="observer_segment_1_link_3_x" type="hinge" axis="1 0 0" />
+                <joint name="observer_segment_1_link_3_y" type="hinge" axis="0 1 0" />
+                <geom name="observer_segment_1_link_3_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                <geom name="observer_segment_1_link_3_visual" type="mesh" mesh="observer_segment_1_link_3_visual_mesh" pos="-0 0.01 -0.04" contype="0" conaffinity="0" density="0" group="1" />
+                <site name="observer_segment_1_link_3_hole_01_in" pos="0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="observer_segment_1_link_3_hole_02_in" pos="0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="observer_segment_1_link_3_hole_03_in" pos="0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="observer_segment_1_link_3_hole_04_in" pos="0 0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="observer_segment_1_link_3_hole_05_in" pos="-0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="observer_segment_1_link_3_hole_06_in" pos="-0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="observer_segment_1_link_3_hole_07_in" pos="-0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="observer_segment_1_link_3_hole_08_in" pos="-0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="observer_segment_1_link_3_hole_09_in" pos="-0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="observer_segment_1_link_3_hole_10_in" pos="0 -0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="observer_segment_1_link_3_hole_11_in" pos="0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="observer_segment_1_link_3_hole_12_in" pos="0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                <site name="observer_segment_1_link_3_hole_01_out" pos="0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="observer_segment_1_link_3_hole_02_out" pos="0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="observer_segment_1_link_3_hole_03_out" pos="0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="observer_segment_1_link_3_hole_04_out" pos="0 0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="observer_segment_1_link_3_hole_05_out" pos="-0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="observer_segment_1_link_3_hole_06_out" pos="-0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="observer_segment_1_link_3_hole_07_out" pos="-0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="observer_segment_1_link_3_hole_08_out" pos="-0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="observer_segment_1_link_3_hole_09_out" pos="-0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="observer_segment_1_link_3_hole_10_out" pos="0 -0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="observer_segment_1_link_3_hole_11_out" pos="0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                <site name="observer_segment_1_link_3_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                <body name="observer_segment_1_link_4" pos="0 0 0.01">
+                  <joint name="observer_segment_1_link_4_x" type="hinge" axis="1 0 0" />
+                  <joint name="observer_segment_1_link_4_y" type="hinge" axis="0 1 0" />
+                  <geom name="observer_segment_1_link_4_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                  <geom name="observer_segment_1_link_4_visual" type="mesh" mesh="observer_segment_1_link_4_visual_mesh" pos="-0 0.01 -0.05" contype="0" conaffinity="0" density="0" group="1" />
+                  <site name="observer_segment_1_tip" pos="0 0 0.01" quat="1 0 0 0" />
+                  <site name="observer_segment_1_link_4_hole_01_in" pos="0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="observer_segment_1_link_4_hole_02_in" pos="0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="observer_segment_1_link_4_hole_03_in" pos="0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="observer_segment_1_link_4_hole_04_in" pos="0 0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="observer_segment_1_link_4_hole_05_in" pos="-0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="observer_segment_1_link_4_hole_06_in" pos="-0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="observer_segment_1_link_4_hole_07_in" pos="-0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="observer_segment_1_link_4_hole_08_in" pos="-0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="observer_segment_1_link_4_hole_09_in" pos="-0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="observer_segment_1_link_4_hole_10_in" pos="0 -0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="observer_segment_1_link_4_hole_11_in" pos="0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="observer_segment_1_link_4_hole_12_in" pos="0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                  <site name="observer_segment_1_link_4_hole_01_out" pos="0.005 0 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="observer_segment_1_link_4_hole_02_out" pos="0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="observer_segment_1_link_4_hole_03_out" pos="0.0025 0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="observer_segment_1_link_4_hole_04_out" pos="0 0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="observer_segment_1_link_4_hole_05_out" pos="-0.0025 0.00433013 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="observer_segment_1_link_4_hole_06_out" pos="-0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="observer_segment_1_link_4_hole_07_out" pos="-0.005 0 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="observer_segment_1_link_4_hole_08_out" pos="-0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="observer_segment_1_link_4_hole_09_out" pos="-0.0025 -0.00433013 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="observer_segment_1_link_4_hole_10_out" pos="0 -0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="observer_segment_1_link_4_hole_11_out" pos="0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="observer_segment_1_link_4_hole_12_out" pos="0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <body name="observer_segment_2_link_1" pos="0 0 0.01">
+                    <joint name="observer_segment_2_link_1_x" type="hinge" axis="1 0 0" />
+                    <joint name="observer_segment_2_link_1_y" type="hinge" axis="0 1 0" />
+                    <geom name="observer_segment_2_link_1_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                    <geom name="observer_segment_2_link_1_visual" type="mesh" mesh="observer_segment_2_link_1_visual_mesh" pos="-0 0.01 -0.06" contype="0" conaffinity="0" density="0" group="1" />
+                    <site name="observer_segment_2_link_1_hole_01_in" pos="0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="observer_segment_2_link_1_hole_02_in" pos="0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="observer_segment_2_link_1_hole_03_in" pos="0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="observer_segment_2_link_1_hole_04_in" pos="0 0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="observer_segment_2_link_1_hole_05_in" pos="-0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="observer_segment_2_link_1_hole_06_in" pos="-0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="observer_segment_2_link_1_hole_07_in" pos="-0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="observer_segment_2_link_1_hole_08_in" pos="-0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="observer_segment_2_link_1_hole_09_in" pos="-0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="observer_segment_2_link_1_hole_10_in" pos="0 -0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="observer_segment_2_link_1_hole_11_in" pos="0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="observer_segment_2_link_1_hole_12_in" pos="0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                    <site name="observer_segment_2_link_1_hole_01_out" pos="0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="observer_segment_2_link_1_hole_02_out" pos="0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="observer_segment_2_link_1_hole_03_out" pos="0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="observer_segment_2_link_1_hole_04_out" pos="0 0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="observer_segment_2_link_1_hole_05_out" pos="-0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="observer_segment_2_link_1_hole_06_out" pos="-0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="observer_segment_2_link_1_hole_07_out" pos="-0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="observer_segment_2_link_1_hole_08_out" pos="-0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="observer_segment_2_link_1_hole_09_out" pos="-0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="observer_segment_2_link_1_hole_10_out" pos="0 -0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="observer_segment_2_link_1_hole_11_out" pos="0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <site name="observer_segment_2_link_1_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                    <body name="observer_segment_2_link_2" pos="0 0 0.01">
+                      <joint name="observer_segment_2_link_2_x" type="hinge" axis="1 0 0" />
+                      <joint name="observer_segment_2_link_2_y" type="hinge" axis="0 1 0" />
+                      <geom name="observer_segment_2_link_2_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                      <geom name="observer_segment_2_link_2_visual" type="mesh" mesh="observer_segment_2_link_2_visual_mesh" pos="-0 0.01 -0.07" contype="0" conaffinity="0" density="0" group="1" />
+                      <site name="observer_segment_2_link_2_hole_01_in" pos="0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="observer_segment_2_link_2_hole_02_in" pos="0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="observer_segment_2_link_2_hole_03_in" pos="0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="observer_segment_2_link_2_hole_04_in" pos="0 0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="observer_segment_2_link_2_hole_05_in" pos="-0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="observer_segment_2_link_2_hole_06_in" pos="-0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="observer_segment_2_link_2_hole_07_in" pos="-0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="observer_segment_2_link_2_hole_08_in" pos="-0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="observer_segment_2_link_2_hole_09_in" pos="-0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="observer_segment_2_link_2_hole_10_in" pos="0 -0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="observer_segment_2_link_2_hole_11_in" pos="0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="observer_segment_2_link_2_hole_12_in" pos="0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                      <site name="observer_segment_2_link_2_hole_01_out" pos="0.005 0 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="observer_segment_2_link_2_hole_02_out" pos="0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="observer_segment_2_link_2_hole_03_out" pos="0.0025 0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="observer_segment_2_link_2_hole_04_out" pos="0 0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="observer_segment_2_link_2_hole_05_out" pos="-0.0025 0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="observer_segment_2_link_2_hole_06_out" pos="-0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="observer_segment_2_link_2_hole_07_out" pos="-0.005 0 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="observer_segment_2_link_2_hole_08_out" pos="-0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="observer_segment_2_link_2_hole_09_out" pos="-0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="observer_segment_2_link_2_hole_10_out" pos="0 -0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="observer_segment_2_link_2_hole_11_out" pos="0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <site name="observer_segment_2_link_2_hole_12_out" pos="0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                      <body name="observer_segment_2_link_3" pos="0 0 0.01">
+                        <joint name="observer_segment_2_link_3_x" type="hinge" axis="1 0 0" />
+                        <joint name="observer_segment_2_link_3_y" type="hinge" axis="0 1 0" />
+                        <geom name="observer_segment_2_link_3_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                        <geom name="observer_segment_2_link_3_visual" type="mesh" mesh="observer_segment_2_link_3_visual_mesh" pos="-0 0.01 -0.08" contype="0" conaffinity="0" density="0" group="1" />
+                        <site name="observer_segment_2_link_3_hole_01_in" pos="0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="observer_segment_2_link_3_hole_02_in" pos="0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="observer_segment_2_link_3_hole_03_in" pos="0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="observer_segment_2_link_3_hole_04_in" pos="0 0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="observer_segment_2_link_3_hole_05_in" pos="-0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="observer_segment_2_link_3_hole_06_in" pos="-0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="observer_segment_2_link_3_hole_07_in" pos="-0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="observer_segment_2_link_3_hole_08_in" pos="-0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="observer_segment_2_link_3_hole_09_in" pos="-0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="observer_segment_2_link_3_hole_10_in" pos="0 -0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="observer_segment_2_link_3_hole_11_in" pos="0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="observer_segment_2_link_3_hole_12_in" pos="0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                        <site name="observer_segment_2_link_3_hole_01_out" pos="0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="observer_segment_2_link_3_hole_02_out" pos="0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="observer_segment_2_link_3_hole_03_out" pos="0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="observer_segment_2_link_3_hole_04_out" pos="0 0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="observer_segment_2_link_3_hole_05_out" pos="-0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="observer_segment_2_link_3_hole_06_out" pos="-0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="observer_segment_2_link_3_hole_07_out" pos="-0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="observer_segment_2_link_3_hole_08_out" pos="-0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="observer_segment_2_link_3_hole_09_out" pos="-0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="observer_segment_2_link_3_hole_10_out" pos="0 -0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="observer_segment_2_link_3_hole_11_out" pos="0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <site name="observer_segment_2_link_3_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                        <body name="observer_segment_2_link_4" pos="0 0 0.01">
+                          <joint name="observer_segment_2_link_4_x" type="hinge" axis="1 0 0" />
+                          <joint name="observer_segment_2_link_4_y" type="hinge" axis="0 1 0" />
+                          <geom name="observer_segment_2_link_4_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                          <geom name="observer_segment_2_link_4_visual" type="mesh" mesh="observer_segment_2_link_4_visual_mesh" pos="-0 0.01 -0.09" contype="0" conaffinity="0" density="0" group="1" />
+                          <site name="observer_segment_2_tip" pos="0 0 0.01" quat="1 0 0 0" />
+                          <site name="observer_segment_2_link_4_hole_01_in" pos="0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="observer_segment_2_link_4_hole_02_in" pos="0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="observer_segment_2_link_4_hole_03_in" pos="0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="observer_segment_2_link_4_hole_04_in" pos="0 0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="observer_segment_2_link_4_hole_05_in" pos="-0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="observer_segment_2_link_4_hole_06_in" pos="-0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="observer_segment_2_link_4_hole_07_in" pos="-0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="observer_segment_2_link_4_hole_08_in" pos="-0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="observer_segment_2_link_4_hole_09_in" pos="-0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="observer_segment_2_link_4_hole_10_in" pos="0 -0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="observer_segment_2_link_4_hole_11_in" pos="0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="observer_segment_2_link_4_hole_12_in" pos="0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                          <site name="observer_segment_2_link_4_hole_01_out" pos="0.005 0 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="observer_segment_2_link_4_hole_02_out" pos="0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="observer_segment_2_link_4_hole_03_out" pos="0.0025 0.00433013 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="observer_segment_2_link_4_hole_04_out" pos="0 0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="observer_segment_2_link_4_hole_05_out" pos="-0.0025 0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="observer_segment_2_link_4_hole_06_out" pos="-0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="observer_segment_2_link_4_hole_07_out" pos="-0.005 0 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="observer_segment_2_link_4_hole_08_out" pos="-0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="observer_segment_2_link_4_hole_09_out" pos="-0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="observer_segment_2_link_4_hole_10_out" pos="0 -0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="observer_segment_2_link_4_hole_11_out" pos="0.0025 -0.00433013 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="observer_segment_2_link_4_hole_12_out" pos="0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <body name="observer_segment_3_link_1" pos="0 0 0.01">
+                            <joint name="observer_segment_3_link_1_x" type="hinge" axis="1 0 0" />
+                            <joint name="observer_segment_3_link_1_y" type="hinge" axis="0 1 0" />
+                            <geom name="observer_segment_3_link_1_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                            <geom name="observer_segment_3_link_1_visual" type="mesh" mesh="observer_segment_3_link_1_visual_mesh" pos="-0 0.01 -0.1" contype="0" conaffinity="0" density="0" group="1" />
+                            <site name="observer_segment_3_link_1_hole_01_in" pos="0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="observer_segment_3_link_1_hole_02_in" pos="0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="observer_segment_3_link_1_hole_03_in" pos="0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="observer_segment_3_link_1_hole_04_in" pos="0 0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="observer_segment_3_link_1_hole_05_in" pos="-0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="observer_segment_3_link_1_hole_06_in" pos="-0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="observer_segment_3_link_1_hole_07_in" pos="-0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="observer_segment_3_link_1_hole_08_in" pos="-0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="observer_segment_3_link_1_hole_09_in" pos="-0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="observer_segment_3_link_1_hole_10_in" pos="0 -0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="observer_segment_3_link_1_hole_11_in" pos="0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="observer_segment_3_link_1_hole_12_in" pos="0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                            <site name="observer_segment_3_link_1_hole_01_out" pos="0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="observer_segment_3_link_1_hole_02_out" pos="0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="observer_segment_3_link_1_hole_03_out" pos="0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="observer_segment_3_link_1_hole_04_out" pos="0 0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="observer_segment_3_link_1_hole_05_out" pos="-0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="observer_segment_3_link_1_hole_06_out" pos="-0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="observer_segment_3_link_1_hole_07_out" pos="-0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="observer_segment_3_link_1_hole_08_out" pos="-0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="observer_segment_3_link_1_hole_09_out" pos="-0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="observer_segment_3_link_1_hole_10_out" pos="0 -0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="observer_segment_3_link_1_hole_11_out" pos="0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <site name="observer_segment_3_link_1_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                            <body name="observer_segment_3_link_2" pos="0 0 0.01">
+                              <joint name="observer_segment_3_link_2_x" type="hinge" axis="1 0 0" />
+                              <joint name="observer_segment_3_link_2_y" type="hinge" axis="0 1 0" />
+                              <geom name="observer_segment_3_link_2_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                              <geom name="observer_segment_3_link_2_visual" type="mesh" mesh="observer_segment_3_link_2_visual_mesh" pos="-0 0.01 -0.11" contype="0" conaffinity="0" density="0" group="1" />
+                              <site name="observer_segment_3_link_2_hole_01_in" pos="0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="observer_segment_3_link_2_hole_02_in" pos="0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="observer_segment_3_link_2_hole_03_in" pos="0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="observer_segment_3_link_2_hole_04_in" pos="0 0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="observer_segment_3_link_2_hole_05_in" pos="-0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="observer_segment_3_link_2_hole_06_in" pos="-0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="observer_segment_3_link_2_hole_07_in" pos="-0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="observer_segment_3_link_2_hole_08_in" pos="-0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="observer_segment_3_link_2_hole_09_in" pos="-0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="observer_segment_3_link_2_hole_10_in" pos="0 -0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="observer_segment_3_link_2_hole_11_in" pos="0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="observer_segment_3_link_2_hole_12_in" pos="0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                              <site name="observer_segment_3_link_2_hole_01_out" pos="0.005 0 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="observer_segment_3_link_2_hole_02_out" pos="0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="observer_segment_3_link_2_hole_03_out" pos="0.0025 0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="observer_segment_3_link_2_hole_04_out" pos="0 0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="observer_segment_3_link_2_hole_05_out" pos="-0.0025 0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="observer_segment_3_link_2_hole_06_out" pos="-0.00433013 0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="observer_segment_3_link_2_hole_07_out" pos="-0.005 0 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="observer_segment_3_link_2_hole_08_out" pos="-0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="observer_segment_3_link_2_hole_09_out" pos="-0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="observer_segment_3_link_2_hole_10_out" pos="0 -0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="observer_segment_3_link_2_hole_11_out" pos="0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <site name="observer_segment_3_link_2_hole_12_out" pos="0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                              <body name="observer_segment_3_link_3" pos="0 0 0.01">
+                                <joint name="observer_segment_3_link_3_x" type="hinge" axis="1 0 0" />
+                                <joint name="observer_segment_3_link_3_y" type="hinge" axis="0 1 0" />
+                                <geom name="observer_segment_3_link_3_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                                <geom name="observer_segment_3_link_3_visual" type="mesh" mesh="observer_segment_3_link_3_visual_mesh" pos="-0 0.01 -0.12" contype="0" conaffinity="0" density="0" group="1" />
+                                <site name="observer_segment_3_link_3_hole_01_in" pos="0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="observer_segment_3_link_3_hole_02_in" pos="0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="observer_segment_3_link_3_hole_03_in" pos="0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="observer_segment_3_link_3_hole_04_in" pos="0 0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="observer_segment_3_link_3_hole_05_in" pos="-0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="observer_segment_3_link_3_hole_06_in" pos="-0.00433013 0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="observer_segment_3_link_3_hole_07_in" pos="-0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="observer_segment_3_link_3_hole_08_in" pos="-0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="observer_segment_3_link_3_hole_09_in" pos="-0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="observer_segment_3_link_3_hole_10_in" pos="0 -0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="observer_segment_3_link_3_hole_11_in" pos="0.0025 -0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="observer_segment_3_link_3_hole_12_in" pos="0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                                <site name="observer_segment_3_link_3_hole_01_out" pos="0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="observer_segment_3_link_3_hole_02_out" pos="0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="observer_segment_3_link_3_hole_03_out" pos="0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="observer_segment_3_link_3_hole_04_out" pos="0 0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="observer_segment_3_link_3_hole_05_out" pos="-0.0025 0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="observer_segment_3_link_3_hole_06_out" pos="-0.00433013 0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="observer_segment_3_link_3_hole_07_out" pos="-0.005 0 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="observer_segment_3_link_3_hole_08_out" pos="-0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="observer_segment_3_link_3_hole_09_out" pos="-0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="observer_segment_3_link_3_hole_10_out" pos="0 -0.005 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="observer_segment_3_link_3_hole_11_out" pos="0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <site name="observer_segment_3_link_3_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
+                                <body name="observer_segment_3_link_4" pos="0 0 0.01">
+                                  <joint name="observer_segment_3_link_4_x" type="hinge" axis="1 0 0" />
+                                  <joint name="observer_segment_3_link_4_y" type="hinge" axis="0 1 0" />
+                                  <geom name="observer_segment_3_link_4_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                                  <geom name="observer_segment_3_link_4_visual" type="mesh" mesh="observer_segment_3_link_4_visual_mesh" pos="-0 0.01 -0.13" contype="0" conaffinity="0" density="0" group="1" />
+                                  <site name="observer_segment_3_tip" pos="0 0 0.01" quat="1 0 0 0" />
+                                  <site name="observer_tip" pos="0 0 0.01" quat="1 0 0 0" />
+                                  <site name="observer_segment_3_link_4_hole_01_in" pos="0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="observer_segment_3_link_4_hole_02_in" pos="0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="observer_segment_3_link_4_hole_03_in" pos="0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="observer_segment_3_link_4_hole_04_in" pos="0 0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="observer_segment_3_link_4_hole_05_in" pos="-0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="observer_segment_3_link_4_hole_06_in" pos="-0.00433013 0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="observer_segment_3_link_4_hole_07_in" pos="-0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="observer_segment_3_link_4_hole_08_in" pos="-0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="observer_segment_3_link_4_hole_09_in" pos="-0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="observer_segment_3_link_4_hole_10_in" pos="0 -0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="observer_segment_3_link_4_hole_11_in" pos="0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="observer_segment_3_link_4_hole_12_in" pos="0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
+                                  <site name="observer_segment_3_link_4_hole_02_out" pos="0.00433013 0.0025 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                                  <site name="observer_segment_3_link_4_hole_06_out" pos="-0.00433013 0.0025 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                                  <site name="observer_segment_3_link_4_hole_10_out" pos="0 -0.005 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                                </body>
+                              </body>
+                            </body>
+                          </body>
+                        </body>
+                      </body>
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+    <body name="scene_rocket_nozzle_entry" pos="0 0 0">
+      <geom name="scene_nozzle_entry_shell_s00_00" type="box" pos="0.0790833333 0 0.0354166667" quat="0.707106781 0 0 0.707106781" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_01" type="box" pos="0.0775637693 0.015428393 0.0354166667" quat="0.634393284 0 0 0.773010453" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_02" type="box" pos="0.073063473 0.0302638814 0.0354166667" quat="0.555570233 0 0 0.831469612" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_03" type="box" pos="0.0657553885 0.0439363459 0.0354166667" quat="0.471396737 0 0 0.881921264" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_04" type="box" pos="0.0559203613 0.0559203613 0.0354166667" quat="0.382683432 0 0 0.923879533" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_05" type="box" pos="0.0439363459 0.0657553885 0.0354166667" quat="0.290284677 0 0 0.956940336" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_06" type="box" pos="0.0302638814 0.073063473 0.0354166667" quat="0.195090322 0 0 0.98078528" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_07" type="box" pos="0.015428393 0.0775637693 0.0354166667" quat="0.0980171403 0 0 0.995184727" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_08" type="box" pos="4.84245755e-18 0.0790833333 0.0354166667" quat="6.123234e-17 0 0 1" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_09" type="box" pos="-0.015428393 0.0775637693 0.0354166667" quat="-0.0980171403 0 0 0.995184727" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_10" type="box" pos="-0.0302638814 0.073063473 0.0354166667" quat="-0.195090322 0 0 0.98078528" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_11" type="box" pos="-0.0439363459 0.0657553885 0.0354166667" quat="-0.290284677 0 0 0.956940336" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_12" type="box" pos="-0.0559203613 0.0559203613 0.0354166667" quat="-0.382683432 0 0 0.923879533" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_13" type="box" pos="-0.0657553885 0.0439363459 0.0354166667" quat="-0.471396737 0 0 0.881921264" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_14" type="box" pos="-0.073063473 0.0302638814 0.0354166667" quat="-0.555570233 0 0 0.831469612" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_15" type="box" pos="-0.0775637693 0.015428393 0.0354166667" quat="-0.634393284 0 0 0.773010453" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_16" type="box" pos="-0.0790833333 9.6849151e-18 0.0354166667" quat="-0.707106781 0 0 0.707106781" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_17" type="box" pos="-0.0775637693 -0.015428393 0.0354166667" quat="-0.773010453 0 0 0.634393284" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_18" type="box" pos="-0.073063473 -0.0302638814 0.0354166667" quat="-0.831469612 0 0 0.555570233" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_19" type="box" pos="-0.0657553885 -0.0439363459 0.0354166667" quat="-0.881921264 0 0 0.471396737" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_20" type="box" pos="-0.0559203613 -0.0559203613 0.0354166667" quat="-0.923879533 0 0 0.382683432" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_21" type="box" pos="-0.0439363459 -0.0657553885 0.0354166667" quat="-0.956940336 0 0 0.290284677" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_22" type="box" pos="-0.0302638814 -0.073063473 0.0354166667" quat="-0.98078528 0 0 0.195090322" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_23" type="box" pos="-0.015428393 -0.0775637693 0.0354166667" quat="-0.995184727 0 0 0.0980171403" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_24" type="box" pos="-1.45273727e-17 -0.0790833333 0.0354166667" quat="-1 0 0 1.2246468e-16" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_25" type="box" pos="0.015428393 -0.0775637693 0.0354166667" quat="-0.995184727 0 0 -0.0980171403" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_26" type="box" pos="0.0302638814 -0.073063473 0.0354166667" quat="-0.98078528 0 0 -0.195090322" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_27" type="box" pos="0.0439363459 -0.0657553885 0.0354166667" quat="-0.956940336 0 0 -0.290284677" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_28" type="box" pos="0.0559203613 -0.0559203613 0.0354166667" quat="-0.923879533 0 0 -0.382683432" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_29" type="box" pos="0.0657553885 -0.0439363459 0.0354166667" quat="-0.881921264 0 0 -0.471396737" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_30" type="box" pos="0.073063473 -0.0302638814 0.0354166667" quat="-0.831469612 0 0 -0.555570233" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s00_31" type="box" pos="0.0775637693 -0.015428393 0.0354166667" quat="-0.773010453 0 0 -0.634393284" size="0.00775152218 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_00" type="box" pos="0.07325 0 0.05625" quat="0.707106781 0 0 0.707106781" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_01" type="box" pos="0.0718425218 0.0142903661 0.05625" quat="0.634393284 0 0 0.773010453" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_02" type="box" pos="0.0676741758 0.0280315614 0.05625" quat="0.555570233 0 0 0.831469612" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_03" type="box" pos="0.0609051491 0.0406955196 0.05625" quat="0.471396737 0 0 0.881921264" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_04" type="box" pos="0.0517955717 0.0517955717 0.05625" quat="0.382683432 0 0 0.923879533" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_05" type="box" pos="0.0406955196 0.0609051491 0.05625" quat="0.290284677 0 0 0.956940336" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_06" type="box" pos="0.0280315614 0.0676741758 0.05625" quat="0.195090322 0 0 0.98078528" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_07" type="box" pos="0.0142903661 0.0718425218 0.05625" quat="0.0980171403 0 0 0.995184727" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_08" type="box" pos="4.4852689e-18 0.07325 0.05625" quat="6.123234e-17 0 0 1" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_09" type="box" pos="-0.0142903661 0.0718425218 0.05625" quat="-0.0980171403 0 0 0.995184727" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_10" type="box" pos="-0.0280315614 0.0676741758 0.05625" quat="-0.195090322 0 0 0.98078528" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_11" type="box" pos="-0.0406955196 0.0609051491 0.05625" quat="-0.290284677 0 0 0.956940336" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_12" type="box" pos="-0.0517955717 0.0517955717 0.05625" quat="-0.382683432 0 0 0.923879533" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_13" type="box" pos="-0.0609051491 0.0406955196 0.05625" quat="-0.471396737 0 0 0.881921264" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_14" type="box" pos="-0.0676741758 0.0280315614 0.05625" quat="-0.555570233 0 0 0.831469612" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_15" type="box" pos="-0.0718425218 0.0142903661 0.05625" quat="-0.634393284 0 0 0.773010453" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_16" type="box" pos="-0.07325 8.9705378e-18 0.05625" quat="-0.707106781 0 0 0.707106781" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_17" type="box" pos="-0.0718425218 -0.0142903661 0.05625" quat="-0.773010453 0 0 0.634393284" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_18" type="box" pos="-0.0676741758 -0.0280315614 0.05625" quat="-0.831469612 0 0 0.555570233" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_19" type="box" pos="-0.0609051491 -0.0406955196 0.05625" quat="-0.881921264 0 0 0.471396737" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_20" type="box" pos="-0.0517955717 -0.0517955717 0.05625" quat="-0.923879533 0 0 0.382683432" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_21" type="box" pos="-0.0406955196 -0.0609051491 0.05625" quat="-0.956940336 0 0 0.290284677" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_22" type="box" pos="-0.0280315614 -0.0676741758 0.05625" quat="-0.98078528 0 0 0.195090322" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_23" type="box" pos="-0.0142903661 -0.0718425218 0.05625" quat="-0.995184727 0 0 0.0980171403" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_24" type="box" pos="-1.34558067e-17 -0.07325 0.05625" quat="-1 0 0 1.2246468e-16" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_25" type="box" pos="0.0142903661 -0.0718425218 0.05625" quat="-0.995184727 0 0 -0.0980171403" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_26" type="box" pos="0.0280315614 -0.0676741758 0.05625" quat="-0.98078528 0 0 -0.195090322" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_27" type="box" pos="0.0406955196 -0.0609051491 0.05625" quat="-0.956940336 0 0 -0.290284677" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_28" type="box" pos="0.0517955717 -0.0517955717 0.05625" quat="-0.923879533 0 0 -0.382683432" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_29" type="box" pos="0.0609051491 -0.0406955196 0.05625" quat="-0.881921264 0 0 -0.471396737" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_30" type="box" pos="0.0676741758 -0.0280315614 0.05625" quat="-0.831469612 0 0 -0.555570233" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s01_31" type="box" pos="0.0718425218 -0.0142903661 0.05625" quat="-0.773010453 0 0 -0.634393284" size="0.00717975553 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_00" type="box" pos="0.0674166667 0 0.0770833333" quat="0.707106781 0 0 0.707106781" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_01" type="box" pos="0.0661212743 0.0131523392 0.0770833333" quat="0.634393284 0 0 0.773010453" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_02" type="box" pos="0.0622848785 0.0257992414 0.0770833333" quat="0.555570233 0 0 0.831469612" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_03" type="box" pos="0.0560549097 0.0374546932 0.0770833333" quat="0.471396737 0 0 0.881921264" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_04" type="box" pos="0.0476707822 0.0476707822 0.0770833333" quat="0.382683432 0 0 0.923879533" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_05" type="box" pos="0.0374546932 0.0560549097 0.0770833333" quat="0.290284677 0 0 0.956940336" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_06" type="box" pos="0.0257992414 0.0622848785 0.0770833333" quat="0.195090322 0 0 0.98078528" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_07" type="box" pos="0.0131523392 0.0661212743 0.0770833333" quat="0.0980171403 0 0 0.995184727" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_08" type="box" pos="4.12808025e-18 0.0674166667 0.0770833333" quat="6.123234e-17 0 0 1" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_09" type="box" pos="-0.0131523392 0.0661212743 0.0770833333" quat="-0.0980171403 0 0 0.995184727" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_10" type="box" pos="-0.0257992414 0.0622848785 0.0770833333" quat="-0.195090322 0 0 0.98078528" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_11" type="box" pos="-0.0374546932 0.0560549097 0.0770833333" quat="-0.290284677 0 0 0.956940336" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_12" type="box" pos="-0.0476707822 0.0476707822 0.0770833333" quat="-0.382683432 0 0 0.923879533" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_13" type="box" pos="-0.0560549097 0.0374546932 0.0770833333" quat="-0.471396737 0 0 0.881921264" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_14" type="box" pos="-0.0622848785 0.0257992414 0.0770833333" quat="-0.555570233 0 0 0.831469612" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_15" type="box" pos="-0.0661212743 0.0131523392 0.0770833333" quat="-0.634393284 0 0 0.773010453" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_16" type="box" pos="-0.0674166667 8.2561605e-18 0.0770833333" quat="-0.707106781 0 0 0.707106781" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_17" type="box" pos="-0.0661212743 -0.0131523392 0.0770833333" quat="-0.773010453 0 0 0.634393284" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_18" type="box" pos="-0.0622848785 -0.0257992414 0.0770833333" quat="-0.831469612 0 0 0.555570233" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_19" type="box" pos="-0.0560549097 -0.0374546932 0.0770833333" quat="-0.881921264 0 0 0.471396737" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_20" type="box" pos="-0.0476707822 -0.0476707822 0.0770833333" quat="-0.923879533 0 0 0.382683432" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_21" type="box" pos="-0.0374546932 -0.0560549097 0.0770833333" quat="-0.956940336 0 0 0.290284677" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_22" type="box" pos="-0.0257992414 -0.0622848785 0.0770833333" quat="-0.98078528 0 0 0.195090322" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_23" type="box" pos="-0.0131523392 -0.0661212743 0.0770833333" quat="-0.995184727 0 0 0.0980171403" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_24" type="box" pos="-1.23842408e-17 -0.0674166667 0.0770833333" quat="-1 0 0 1.2246468e-16" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_25" type="box" pos="0.0131523392 -0.0661212743 0.0770833333" quat="-0.995184727 0 0 -0.0980171403" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_26" type="box" pos="0.0257992414 -0.0622848785 0.0770833333" quat="-0.98078528 0 0 -0.195090322" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_27" type="box" pos="0.0374546932 -0.0560549097 0.0770833333" quat="-0.956940336 0 0 -0.290284677" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_28" type="box" pos="0.0476707822 -0.0476707822 0.0770833333" quat="-0.923879533 0 0 -0.382683432" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_29" type="box" pos="0.0560549097 -0.0374546932 0.0770833333" quat="-0.881921264 0 0 -0.471396737" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_30" type="box" pos="0.0622848785 -0.0257992414 0.0770833333" quat="-0.831469612 0 0 -0.555570233" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s02_31" type="box" pos="0.0661212743 -0.0131523392 0.0770833333" quat="-0.773010453 0 0 -0.634393284" size="0.00660798888 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_00" type="box" pos="0.0615833333 0 0.0979166667" quat="0.707106781 0 0 0.707106781" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_01" type="box" pos="0.0604000269 0.0120143123 0.0979166667" quat="0.634393284 0 0 0.773010453" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_02" type="box" pos="0.0568955812 0.0235669214 0.0979166667" quat="0.555570233 0 0 0.831469612" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_03" type="box" pos="0.0512046703 0.0342138669 0.0979166667" quat="0.471396737 0 0 0.881921264" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_04" type="box" pos="0.0435459926 0.0435459926 0.0979166667" quat="0.382683432 0 0 0.923879533" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_05" type="box" pos="0.0342138669 0.0512046703 0.0979166667" quat="0.290284677 0 0 0.956940336" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_06" type="box" pos="0.0235669214 0.0568955812 0.0979166667" quat="0.195090322 0 0 0.98078528" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_07" type="box" pos="0.0120143123 0.0604000269 0.0979166667" quat="0.0980171403 0 0 0.995184727" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_08" type="box" pos="3.7708916e-18 0.0615833333 0.0979166667" quat="6.123234e-17 0 0 1" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_09" type="box" pos="-0.0120143123 0.0604000269 0.0979166667" quat="-0.0980171403 0 0 0.995184727" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_10" type="box" pos="-0.0235669214 0.0568955812 0.0979166667" quat="-0.195090322 0 0 0.98078528" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_11" type="box" pos="-0.0342138669 0.0512046703 0.0979166667" quat="-0.290284677 0 0 0.956940336" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_12" type="box" pos="-0.0435459926 0.0435459926 0.0979166667" quat="-0.382683432 0 0 0.923879533" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_13" type="box" pos="-0.0512046703 0.0342138669 0.0979166667" quat="-0.471396737 0 0 0.881921264" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_14" type="box" pos="-0.0568955812 0.0235669214 0.0979166667" quat="-0.555570233 0 0 0.831469612" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_15" type="box" pos="-0.0604000269 0.0120143123 0.0979166667" quat="-0.634393284 0 0 0.773010453" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_16" type="box" pos="-0.0615833333 7.5417832e-18 0.0979166667" quat="-0.707106781 0 0 0.707106781" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_17" type="box" pos="-0.0604000269 -0.0120143123 0.0979166667" quat="-0.773010453 0 0 0.634393284" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_18" type="box" pos="-0.0568955812 -0.0235669214 0.0979166667" quat="-0.831469612 0 0 0.555570233" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_19" type="box" pos="-0.0512046703 -0.0342138669 0.0979166667" quat="-0.881921264 0 0 0.471396737" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_20" type="box" pos="-0.0435459926 -0.0435459926 0.0979166667" quat="-0.923879533 0 0 0.382683432" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_21" type="box" pos="-0.0342138669 -0.0512046703 0.0979166667" quat="-0.956940336 0 0 0.290284677" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_22" type="box" pos="-0.0235669214 -0.0568955812 0.0979166667" quat="-0.98078528 0 0 0.195090322" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_23" type="box" pos="-0.0120143123 -0.0604000269 0.0979166667" quat="-0.995184727 0 0 0.0980171403" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_24" type="box" pos="-1.13126748e-17 -0.0615833333 0.0979166667" quat="-1 0 0 1.2246468e-16" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_25" type="box" pos="0.0120143123 -0.0604000269 0.0979166667" quat="-0.995184727 0 0 -0.0980171403" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_26" type="box" pos="0.0235669214 -0.0568955812 0.0979166667" quat="-0.98078528 0 0 -0.195090322" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_27" type="box" pos="0.0342138669 -0.0512046703 0.0979166667" quat="-0.956940336 0 0 -0.290284677" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_28" type="box" pos="0.0435459926 -0.0435459926 0.0979166667" quat="-0.923879533 0 0 -0.382683432" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_29" type="box" pos="0.0512046703 -0.0342138669 0.0979166667" quat="-0.881921264 0 0 -0.471396737" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_30" type="box" pos="0.0568955812 -0.0235669214 0.0979166667" quat="-0.831469612 0 0 -0.555570233" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s03_31" type="box" pos="0.0604000269 -0.0120143123 0.0979166667" quat="-0.773010453 0 0 -0.634393284" size="0.00603622223 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_00" type="box" pos="0.05575 0 0.11875" quat="0.707106781 0 0 0.707106781" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_01" type="box" pos="0.0546787794 0.0108762855 0.11875" quat="0.634393284 0 0 0.773010453" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_02" type="box" pos="0.0515062839 0.0213346014 0.11875" quat="0.555570233 0 0 0.831469612" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_03" type="box" pos="0.0463544309 0.0309730405 0.11875" quat="0.471396737 0 0 0.881921264" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_04" type="box" pos="0.0394212031 0.0394212031 0.11875" quat="0.382683432 0 0 0.923879533" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_05" type="box" pos="0.0309730405 0.0463544309 0.11875" quat="0.290284677 0 0 0.956940336" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_06" type="box" pos="0.0213346014 0.0515062839 0.11875" quat="0.195090322 0 0 0.98078528" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_07" type="box" pos="0.0108762855 0.0546787794 0.11875" quat="0.0980171403 0 0 0.995184727" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_08" type="box" pos="3.41370295e-18 0.05575 0.11875" quat="6.123234e-17 0 0 1" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_09" type="box" pos="-0.0108762855 0.0546787794 0.11875" quat="-0.0980171403 0 0 0.995184727" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_10" type="box" pos="-0.0213346014 0.0515062839 0.11875" quat="-0.195090322 0 0 0.98078528" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_11" type="box" pos="-0.0309730405 0.0463544309 0.11875" quat="-0.290284677 0 0 0.956940336" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_12" type="box" pos="-0.0394212031 0.0394212031 0.11875" quat="-0.382683432 0 0 0.923879533" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_13" type="box" pos="-0.0463544309 0.0309730405 0.11875" quat="-0.471396737 0 0 0.881921264" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_14" type="box" pos="-0.0515062839 0.0213346014 0.11875" quat="-0.555570233 0 0 0.831469612" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_15" type="box" pos="-0.0546787794 0.0108762855 0.11875" quat="-0.634393284 0 0 0.773010453" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_16" type="box" pos="-0.05575 6.82740591e-18 0.11875" quat="-0.707106781 0 0 0.707106781" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_17" type="box" pos="-0.0546787794 -0.0108762855 0.11875" quat="-0.773010453 0 0 0.634393284" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_18" type="box" pos="-0.0515062839 -0.0213346014 0.11875" quat="-0.831469612 0 0 0.555570233" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_19" type="box" pos="-0.0463544309 -0.0309730405 0.11875" quat="-0.881921264 0 0 0.471396737" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_20" type="box" pos="-0.0394212031 -0.0394212031 0.11875" quat="-0.923879533 0 0 0.382683432" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_21" type="box" pos="-0.0309730405 -0.0463544309 0.11875" quat="-0.956940336 0 0 0.290284677" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_22" type="box" pos="-0.0213346014 -0.0515062839 0.11875" quat="-0.98078528 0 0 0.195090322" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_23" type="box" pos="-0.0108762855 -0.0546787794 0.11875" quat="-0.995184727 0 0 0.0980171403" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_24" type="box" pos="-1.02411089e-17 -0.05575 0.11875" quat="-1 0 0 1.2246468e-16" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_25" type="box" pos="0.0108762855 -0.0546787794 0.11875" quat="-0.995184727 0 0 -0.0980171403" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_26" type="box" pos="0.0213346014 -0.0515062839 0.11875" quat="-0.98078528 0 0 -0.195090322" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_27" type="box" pos="0.0309730405 -0.0463544309 0.11875" quat="-0.956940336 0 0 -0.290284677" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_28" type="box" pos="0.0394212031 -0.0394212031 0.11875" quat="-0.923879533 0 0 -0.382683432" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_29" type="box" pos="0.0463544309 -0.0309730405 0.11875" quat="-0.881921264 0 0 -0.471396737" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_30" type="box" pos="0.0515062839 -0.0213346014 0.11875" quat="-0.831469612 0 0 -0.555570233" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s04_31" type="box" pos="0.0546787794 -0.0108762855 0.11875" quat="-0.773010453 0 0 -0.634393284" size="0.00546445557 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_00" type="box" pos="0.0499166667 0 0.139583333" quat="0.707106781 0 0 0.707106781" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_01" type="box" pos="0.0489575319 0.00973825857 0.139583333" quat="0.634393284 0 0 0.773010453" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_02" type="box" pos="0.0461169867 0.0191022813 0.139583333" quat="0.555570233 0 0 0.831469612" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_03" type="box" pos="0.0415041915 0.0277322141 0.139583333" quat="0.471396737 0 0 0.881921264" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_04" type="box" pos="0.0352964135 0.0352964135 0.139583333" quat="0.382683432 0 0 0.923879533" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_05" type="box" pos="0.0277322141 0.0415041915 0.139583333" quat="0.290284677 0 0 0.956940336" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_06" type="box" pos="0.0191022813 0.0461169867 0.139583333" quat="0.195090322 0 0 0.98078528" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_07" type="box" pos="0.00973825857 0.0489575319 0.139583333" quat="0.0980171403 0 0 0.995184727" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_08" type="box" pos="3.0565143e-18 0.0499166667 0.139583333" quat="6.123234e-17 0 0 1" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_09" type="box" pos="-0.00973825857 0.0489575319 0.139583333" quat="-0.0980171403 0 0 0.995184727" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_10" type="box" pos="-0.0191022813 0.0461169867 0.139583333" quat="-0.195090322 0 0 0.98078528" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_11" type="box" pos="-0.0277322141 0.0415041915 0.139583333" quat="-0.290284677 0 0 0.956940336" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_12" type="box" pos="-0.0352964135 0.0352964135 0.139583333" quat="-0.382683432 0 0 0.923879533" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_13" type="box" pos="-0.0415041915 0.0277322141 0.139583333" quat="-0.471396737 0 0 0.881921264" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_14" type="box" pos="-0.0461169867 0.0191022813 0.139583333" quat="-0.555570233 0 0 0.831469612" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_15" type="box" pos="-0.0489575319 0.00973825857 0.139583333" quat="-0.634393284 0 0 0.773010453" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_16" type="box" pos="-0.0499166667 6.11302861e-18 0.139583333" quat="-0.707106781 0 0 0.707106781" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_17" type="box" pos="-0.0489575319 -0.00973825857 0.139583333" quat="-0.773010453 0 0 0.634393284" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_18" type="box" pos="-0.0461169867 -0.0191022813 0.139583333" quat="-0.831469612 0 0 0.555570233" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_19" type="box" pos="-0.0415041915 -0.0277322141 0.139583333" quat="-0.881921264 0 0 0.471396737" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_20" type="box" pos="-0.0352964135 -0.0352964135 0.139583333" quat="-0.923879533 0 0 0.382683432" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_21" type="box" pos="-0.0277322141 -0.0415041915 0.139583333" quat="-0.956940336 0 0 0.290284677" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_22" type="box" pos="-0.0191022813 -0.0461169867 0.139583333" quat="-0.98078528 0 0 0.195090322" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_23" type="box" pos="-0.00973825857 -0.0489575319 0.139583333" quat="-0.995184727 0 0 0.0980171403" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_24" type="box" pos="-9.16954291e-18 -0.0499166667 0.139583333" quat="-1 0 0 1.2246468e-16" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_25" type="box" pos="0.00973825857 -0.0489575319 0.139583333" quat="-0.995184727 0 0 -0.0980171403" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_26" type="box" pos="0.0191022813 -0.0461169867 0.139583333" quat="-0.98078528 0 0 -0.195090322" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_27" type="box" pos="0.0277322141 -0.0415041915 0.139583333" quat="-0.956940336 0 0 -0.290284677" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_28" type="box" pos="0.0352964135 -0.0352964135 0.139583333" quat="-0.923879533 0 0 -0.382683432" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_29" type="box" pos="0.0415041915 -0.0277322141 0.139583333" quat="-0.881921264 0 0 -0.471396737" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_30" type="box" pos="0.0461169867 -0.0191022813 0.139583333" quat="-0.831469612 0 0 -0.555570233" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_nozzle_entry_shell_s05_31" type="box" pos="0.0489575319 -0.00973825857 0.139583333" quat="-0.773010453 0 0 -0.634393284" size="0.00489268892 0.002 0.0104166667" rgba="0.25 0.34 0.38 0.28" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_injector_lip_boss" type="cylinder" pos="0 0.052 0.045" size="0.006 0.014" rgba="0.82 0.3 0.1 1" group="0" contype="1" conaffinity="1" quat="0.707106781 -0.707106781 0 0" />
+      <geom name="scene_axial_stiffener_rib_pos_x" type="box" pos="0.047 0 0.095" size="0.004 0.01 0.04" rgba="0.92 0.48 0.18 1" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_axial_stiffener_rib_neg_y" type="box" pos="0 -0.047 0.095" size="0.01 0.004 0.04" rgba="0.92 0.48 0.18 1" group="0" contype="1" conaffinity="1" />
+      <geom name="scene_sensor_boss_obstacle" type="cylinder" pos="-0.038 0.025 0.105" size="0.008 0.012" rgba="0.95 0.64 0.22 1" group="0" contype="1" conaffinity="1" quat="0.707106781 0 0.707106781 0" />
+      <site name="scene_target_entry_wall_30deg" type="sphere" pos="0.0415692194 0.024 0.075" size="0.003" rgba="0.1 0.85 0.5 1" group="0" />
+      <site name="scene_target_rib_gap_center" type="sphere" pos="0.025 -0.022 0.095" size="0.003" rgba="0.1 0.85 0.5 1" group="0" />
+      <site name="scene_target_throat_wall_210deg" type="sphere" pos="-0.0348142212 -0.0201 0.11" size="0.003" rgba="0.1 0.85 0.5 1" group="0" />
+    </body>
+  </worldbody>
+  <tendon>
+    <spatial name="executor_tendon_1" damping="0" stiffness="0" width="0.0002" rgba="0.92 0.2 0.16 1">
+      <site site="executor_base_hole_03_in" />
+      <site site="executor_base_hole_03_out" />
+      <site site="executor_segment_1_link_1_hole_03_in" />
+      <site site="executor_segment_1_link_1_hole_03_out" />
+      <site site="executor_segment_1_link_2_hole_03_in" />
+      <site site="executor_segment_1_link_2_hole_03_out" />
+      <site site="executor_segment_1_link_3_hole_03_in" />
+      <site site="executor_segment_1_link_3_hole_03_out" />
+      <site site="executor_segment_1_link_4_hole_03_in" />
+      <site site="executor_segment_1_link_4_hole_03_out" />
+    </spatial>
+    <spatial name="executor_tendon_2" damping="0" stiffness="0" width="0.0002" rgba="0.95 0.55 0.12 1">
+      <site site="executor_base_hole_07_in" />
+      <site site="executor_base_hole_07_out" />
+      <site site="executor_segment_1_link_1_hole_07_in" />
+      <site site="executor_segment_1_link_1_hole_07_out" />
+      <site site="executor_segment_1_link_2_hole_07_in" />
+      <site site="executor_segment_1_link_2_hole_07_out" />
+      <site site="executor_segment_1_link_3_hole_07_in" />
+      <site site="executor_segment_1_link_3_hole_07_out" />
+      <site site="executor_segment_1_link_4_hole_07_in" />
+      <site site="executor_segment_1_link_4_hole_07_out" />
+    </spatial>
+    <spatial name="executor_tendon_3" damping="0" stiffness="0" width="0.0002" rgba="0.98 0.84 0.2 1">
+      <site site="executor_base_hole_11_in" />
+      <site site="executor_base_hole_11_out" />
+      <site site="executor_segment_1_link_1_hole_11_in" />
+      <site site="executor_segment_1_link_1_hole_11_out" />
+      <site site="executor_segment_1_link_2_hole_11_in" />
+      <site site="executor_segment_1_link_2_hole_11_out" />
+      <site site="executor_segment_1_link_3_hole_11_in" />
+      <site site="executor_segment_1_link_3_hole_11_out" />
+      <site site="executor_segment_1_link_4_hole_11_in" />
+      <site site="executor_segment_1_link_4_hole_11_out" />
+    </spatial>
+    <spatial name="executor_tendon_4" damping="0" stiffness="0" width="0.0002" rgba="0.36 0.73 0.19 1">
+      <site site="executor_base_hole_01_in" />
+      <site site="executor_base_hole_01_out" />
+      <site site="executor_segment_1_link_1_hole_01_in" />
+      <site site="executor_segment_1_link_1_hole_01_out" />
+      <site site="executor_segment_1_link_2_hole_01_in" />
+      <site site="executor_segment_1_link_2_hole_01_out" />
+      <site site="executor_segment_1_link_3_hole_01_in" />
+      <site site="executor_segment_1_link_3_hole_01_out" />
+      <site site="executor_segment_1_link_4_hole_01_in" />
+      <site site="executor_segment_1_link_4_hole_01_out" />
+      <site site="executor_segment_2_link_1_hole_01_in" />
+      <site site="executor_segment_2_link_1_hole_01_out" />
+      <site site="executor_segment_2_link_2_hole_01_in" />
+      <site site="executor_segment_2_link_2_hole_01_out" />
+      <site site="executor_segment_2_link_3_hole_01_in" />
+      <site site="executor_segment_2_link_3_hole_01_out" />
+      <site site="executor_segment_2_link_4_hole_01_in" />
+      <site site="executor_segment_2_link_4_hole_01_out" />
+    </spatial>
+    <spatial name="executor_tendon_5" damping="0" stiffness="0" width="0.0002" rgba="0.1 0.73 0.61 1">
+      <site site="executor_base_hole_05_in" />
+      <site site="executor_base_hole_05_out" />
+      <site site="executor_segment_1_link_1_hole_05_in" />
+      <site site="executor_segment_1_link_1_hole_05_out" />
+      <site site="executor_segment_1_link_2_hole_05_in" />
+      <site site="executor_segment_1_link_2_hole_05_out" />
+      <site site="executor_segment_1_link_3_hole_05_in" />
+      <site site="executor_segment_1_link_3_hole_05_out" />
+      <site site="executor_segment_1_link_4_hole_05_in" />
+      <site site="executor_segment_1_link_4_hole_05_out" />
+      <site site="executor_segment_2_link_1_hole_05_in" />
+      <site site="executor_segment_2_link_1_hole_05_out" />
+      <site site="executor_segment_2_link_2_hole_05_in" />
+      <site site="executor_segment_2_link_2_hole_05_out" />
+      <site site="executor_segment_2_link_3_hole_05_in" />
+      <site site="executor_segment_2_link_3_hole_05_out" />
+      <site site="executor_segment_2_link_4_hole_05_in" />
+      <site site="executor_segment_2_link_4_hole_05_out" />
+    </spatial>
+    <spatial name="executor_tendon_6" damping="0" stiffness="0" width="0.0002" rgba="0.09 0.6 0.92 1">
+      <site site="executor_base_hole_09_in" />
+      <site site="executor_base_hole_09_out" />
+      <site site="executor_segment_1_link_1_hole_09_in" />
+      <site site="executor_segment_1_link_1_hole_09_out" />
+      <site site="executor_segment_1_link_2_hole_09_in" />
+      <site site="executor_segment_1_link_2_hole_09_out" />
+      <site site="executor_segment_1_link_3_hole_09_in" />
+      <site site="executor_segment_1_link_3_hole_09_out" />
+      <site site="executor_segment_1_link_4_hole_09_in" />
+      <site site="executor_segment_1_link_4_hole_09_out" />
+      <site site="executor_segment_2_link_1_hole_09_in" />
+      <site site="executor_segment_2_link_1_hole_09_out" />
+      <site site="executor_segment_2_link_2_hole_09_in" />
+      <site site="executor_segment_2_link_2_hole_09_out" />
+      <site site="executor_segment_2_link_3_hole_09_in" />
+      <site site="executor_segment_2_link_3_hole_09_out" />
+      <site site="executor_segment_2_link_4_hole_09_in" />
+      <site site="executor_segment_2_link_4_hole_09_out" />
+    </spatial>
+    <spatial name="executor_tendon_7" damping="0" stiffness="0" width="0.0002" rgba="0.29 0.43 0.95 1">
+      <site site="executor_base_hole_04_in" />
+      <site site="executor_base_hole_04_out" />
+      <site site="executor_segment_1_link_1_hole_04_in" />
+      <site site="executor_segment_1_link_1_hole_04_out" />
+      <site site="executor_segment_1_link_2_hole_04_in" />
+      <site site="executor_segment_1_link_2_hole_04_out" />
+      <site site="executor_segment_1_link_3_hole_04_in" />
+      <site site="executor_segment_1_link_3_hole_04_out" />
+      <site site="executor_segment_1_link_4_hole_04_in" />
+      <site site="executor_segment_1_link_4_hole_04_out" />
+      <site site="executor_segment_2_link_1_hole_04_in" />
+      <site site="executor_segment_2_link_1_hole_04_out" />
+      <site site="executor_segment_2_link_2_hole_04_in" />
+      <site site="executor_segment_2_link_2_hole_04_out" />
+      <site site="executor_segment_2_link_3_hole_04_in" />
+      <site site="executor_segment_2_link_3_hole_04_out" />
+      <site site="executor_segment_2_link_4_hole_04_in" />
+      <site site="executor_segment_2_link_4_hole_04_out" />
+      <site site="executor_segment_3_link_1_hole_04_in" />
+      <site site="executor_segment_3_link_1_hole_04_out" />
+      <site site="executor_segment_3_link_2_hole_04_in" />
+      <site site="executor_segment_3_link_2_hole_04_out" />
+      <site site="executor_segment_3_link_3_hole_04_in" />
+      <site site="executor_segment_3_link_3_hole_04_out" />
+      <site site="executor_segment_3_link_4_hole_04_in" />
+      <site site="executor_segment_3_link_4_hole_04_out" />
+    </spatial>
+    <spatial name="executor_tendon_8" damping="0" stiffness="0" width="0.0002" rgba="0.64 0.33 0.94 1">
+      <site site="executor_base_hole_08_in" />
+      <site site="executor_base_hole_08_out" />
+      <site site="executor_segment_1_link_1_hole_08_in" />
+      <site site="executor_segment_1_link_1_hole_08_out" />
+      <site site="executor_segment_1_link_2_hole_08_in" />
+      <site site="executor_segment_1_link_2_hole_08_out" />
+      <site site="executor_segment_1_link_3_hole_08_in" />
+      <site site="executor_segment_1_link_3_hole_08_out" />
+      <site site="executor_segment_1_link_4_hole_08_in" />
+      <site site="executor_segment_1_link_4_hole_08_out" />
+      <site site="executor_segment_2_link_1_hole_08_in" />
+      <site site="executor_segment_2_link_1_hole_08_out" />
+      <site site="executor_segment_2_link_2_hole_08_in" />
+      <site site="executor_segment_2_link_2_hole_08_out" />
+      <site site="executor_segment_2_link_3_hole_08_in" />
+      <site site="executor_segment_2_link_3_hole_08_out" />
+      <site site="executor_segment_2_link_4_hole_08_in" />
+      <site site="executor_segment_2_link_4_hole_08_out" />
+      <site site="executor_segment_3_link_1_hole_08_in" />
+      <site site="executor_segment_3_link_1_hole_08_out" />
+      <site site="executor_segment_3_link_2_hole_08_in" />
+      <site site="executor_segment_3_link_2_hole_08_out" />
+      <site site="executor_segment_3_link_3_hole_08_in" />
+      <site site="executor_segment_3_link_3_hole_08_out" />
+      <site site="executor_segment_3_link_4_hole_08_in" />
+      <site site="executor_segment_3_link_4_hole_08_out" />
+    </spatial>
+    <spatial name="executor_tendon_9" damping="0" stiffness="0" width="0.0002" rgba="0.9 0.26 0.7 1">
+      <site site="executor_base_hole_12_in" />
+      <site site="executor_base_hole_12_out" />
+      <site site="executor_segment_1_link_1_hole_12_in" />
+      <site site="executor_segment_1_link_1_hole_12_out" />
+      <site site="executor_segment_1_link_2_hole_12_in" />
+      <site site="executor_segment_1_link_2_hole_12_out" />
+      <site site="executor_segment_1_link_3_hole_12_in" />
+      <site site="executor_segment_1_link_3_hole_12_out" />
+      <site site="executor_segment_1_link_4_hole_12_in" />
+      <site site="executor_segment_1_link_4_hole_12_out" />
+      <site site="executor_segment_2_link_1_hole_12_in" />
+      <site site="executor_segment_2_link_1_hole_12_out" />
+      <site site="executor_segment_2_link_2_hole_12_in" />
+      <site site="executor_segment_2_link_2_hole_12_out" />
+      <site site="executor_segment_2_link_3_hole_12_in" />
+      <site site="executor_segment_2_link_3_hole_12_out" />
+      <site site="executor_segment_2_link_4_hole_12_in" />
+      <site site="executor_segment_2_link_4_hole_12_out" />
+      <site site="executor_segment_3_link_1_hole_12_in" />
+      <site site="executor_segment_3_link_1_hole_12_out" />
+      <site site="executor_segment_3_link_2_hole_12_in" />
+      <site site="executor_segment_3_link_2_hole_12_out" />
+      <site site="executor_segment_3_link_3_hole_12_in" />
+      <site site="executor_segment_3_link_3_hole_12_out" />
+      <site site="executor_segment_3_link_4_hole_12_in" />
+      <site site="executor_segment_3_link_4_hole_12_out" />
+    </spatial>
+    <spatial name="observer_tendon_1" damping="0" stiffness="0" width="0.0002" rgba="0.55 0.32 0.16 1">
+      <site site="observer_base_hole_01_in" />
+      <site site="observer_base_hole_01_out" />
+      <site site="observer_segment_1_link_1_hole_01_in" />
+      <site site="observer_segment_1_link_1_hole_01_out" />
+      <site site="observer_segment_1_link_2_hole_01_in" />
+      <site site="observer_segment_1_link_2_hole_01_out" />
+      <site site="observer_segment_1_link_3_hole_01_in" />
+      <site site="observer_segment_1_link_3_hole_01_out" />
+      <site site="observer_segment_1_link_4_hole_01_in" />
+      <site site="observer_segment_1_link_4_hole_01_out" />
+    </spatial>
+    <spatial name="observer_tendon_2" damping="0" stiffness="0" width="0.0002" rgba="0.15 0.15 0.15 1">
+      <site site="observer_base_hole_05_in" />
+      <site site="observer_base_hole_05_out" />
+      <site site="observer_segment_1_link_1_hole_05_in" />
+      <site site="observer_segment_1_link_1_hole_05_out" />
+      <site site="observer_segment_1_link_2_hole_05_in" />
+      <site site="observer_segment_1_link_2_hole_05_out" />
+      <site site="observer_segment_1_link_3_hole_05_in" />
+      <site site="observer_segment_1_link_3_hole_05_out" />
+      <site site="observer_segment_1_link_4_hole_05_in" />
+      <site site="observer_segment_1_link_4_hole_05_out" />
+    </spatial>
+    <spatial name="observer_tendon_3" damping="0" stiffness="0" width="0.0002" rgba="0.55 0.7 0.9 1">
+      <site site="observer_base_hole_09_in" />
+      <site site="observer_base_hole_09_out" />
+      <site site="observer_segment_1_link_1_hole_09_in" />
+      <site site="observer_segment_1_link_1_hole_09_out" />
+      <site site="observer_segment_1_link_2_hole_09_in" />
+      <site site="observer_segment_1_link_2_hole_09_out" />
+      <site site="observer_segment_1_link_3_hole_09_in" />
+      <site site="observer_segment_1_link_3_hole_09_out" />
+      <site site="observer_segment_1_link_4_hole_09_in" />
+      <site site="observer_segment_1_link_4_hole_09_out" />
+    </spatial>
+    <spatial name="observer_tendon_4" damping="0" stiffness="0" width="0.0002" rgba="0.69 0.15 0.12 1">
+      <site site="observer_base_hole_03_in" />
+      <site site="observer_base_hole_03_out" />
+      <site site="observer_segment_1_link_1_hole_03_in" />
+      <site site="observer_segment_1_link_1_hole_03_out" />
+      <site site="observer_segment_1_link_2_hole_03_in" />
+      <site site="observer_segment_1_link_2_hole_03_out" />
+      <site site="observer_segment_1_link_3_hole_03_in" />
+      <site site="observer_segment_1_link_3_hole_03_out" />
+      <site site="observer_segment_1_link_4_hole_03_in" />
+      <site site="observer_segment_1_link_4_hole_03_out" />
+      <site site="observer_segment_2_link_1_hole_03_in" />
+      <site site="observer_segment_2_link_1_hole_03_out" />
+      <site site="observer_segment_2_link_2_hole_03_in" />
+      <site site="observer_segment_2_link_2_hole_03_out" />
+      <site site="observer_segment_2_link_3_hole_03_in" />
+      <site site="observer_segment_2_link_3_hole_03_out" />
+      <site site="observer_segment_2_link_4_hole_03_in" />
+      <site site="observer_segment_2_link_4_hole_03_out" />
+    </spatial>
+    <spatial name="observer_tendon_5" damping="0" stiffness="0" width="0.0002" rgba="0.7125 0.4125 0.09 1">
+      <site site="observer_base_hole_07_in" />
+      <site site="observer_base_hole_07_out" />
+      <site site="observer_segment_1_link_1_hole_07_in" />
+      <site site="observer_segment_1_link_1_hole_07_out" />
+      <site site="observer_segment_1_link_2_hole_07_in" />
+      <site site="observer_segment_1_link_2_hole_07_out" />
+      <site site="observer_segment_1_link_3_hole_07_in" />
+      <site site="observer_segment_1_link_3_hole_07_out" />
+      <site site="observer_segment_1_link_4_hole_07_in" />
+      <site site="observer_segment_1_link_4_hole_07_out" />
+      <site site="observer_segment_2_link_1_hole_07_in" />
+      <site site="observer_segment_2_link_1_hole_07_out" />
+      <site site="observer_segment_2_link_2_hole_07_in" />
+      <site site="observer_segment_2_link_2_hole_07_out" />
+      <site site="observer_segment_2_link_3_hole_07_in" />
+      <site site="observer_segment_2_link_3_hole_07_out" />
+      <site site="observer_segment_2_link_4_hole_07_in" />
+      <site site="observer_segment_2_link_4_hole_07_out" />
+    </spatial>
+    <spatial name="observer_tendon_6" damping="0" stiffness="0" width="0.0002" rgba="0.735 0.63 0.15 1">
+      <site site="observer_base_hole_11_in" />
+      <site site="observer_base_hole_11_out" />
+      <site site="observer_segment_1_link_1_hole_11_in" />
+      <site site="observer_segment_1_link_1_hole_11_out" />
+      <site site="observer_segment_1_link_2_hole_11_in" />
+      <site site="observer_segment_1_link_2_hole_11_out" />
+      <site site="observer_segment_1_link_3_hole_11_in" />
+      <site site="observer_segment_1_link_3_hole_11_out" />
+      <site site="observer_segment_1_link_4_hole_11_in" />
+      <site site="observer_segment_1_link_4_hole_11_out" />
+      <site site="observer_segment_2_link_1_hole_11_in" />
+      <site site="observer_segment_2_link_1_hole_11_out" />
+      <site site="observer_segment_2_link_2_hole_11_in" />
+      <site site="observer_segment_2_link_2_hole_11_out" />
+      <site site="observer_segment_2_link_3_hole_11_in" />
+      <site site="observer_segment_2_link_3_hole_11_out" />
+      <site site="observer_segment_2_link_4_hole_11_in" />
+      <site site="observer_segment_2_link_4_hole_11_out" />
+    </spatial>
+    <spatial name="observer_tendon_7" damping="0" stiffness="0" width="0.0002" rgba="0.27 0.5475 0.1425 1">
+      <site site="observer_base_hole_02_in" />
+      <site site="observer_base_hole_02_out" />
+      <site site="observer_segment_1_link_1_hole_02_in" />
+      <site site="observer_segment_1_link_1_hole_02_out" />
+      <site site="observer_segment_1_link_2_hole_02_in" />
+      <site site="observer_segment_1_link_2_hole_02_out" />
+      <site site="observer_segment_1_link_3_hole_02_in" />
+      <site site="observer_segment_1_link_3_hole_02_out" />
+      <site site="observer_segment_1_link_4_hole_02_in" />
+      <site site="observer_segment_1_link_4_hole_02_out" />
+      <site site="observer_segment_2_link_1_hole_02_in" />
+      <site site="observer_segment_2_link_1_hole_02_out" />
+      <site site="observer_segment_2_link_2_hole_02_in" />
+      <site site="observer_segment_2_link_2_hole_02_out" />
+      <site site="observer_segment_2_link_3_hole_02_in" />
+      <site site="observer_segment_2_link_3_hole_02_out" />
+      <site site="observer_segment_2_link_4_hole_02_in" />
+      <site site="observer_segment_2_link_4_hole_02_out" />
+      <site site="observer_segment_3_link_1_hole_02_in" />
+      <site site="observer_segment_3_link_1_hole_02_out" />
+      <site site="observer_segment_3_link_2_hole_02_in" />
+      <site site="observer_segment_3_link_2_hole_02_out" />
+      <site site="observer_segment_3_link_3_hole_02_in" />
+      <site site="observer_segment_3_link_3_hole_02_out" />
+      <site site="observer_segment_3_link_4_hole_02_in" />
+      <site site="observer_segment_3_link_4_hole_02_out" />
+    </spatial>
+    <spatial name="observer_tendon_8" damping="0" stiffness="0" width="0.0002" rgba="0.075 0.5475 0.4575 1">
+      <site site="observer_base_hole_06_in" />
+      <site site="observer_base_hole_06_out" />
+      <site site="observer_segment_1_link_1_hole_06_in" />
+      <site site="observer_segment_1_link_1_hole_06_out" />
+      <site site="observer_segment_1_link_2_hole_06_in" />
+      <site site="observer_segment_1_link_2_hole_06_out" />
+      <site site="observer_segment_1_link_3_hole_06_in" />
+      <site site="observer_segment_1_link_3_hole_06_out" />
+      <site site="observer_segment_1_link_4_hole_06_in" />
+      <site site="observer_segment_1_link_4_hole_06_out" />
+      <site site="observer_segment_2_link_1_hole_06_in" />
+      <site site="observer_segment_2_link_1_hole_06_out" />
+      <site site="observer_segment_2_link_2_hole_06_in" />
+      <site site="observer_segment_2_link_2_hole_06_out" />
+      <site site="observer_segment_2_link_3_hole_06_in" />
+      <site site="observer_segment_2_link_3_hole_06_out" />
+      <site site="observer_segment_2_link_4_hole_06_in" />
+      <site site="observer_segment_2_link_4_hole_06_out" />
+      <site site="observer_segment_3_link_1_hole_06_in" />
+      <site site="observer_segment_3_link_1_hole_06_out" />
+      <site site="observer_segment_3_link_2_hole_06_in" />
+      <site site="observer_segment_3_link_2_hole_06_out" />
+      <site site="observer_segment_3_link_3_hole_06_in" />
+      <site site="observer_segment_3_link_3_hole_06_out" />
+      <site site="observer_segment_3_link_4_hole_06_in" />
+      <site site="observer_segment_3_link_4_hole_06_out" />
+    </spatial>
+    <spatial name="observer_tendon_9" damping="0" stiffness="0" width="0.0002" rgba="0.0675 0.45 0.69 1">
+      <site site="observer_base_hole_10_in" />
+      <site site="observer_base_hole_10_out" />
+      <site site="observer_segment_1_link_1_hole_10_in" />
+      <site site="observer_segment_1_link_1_hole_10_out" />
+      <site site="observer_segment_1_link_2_hole_10_in" />
+      <site site="observer_segment_1_link_2_hole_10_out" />
+      <site site="observer_segment_1_link_3_hole_10_in" />
+      <site site="observer_segment_1_link_3_hole_10_out" />
+      <site site="observer_segment_1_link_4_hole_10_in" />
+      <site site="observer_segment_1_link_4_hole_10_out" />
+      <site site="observer_segment_2_link_1_hole_10_in" />
+      <site site="observer_segment_2_link_1_hole_10_out" />
+      <site site="observer_segment_2_link_2_hole_10_in" />
+      <site site="observer_segment_2_link_2_hole_10_out" />
+      <site site="observer_segment_2_link_3_hole_10_in" />
+      <site site="observer_segment_2_link_3_hole_10_out" />
+      <site site="observer_segment_2_link_4_hole_10_in" />
+      <site site="observer_segment_2_link_4_hole_10_out" />
+      <site site="observer_segment_3_link_1_hole_10_in" />
+      <site site="observer_segment_3_link_1_hole_10_out" />
+      <site site="observer_segment_3_link_2_hole_10_in" />
+      <site site="observer_segment_3_link_2_hole_10_out" />
+      <site site="observer_segment_3_link_3_hole_10_in" />
+      <site site="observer_segment_3_link_3_hole_10_out" />
+      <site site="observer_segment_3_link_4_hole_10_in" />
+      <site site="observer_segment_3_link_4_hole_10_out" />
+    </spatial>
+  </tendon>
+  <actuator>
+    <position name="act_executor_tendon_1" tendon="executor_tendon_1" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_executor_tendon_2" tendon="executor_tendon_2" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_executor_tendon_3" tendon="executor_tendon_3" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_executor_tendon_4" tendon="executor_tendon_4" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_executor_tendon_5" tendon="executor_tendon_5" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_executor_tendon_6" tendon="executor_tendon_6" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_executor_tendon_7" tendon="executor_tendon_7" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_executor_tendon_8" tendon="executor_tendon_8" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_executor_tendon_9" tendon="executor_tendon_9" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_1" tendon="observer_tendon_1" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_2" tendon="observer_tendon_2" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_3" tendon="observer_tendon_3" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_4" tendon="observer_tendon_4" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_5" tendon="observer_tendon_5" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_6" tendon="observer_tendon_6" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_7" tendon="observer_tendon_7" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_8" tendon="observer_tendon_8" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_9" tendon="observer_tendon_9" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+  </actuator>
+  <sensor>
+    <tendonpos name="sensor_executor_tendon_1_length" tendon="executor_tendon_1" />
+    <tendonvel name="sensor_executor_tendon_1_velocity" tendon="executor_tendon_1" />
+    <actuatorfrc name="sensor_executor_tendon_1_actuator_force" actuator="act_executor_tendon_1" />
+    <tendonpos name="sensor_executor_tendon_2_length" tendon="executor_tendon_2" />
+    <tendonvel name="sensor_executor_tendon_2_velocity" tendon="executor_tendon_2" />
+    <actuatorfrc name="sensor_executor_tendon_2_actuator_force" actuator="act_executor_tendon_2" />
+    <tendonpos name="sensor_executor_tendon_3_length" tendon="executor_tendon_3" />
+    <tendonvel name="sensor_executor_tendon_3_velocity" tendon="executor_tendon_3" />
+    <actuatorfrc name="sensor_executor_tendon_3_actuator_force" actuator="act_executor_tendon_3" />
+    <tendonpos name="sensor_executor_tendon_4_length" tendon="executor_tendon_4" />
+    <tendonvel name="sensor_executor_tendon_4_velocity" tendon="executor_tendon_4" />
+    <actuatorfrc name="sensor_executor_tendon_4_actuator_force" actuator="act_executor_tendon_4" />
+    <tendonpos name="sensor_executor_tendon_5_length" tendon="executor_tendon_5" />
+    <tendonvel name="sensor_executor_tendon_5_velocity" tendon="executor_tendon_5" />
+    <actuatorfrc name="sensor_executor_tendon_5_actuator_force" actuator="act_executor_tendon_5" />
+    <tendonpos name="sensor_executor_tendon_6_length" tendon="executor_tendon_6" />
+    <tendonvel name="sensor_executor_tendon_6_velocity" tendon="executor_tendon_6" />
+    <actuatorfrc name="sensor_executor_tendon_6_actuator_force" actuator="act_executor_tendon_6" />
+    <tendonpos name="sensor_executor_tendon_7_length" tendon="executor_tendon_7" />
+    <tendonvel name="sensor_executor_tendon_7_velocity" tendon="executor_tendon_7" />
+    <actuatorfrc name="sensor_executor_tendon_7_actuator_force" actuator="act_executor_tendon_7" />
+    <tendonpos name="sensor_executor_tendon_8_length" tendon="executor_tendon_8" />
+    <tendonvel name="sensor_executor_tendon_8_velocity" tendon="executor_tendon_8" />
+    <actuatorfrc name="sensor_executor_tendon_8_actuator_force" actuator="act_executor_tendon_8" />
+    <tendonpos name="sensor_executor_tendon_9_length" tendon="executor_tendon_9" />
+    <tendonvel name="sensor_executor_tendon_9_velocity" tendon="executor_tendon_9" />
+    <actuatorfrc name="sensor_executor_tendon_9_actuator_force" actuator="act_executor_tendon_9" />
+    <tendonpos name="sensor_observer_tendon_1_length" tendon="observer_tendon_1" />
+    <tendonvel name="sensor_observer_tendon_1_velocity" tendon="observer_tendon_1" />
+    <actuatorfrc name="sensor_observer_tendon_1_actuator_force" actuator="act_observer_tendon_1" />
+    <tendonpos name="sensor_observer_tendon_2_length" tendon="observer_tendon_2" />
+    <tendonvel name="sensor_observer_tendon_2_velocity" tendon="observer_tendon_2" />
+    <actuatorfrc name="sensor_observer_tendon_2_actuator_force" actuator="act_observer_tendon_2" />
+    <tendonpos name="sensor_observer_tendon_3_length" tendon="observer_tendon_3" />
+    <tendonvel name="sensor_observer_tendon_3_velocity" tendon="observer_tendon_3" />
+    <actuatorfrc name="sensor_observer_tendon_3_actuator_force" actuator="act_observer_tendon_3" />
+    <tendonpos name="sensor_observer_tendon_4_length" tendon="observer_tendon_4" />
+    <tendonvel name="sensor_observer_tendon_4_velocity" tendon="observer_tendon_4" />
+    <actuatorfrc name="sensor_observer_tendon_4_actuator_force" actuator="act_observer_tendon_4" />
+    <tendonpos name="sensor_observer_tendon_5_length" tendon="observer_tendon_5" />
+    <tendonvel name="sensor_observer_tendon_5_velocity" tendon="observer_tendon_5" />
+    <actuatorfrc name="sensor_observer_tendon_5_actuator_force" actuator="act_observer_tendon_5" />
+    <tendonpos name="sensor_observer_tendon_6_length" tendon="observer_tendon_6" />
+    <tendonvel name="sensor_observer_tendon_6_velocity" tendon="observer_tendon_6" />
+    <actuatorfrc name="sensor_observer_tendon_6_actuator_force" actuator="act_observer_tendon_6" />
+    <tendonpos name="sensor_observer_tendon_7_length" tendon="observer_tendon_7" />
+    <tendonvel name="sensor_observer_tendon_7_velocity" tendon="observer_tendon_7" />
+    <actuatorfrc name="sensor_observer_tendon_7_actuator_force" actuator="act_observer_tendon_7" />
+    <tendonpos name="sensor_observer_tendon_8_length" tendon="observer_tendon_8" />
+    <tendonvel name="sensor_observer_tendon_8_velocity" tendon="observer_tendon_8" />
+    <actuatorfrc name="sensor_observer_tendon_8_actuator_force" actuator="act_observer_tendon_8" />
+    <tendonpos name="sensor_observer_tendon_9_length" tendon="observer_tendon_9" />
+    <tendonvel name="sensor_observer_tendon_9_velocity" tendon="observer_tendon_9" />
+    <actuatorfrc name="sensor_observer_tendon_9_actuator_force" actuator="act_observer_tendon_9" />
+  </sensor>
+</mujoco>

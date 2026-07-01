@@ -125,7 +125,13 @@ class ScenePrimitiveConfig:
                 half_size_m=tuple(float(value) for value in half_size),
             )
         if self.type == "box_surface":
-            return None
+            center = _required_optional_array(self.center_m, f"{self.id}.center_m")
+            half_size = _required_optional_array(self.half_size_m, f"{self.id}.half_size_m")
+            return BoxObstaclePrimitive(
+                id=self.id,
+                center_m=tuple(float(value) for value in center),
+                half_size_m=tuple(float(value) for value in half_size),
+            )
         raise ValueError(f"Unsupported scene primitive type {self.type!r}.")
 
 

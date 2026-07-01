@@ -1,0 +1,34 @@
+schema_version: 1
+robot_assembly:
+  name: dual_spatial_executor_observer
+  base:
+    control_mode: prescribed_twist
+    command_frame: world
+    initial_pose:
+      position_m: [0.0, 0.0, 0.0]
+      quat_wxyz: [1.0, 0.0, 0.0, 0.0]
+    limits:
+      calibrated: false
+      position_min_m: [-1.0, -1.0, -1.0]
+      position_max_m: [1.0, 1.0, 1.0]
+      max_linear_speed_mps: 0.05
+      max_angular_speed_rad_s: 0.30
+  arms:
+    executor:
+      name: executor
+      role: executor
+      enabled: true
+      spatial_arm_config_path: ../spatial_arm_executor.yaml
+      attachment: carbon_remover
+      mount_pose:
+        position_m: [0.0, 0.01, 0.02]
+        quat_wxyz: [1.0, 0.0, 0.0, 0.0]
+    observer:
+      name: observer
+      role: observer
+      enabled: true
+      spatial_arm_config_path: ../spatial_arm_observer.yaml
+      attachment: eye_camera_air_gun
+      mount_pose:
+        position_m: [0.0, -0.01, 0.02]
+        quat_wxyz: [1.0, 0.0, 0.0, 0.0]

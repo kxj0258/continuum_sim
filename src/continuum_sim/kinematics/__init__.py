@@ -15,6 +15,18 @@ from continuum_sim.kinematics.sdf import (
     sdf_repulsive_velocity,
 )
 from continuum_sim.kinematics.tendon_mapping import q_to_tendon_delta, tendon_delta_to_q
+from continuum_sim.kinematics.whole_body import (
+    SingularityConfig,
+    SingularityReport,
+    analyze_singularity,
+    analyze_tendon_mapping,
+    assemble_whole_body_jacobian,
+    base_point_jacobian_world,
+    centerline_point_tendon_jacobian,
+    rotate_position_jacobian_to_world,
+    tendon_position_jacobian,
+    tendon_rate_to_shape_rate_matrix,
+)
 
 __all__ = [
     "ContinuumKinematicsChain",
@@ -29,5 +41,15 @@ __all__ = [
     "q_to_tendon_delta",
     "sdf_repulsive_velocity",
     "tendon_delta_to_q",
+    "SingularityConfig",
+    "SingularityReport",
+    "analyze_singularity",
+    "analyze_tendon_mapping",
+    "assemble_whole_body_jacobian",
+    "base_point_jacobian_world",
+    "centerline_point_tendon_jacobian",
+    "rotate_position_jacobian_to_world",
+    "tendon_position_jacobian",
+    "tendon_rate_to_shape_rate_matrix",
     "tip_position_from_q",
 ]

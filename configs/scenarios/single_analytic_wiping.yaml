@@ -1,0 +1,35 @@
+schema_version: 1
+scenario:
+  name: single_analytic_wiping_path
+  assembly_config_path: ../robots/assemblies/single_spatial.yaml
+  backend:
+    type: analytic
+  scene: {}
+  task:
+    type: wiping
+    waypoint_tolerance_m: 0.001
+    surface_normal_world: [0.0, 0.0, 1.0]
+    target_contact_distance_m: 0.0
+    contact_tolerance_m: 0.002
+    loop: false
+    waypoints_world:
+      - [-0.010, -0.010, 0.135]
+      - [0.010, -0.010, 0.135]
+      - [0.010, 0.000, 0.135]
+      - [-0.010, 0.000, 0.135]
+      - [-0.010, 0.010, 0.135]
+      - [0.010, 0.010, 0.135]
+  runtime:
+    controller_dt_s: 0.02
+    n_substeps: 1
+    max_steps: 1500
+  hooks:
+    recorder: true
+    tendon_debug: false
+    viewer: matplotlib
+    keep_viewer_open: true
+  artifacts:
+    enabled: true
+    save_npz: true
+    save_plots: true
+    save_gif: true

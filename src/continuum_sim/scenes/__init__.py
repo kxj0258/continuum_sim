@@ -27,6 +27,18 @@ from continuum_sim.scenes.scene_config import (
     ScenePrimitiveConfig,
     load_navigation_scene_config,
 )
+from continuum_sim.scenes.engine_mjcf_adapter import (
+    build_engine_mujoco_scene_xml,
+    inject_engine_scene,
+    prepare_mujoco_stl,
+    rebase_mjcf_file_assets,
+    retain_spatial_arm,
+)
+from continuum_sim.scenes.engine_query import (
+    EnginePrimitiveSceneQuery,
+    EngineSceneQueryProtocol,
+)
+from continuum_sim.scenes.structured_query import StructuredSceneQuery
 
 __all__ = [
     "BoxObstaclePrimitive",
@@ -48,4 +60,12 @@ __all__ = [
     "inject_tool_contact_pad",
     "load_navigation_scene_config",
     "nearest_clearance",
+    "build_engine_mujoco_scene_xml",
+    "inject_engine_scene",
+    "prepare_mujoco_stl",
+    "rebase_mjcf_file_assets",
+    "retain_spatial_arm",
+    "EnginePrimitiveSceneQuery",
+    "EngineSceneQueryProtocol",
+    "StructuredSceneQuery",
 ]

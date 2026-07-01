@@ -17,6 +17,16 @@ from continuum_sim.model.hole_pattern import (
 )
 from continuum_sim.model.mobile_base_context import MobileBaseArmContext
 from continuum_sim.model.robot_params import SegmentParams, ThreeSegmentRobotParams
+from continuum_sim.model.robot_assembly import (
+    AssemblyArmConfig,
+    AssemblyBaseConfig,
+    RobotAssemblyConfig,
+    SpatialArmConfig,
+    SpatialArmLimits,
+    SpatialTendonPath,
+    load_robot_assembly_config,
+    load_spatial_arm_config,
+)
 from continuum_sim.model.tendon_routing import TendonRouting
 from continuum_sim.model.tendon_coupling import (
     build_coupling_matrix,
@@ -35,6 +45,14 @@ __all__ = [
     "TendonHoleSiteGeneration",
     "TendonRouting",
     "ThreeSegmentRobotParams",
+    "AssemblyArmConfig",
+    "AssemblyBaseConfig",
+    "RobotAssemblyConfig",
+    "SpatialArmConfig",
+    "SpatialArmLimits",
+    "SpatialTendonPath",
+    "load_robot_assembly_config",
+    "load_spatial_arm_config",
     "build_coupling_matrix",
     "coupling_diagnostics",
     "is_dual_arm_robot_config",

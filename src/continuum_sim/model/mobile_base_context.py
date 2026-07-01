@@ -7,7 +7,6 @@ from pathlib import Path
 
 import numpy as np
 
-from continuum_sim.kinematics.world_kinematics import compose_base_mount_pose
 from continuum_sim.model.base_pose import Pose6D
 from continuum_sim.model.mount_frame import MobileBaseMountConfig, load_mobile_base_mount_config
 
@@ -54,7 +53,7 @@ class MobileBaseArmContext:
 
     @property
     def world_mount_pose(self) -> Pose6D:
-        return compose_base_mount_pose(self.base_pose, self.mount_pose)
+        return self.base_pose.compose(self.mount_pose)
 
     @property
     def local_from_world_pose(self) -> Pose6D:

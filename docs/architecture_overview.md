@@ -1,6 +1,47 @@
 # 架构概览
 
-`continuum_sim` 当前只维护一条机器人控制主链：用 PCC 运动学、differential IK 和可选 MuJoCo 降阶后端来建模三段腱驱连续体机械臂。
+## 可组合 spatial system
+
+当前主架构由 `RobotAssemblyConfig + EngineSceneConfig` 组合：
+
+```text
+RobotAssemblyConfig + EngineSceneConfig
+        -> ControlLayout
+        -> RobotSystemState
+        -> CoordinatedTrackingController
+        -> world base twist + named tendon-length rates
+        -> MujocoSystemBackend
+        -> prescribed freejoint pose + absolute tendon-length targets
+```
+
+单臂和双臂复用同一 controller、backend、simulation loop 和 engine scene
+adapter，仅由 assembly 配置决定启用哪些命名臂。单臂布局为15D，双臂布局为
+24D。
+
+spatial 控制链不再包含电机、卷盘或减速器映射。奇异规避基于
+tendon-to-shape 与任务 Jacobian 的 SVD。engine 实时 clearance 暂时使用
+`primitive_collision_geoms`，visual mesh 不参与控制查询。
+
+坐标系和命令语义以 `docs/coordinate_conventions.md` 为准。
+
+## Scenario应用层
+
+推荐入口为：
+
+```text
+ScenarioConfig
+  -> SimulationApplication
+  -> assembly/backend/scene/task/hooks
+  -> SimulationLoop
+```
+
+`configs/scenarios/`分别提供单臂、双臂、analytic、MuJoCo和engine组合。旧CLI
+命令只作为历史说明，不再决定模块边界。
+
+## 旧版研究模块
+
+早期模块使用 PCC 运动学、differential IK 和可选 MuJoCo 降阶后端建模三段
+腱驱连续体机械臂。它们不再构成新的 system runtime 公共接口。
 
 ## 分层
 

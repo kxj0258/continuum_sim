@@ -1,0 +1,18 @@
+schema_version: 1
+scenario:
+  name: single_analytic_smoke
+  assembly_config_path: ../robots/assemblies/single_spatial.yaml
+  backend:
+    type: analytic
+  scene: {}
+  task:
+    type: idle
+  runtime:
+    controller_dt_s: 0.02
+    n_substeps: 1
+    max_steps: 2
+  hooks:
+    recorder: true
+    tendon_debug: true
+    viewer: none
+

@@ -63,6 +63,23 @@ def build_mujoco_scene_xml(
             mobile_base_config_path,
         )
 
+    inject_structured_scene(root, scene_config)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    _indent(root)
+    tree.write(output_path, encoding="utf-8", xml_declaration=False)
+    return output_path
+
+
+def inject_structured_scene(
+    root: ET.Element,
+    scene_config: NavigationSceneConfig,
+) -> ET.Element:
+    """Inject navigation/wiping primitives into an existing MJCF tree."""
+
+    worldbody = root.find("worldbody")
+    if worldbody is None:
+        raise ValueError("MJCF is missing a <worldbody> element.")
     scene_body = ET.SubElement(
         worldbody,
         "body",
@@ -86,11 +103,7 @@ def build_mujoco_scene_xml(
                 "group": str(scene_config.builder.geom_group),
             },
         )
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    _indent(root)
-    tree.write(output_path, encoding="utf-8", xml_declaration=False)
-    return output_path
+    return root
 
 
 def build_mujoco_wiping_xml(

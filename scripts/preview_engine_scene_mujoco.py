@@ -26,6 +26,7 @@ from continuum_sim.scenes.engine_scene import (  # noqa: E402
     load_engine_scene_config,
     resolve_engine_asset_paths,
 )
+from continuum_sim.scenes.engine_mjcf_adapter import inject_engine_scene  # noqa: E402
 from continuum_sim.scenes.primitive_collision import (  # noqa: E402
     PrimitiveCollisionGeomConfig,
     load_primitive_collision_geoms,
@@ -146,30 +147,26 @@ def build_engine_preview_mjcf(
     compiler.set("autolimits", "true")
     ElementTree.SubElement(root, "option", {"timestep": "0.01"})
 
-    asset = ElementTree.SubElement(root, "asset")
-    scale = _mujoco_vec((config.engine.scale, config.engine.scale, config.engine.scale))
-    if include_visual:
-        ElementTree.SubElement(
-            asset,
-            "mesh",
-            {
-                "name": "engine_visual_mesh",
-                "file": str(visual_mesh),
-                "scale": scale,
-            },
-        )
-    if include_collision:
-        ElementTree.SubElement(
-            asset,
-            "mesh",
-            {
-                "name": "engine_collision_mesh",
-                "file": str(collision_mesh),
-                "scale": scale,
-            },
-        )
-
-    worldbody = ElementTree.SubElement(root, "worldbody")
+    inject_engine_scene(
+        root,
+        config,
+        output_dir=None,
+        include_visual_mesh=include_visual,
+        include_collision_mesh=include_collision,
+        include_control_primitives=show_primitive_collision,
+        mesh_overrides={
+            "visual_mesh": visual_mesh,
+            **(
+                {"collision_mesh": collision_mesh}
+                if collision_mesh is not None
+                else {}
+            ),
+        },
+        primitive_collision_enabled=False,
+    )
+    worldbody = root.find("worldbody")
+    if worldbody is None:
+        raise ValueError("Engine scene adapter did not create a worldbody.")
     diagnostics = collect_engine_scene_diagnostics(config_path)
     visual_report = next(
         (report for report in diagnostics.asset_reports if report.asset_name == "visual_mesh"),
@@ -177,47 +174,6 @@ def build_engine_preview_mjcf(
     )
     preview = config.preview_visualization
     axis_length = _marker_scale_from_bbox(visual_report)
-    engine_position = np.asarray(config.engine.pose.position_m, dtype=float)
-    body = ElementTree.SubElement(
-        worldbody,
-        "body",
-        {
-            "name": "engine",
-            "pos": _mujoco_vec(engine_position),
-            "quat": _mujoco_vec(config.engine.pose.quat_wxyz),
-        },
-    )
-    if include_visual:
-        ElementTree.SubElement(
-            body,
-            "geom",
-            {
-                "name": "engine_visual",
-                "type": "mesh",
-                "mesh": "engine_visual_mesh",
-                "contype": "0",
-                "conaffinity": "0",
-                "group": "1",
-                "rgba": _rgba_with_optional_alpha(preview.visual_mesh_rgba, alpha_visual),
-            },
-        )
-    if include_collision:
-        collision_attrs = {
-            "name": "engine_collision",
-            "type": "mesh",
-            "mesh": "engine_collision_mesh",
-            "group": "0",
-            "rgba": _rgba_with_optional_alpha(preview.collision_mesh_rgba, alpha_collision),
-        }
-        collision_offset = config.engine.assets.collision_mesh_offset_m
-        if collision_offset is not None:
-            collision_attrs["pos"] = _mujoco_vec(collision_offset)
-        ElementTree.SubElement(
-            body,
-            "geom",
-            collision_attrs,
-        )
-
     if show_axes:
         _add_engine_axes(worldbody, config, axis_length=axis_length)
 
@@ -232,15 +188,6 @@ def build_engine_preview_mjcf(
 
     if show_exploration_paths:
         _add_exploration_paths(worldbody, config)
-
-    if show_primitive_collision:
-        _add_primitive_collision_hints(
-            worldbody,
-            load_yaml(Path(config_path).resolve()),
-            config=config,
-            show_disabled_hints=show_disabled_hints,
-            primitive_alpha=primitive_alpha,
-        )
 
     ElementTree.indent(root)
     return ElementTree.tostring(root, encoding="unicode")

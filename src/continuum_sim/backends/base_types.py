@@ -7,6 +7,8 @@ from typing import Protocol
 
 import numpy as np
 
+from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
+
 
 @dataclass(frozen=True)
 class BackendState:
@@ -39,3 +41,22 @@ class BackendProtocol(Protocol):
 
     def get_state(self) -> BackendState:
         """Return the latest backend snapshot without mutating state."""
+
+
+class SystemBackendProtocol(Protocol):
+    """Named base-plus-arms backend contract used by new runtimes."""
+
+    def reset_system(self) -> RobotSystemState:
+        """Reset the complete system and return its named state."""
+
+    def step_system(
+        self,
+        command: RobotSystemCommand,
+        *,
+        dt: float,
+        n_substeps: int = 1,
+    ) -> RobotSystemState:
+        """Advance direct tendon-rate and prescribed-base control."""
+
+    def get_system_state(self) -> RobotSystemState:
+        """Return the current named system state."""

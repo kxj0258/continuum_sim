@@ -1,0 +1,24 @@
+schema_version: 1
+scenario:
+  name: single_mujoco_view
+  assembly_config_path: ../robots/assemblies/single_spatial.yaml
+  backend:
+    type: mujoco
+    mujoco_config_path: ../mujoco_dual.yaml
+    source_xml_path: ../../assets/mujoco/dual_three_segment_arm_tendon_with_visuals_mobile_base.xml
+    generated_xml_path: ../../output/generated/scenario_single_mujoco.xml
+    retain_arm: executor
+  scene: {}
+  task:
+    type: idle
+  runtime:
+    controller_dt_s: 0.02
+    n_substeps: 20
+    max_steps: 100000
+  hooks:
+    recorder: false
+    tendon_debug: true
+    tendon_debug_stride: 10
+    viewer: mujoco
+    keep_viewer_open: false
+

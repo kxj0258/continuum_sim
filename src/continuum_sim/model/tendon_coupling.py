@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import numpy as np
 
-from continuum_sim.model.physical_tendon import PhysicalTendonPath
+from typing import Protocol
 from continuum_sim.model.robot_params import PCC_VALUES_PER_SEGMENT, ThreeSegmentRobotParams
+
+
+class TendonPathLike(Protocol):
+    id: str
+    global_index: int
+    angle_deg: float
+    radial_offset: float
+    path_segment_indices: tuple[int, ...]
 
 
 def build_coupling_matrix(
     params: ThreeSegmentRobotParams,
-    physical_tendons: tuple[PhysicalTendonPath, ...],
+    physical_tendons: tuple[TendonPathLike, ...],
 ) -> np.ndarray:
     """Build the matrix mapping PCC q to physical tendon length deltas."""
     tendon_count = len(physical_tendons)
@@ -48,7 +56,7 @@ def build_coupling_matrix(
 def q_to_physical_tendon_delta(
     q: np.ndarray,
     params: ThreeSegmentRobotParams,
-    physical_tendons: tuple[PhysicalTendonPath, ...],
+    physical_tendons: tuple[TendonPathLike, ...],
 ) -> np.ndarray:
     """Map PCC state q to physical tendon length deltas."""
     q_array = _as_vector(q, "q", expected_size=params.q_size)
@@ -58,7 +66,7 @@ def q_to_physical_tendon_delta(
 def physical_tendon_delta_to_q(
     tendon_delta: np.ndarray,
     params: ThreeSegmentRobotParams,
-    physical_tendons: tuple[PhysicalTendonPath, ...],
+    physical_tendons: tuple[TendonPathLike, ...],
     regularization: float = 0.0,
 ) -> np.ndarray:
     """Estimate PCC state q from physical tendon length deltas."""

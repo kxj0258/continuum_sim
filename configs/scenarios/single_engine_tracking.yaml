@@ -1,0 +1,29 @@
+schema_version: 1
+scenario:
+  name: single_spatial_engine_tracking
+  assembly_config_path: ../robots/assemblies/single_spatial.yaml
+  backend:
+    type: mujoco
+    mujoco_config_path: ../mujoco_dual.yaml
+    source_xml_path: ../../assets/mujoco/dual_three_segment_arm_tendon_with_visuals_mobile_base.xml
+    generated_xml_path: ../../output/generated/scenario_single_engine.xml
+    retain_arm: executor
+  scene:
+    engine_config_path: ../scenes/engine_cleaning.yaml
+  task:
+    type: tracking
+    waypoint_tolerance_m: 0.002
+    loop: false
+    waypoints_world:
+      - [0.100, 0.450, 0.080]
+      - [0.115, 0.500, 0.060]
+  runtime:
+    controller_dt_s: 0.02
+    n_substeps: 20
+    max_steps: 1500
+  hooks:
+    recorder: true
+    tendon_debug: true
+    tendon_debug_stride: 5
+    viewer: mujoco
+    keep_viewer_open: true

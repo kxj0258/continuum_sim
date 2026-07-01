@@ -1,20 +1,7 @@
-"""Simulation backend interfaces."""
+"""Named composable-system backend interfaces."""
 
-from continuum_sim.backends.analytic_backend import (
-    AnalyticBackend,
-    AnalyticBackendConfig,
-    load_analytic_backend_config,
-)
-from continuum_sim.backends.base_types import BackendProtocol, BackendState
-from continuum_sim.backends.mujoco_backend import MujocoBackend
-from continuum_sim.backends.pcc_to_mujoco import pcc_q_to_joint_targets
+from continuum_sim.backends.base_types import SystemBackendProtocol
+from continuum_sim.backends.analytic_system_backend import AnalyticSystemBackend
+from continuum_sim.backends.mujoco_system_backend import MujocoSystemBackend
 
-__all__ = [
-    "AnalyticBackend",
-    "AnalyticBackendConfig",
-    "BackendProtocol",
-    "BackendState",
-    "MujocoBackend",
-    "load_analytic_backend_config",
-    "pcc_q_to_joint_targets",
-]
+__all__ = ["AnalyticSystemBackend", "MujocoSystemBackend", "SystemBackendProtocol"]

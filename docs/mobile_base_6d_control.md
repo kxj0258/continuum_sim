@@ -82,16 +82,13 @@ The new primary outer chain is:
 
 - `world -> mobile_base -> mount -> local arm`
 
-Integrated baseline entry points:
+当前 baseline 通过 scenario 入口覆盖：
 
-- `view-pcc`
-- `view-motor-chain`
-- `run-tracking`
-- `view-mujoco`
-- `debug-mujoco-tendons`
-- `run-mujoco-tracking`
-- `run-mujoco-navigation`
-- `run-mujoco-wiping`
+- `configs/scenarios/single_analytic_*.yaml`
+- `configs/scenarios/dual_analytic_tracking.yaml`
+- `configs/scenarios/single_mujoco_*.yaml`
+- `configs/scenarios/dual_mujoco_*.yaml`
+- `configs/scenarios/*_engine_tracking.yaml`
 
 Current behavior by layer:
 

@@ -35,8 +35,8 @@ ScenarioConfig
   -> SimulationLoop
 ```
 
-`configs/scenarios/`分别提供单臂、双臂、analytic、MuJoCo和engine组合。旧CLI
-命令只作为历史说明，不再决定模块边界。
+`configs/scenarios/`分别提供单臂、双臂、analytic、MuJoCo和engine组合。旧 CLI
+入口已删除，不再决定模块边界。
 
 ## 旧版研究模块
 
@@ -71,17 +71,13 @@ YAML 配置
 
 ## 命令边界
 
-当前维护的运行入口是 `cli.py`：
+当前维护的运行入口是 `scripts/run_scenario.py`：
 
 ```powershell
-python cli.py view-pcc --config configs/main_config.yaml
-python cli.py view-motor-chain --config configs/main_config.yaml
-python cli.py run-tracking --config configs/main_config.yaml
-python cli.py view-mujoco --config configs/main_config.yaml
-python cli.py debug-mujoco-tendons --config configs/main_config.yaml
-python cli.py run-mujoco-tracking --config configs/main_config.yaml
-python cli.py run-mujoco-navigation --config configs/main_config.yaml
-python cli.py run-mujoco-wiping --config configs/main_config.yaml
+python scripts/run_scenario.py configs/scenarios/single_analytic_smoke.yaml
+python scripts/run_scenario.py configs/scenarios/single_mujoco_smoke.yaml
+python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml
+python scripts/run_scenario.py configs/scenarios/single_engine_tracking.yaml
 ```
 
 ## 结构化导航流程
@@ -116,13 +112,11 @@ scene YAML
 
 当 MuJoCo viewer 启用且 `mujoco.show_live_force_panel` 为 true 时，wiping runtime 会在同一循环中创建 `WipingForceMonitorPanel`，按 stride 显示法向接触力、目标力、force error、contact proxy、phase 和 waypoint 状态；它与 live tendon panel 独立，可同时打开。
 
-`debug-mujoco-tendons` 复用同一份 MuJoCo backend 配置，但把运行编排换成 passive viewer 加 live tendon debug panel，用于快速检查 tendon-position 命令裁剪、实际腱长读数、actuator force 和 tip/q 估计。
-
-每个子命令只接受 `--config`。运行行为写在 YAML 中，这样实验可以通过提交 YAML 复现，而不是依赖临时命令行覆盖项。
+运行行为写在 scenario YAML 中，这样实验可以通过提交 YAML 复现，而不是依赖临时命令行覆盖项。
 
 ## 规范配置
 
-- `configs/main_config.yaml`：机器人、后端和 tracking 配置的索引文件。
+- `configs/scenarios/`：推荐运行入口，组合机器人、后端、场景、任务、runtime 和 hooks。
 - `configs/robot_3seg.yaml`：几何、物理腱、电机和执行限幅。
 - `configs/pcc.yaml`：analytic PCC 后端设置。
 - `configs/mujoco.yaml`：MuJoCo XML 路径、solver、控制模式、actuator、sensor、viewer 和 overlay。
@@ -184,7 +178,7 @@ MuJoCo contacts
 
 ## 运行产物导出
 
-CLI 产物导出刻意放在 runtime 控制循环之外。run 命令会先返回内存中的 result dataclass；当提供 `--save-run` 时，`continuum_sim.io.run_artifacts` 会创建 `output/runs/<task>_<timestamp>/`，写出 NPZ 数据、metadata、配置副本、静态 PNG 曲线图、生成的 scene XML，以及可选的 `videos/simulation.gif`。
+Scenario 产物导出刻意放在 runtime 控制循环之外。运行命令会先返回内存中的 result dataclass；当 scenario 启用 artifacts 时，`continuum_sim.io.scenario_artifacts` 会创建 `output/runs/<scenario>_<timestamp>/`，写出 NPZ 数据、metadata、配置副本、静态 PNG 曲线图、生成的 scene XML，以及可选的 `videos/simulation.gif`。
 
 对 MuJoCo 结果，回放视频导出被隔离在 `scripts/export_replay_video.py`，这样渲染器会在新进程中创建。导出器用保存的 `qpos/qvel` 复现归档的 `model/scene.xml`，尺寸使用 `configs/mujoco.yaml` 的 `rendering.offscreen_*`，相机使用 `viewer.camera`，与 passive viewer 的前侧斜视角保持一致。如果视频导出失败，原因会记录到 `videos/video_error.txt`，数值和曲线产物仍会保留。
 

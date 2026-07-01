@@ -1,4 +1,4 @@
-"""Save simulation rollout artifacts produced by CLI commands."""
+"""Save simulation rollout artifacts produced by scenario and task runs."""
 
 from __future__ import annotations
 
@@ -42,7 +42,6 @@ def save_run_artifacts(
     command: str,
     result: object,
     task_config_path: str | Path,
-    main_config_path: str | Path | None = None,
     mujoco_config_path: str | Path | None = None,
     task_name: str | None = None,
     output_root: str | Path = DEFAULT_RUNS_ROOT,
@@ -52,7 +51,6 @@ def save_run_artifacts(
     """Save NPZ data, metadata, configs, plots, and optional replay video."""
 
     resolved_task = Path(task_config_path).resolve()
-    resolved_main = None if main_config_path is None else Path(main_config_path).resolve()
     resolved_mujoco = None if mujoco_config_path is None else Path(mujoco_config_path).resolve()
     name = _safe_run_name(task_name or _task_name_from_yaml(resolved_task) or command)
     run_dir = _create_run_dir(Path(output_root), name, timestamp or datetime.now())
@@ -77,7 +75,6 @@ def save_run_artifacts(
     copied_configs = _copy_input_configs(
         paths.config_dir,
         task_config_path=resolved_task,
-        main_config_path=resolved_main,
         mujoco_config_path=resolved_mujoco,
     )
     copied_models = _copy_model_artifacts(paths.model_dir, result)
@@ -169,13 +166,11 @@ def _copy_input_configs(
     config_dir: Path,
     *,
     task_config_path: Path,
-    main_config_path: Path | None,
     mujoco_config_path: Path | None,
 ) -> list[Path]:
     copied: list[Path] = []
     seen: set[Path] = set()
     for label, source in (
-        ("main_config", main_config_path),
         ("task_config", task_config_path),
         ("mujoco_config", mujoco_config_path),
     ):

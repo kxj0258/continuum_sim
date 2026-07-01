@@ -2,7 +2,19 @@
 
 除非字段另有说明，所有数值都使用 SI 单位。路径通常相对声明它的 YAML 文件解析；在适用时，也会回退到项目工作目录解析。
 
-## `configs/main_config.yaml`
+## 推荐入口：`configs/scenarios/*.yaml`
+
+当前推荐通过 scenario 配置运行项目：
+
+```powershell
+python scripts/run_scenario.py configs/scenarios/single_analytic_smoke.yaml
+python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml
+```
+
+scenario YAML 负责组合 assembly、backend、scene、task、runtime、hooks 和 artifacts。
+旧 `configs/main_config*.yaml` 索引入口已不再作为运行入口维护。
+
+## 旧索引配置：`configs/main_config.yaml`
 
 | 字段                     | 类型 | 说明                          |
 |--------------------------|------|-------------------------------|
@@ -15,14 +27,12 @@
 | `mujoco_navigation_config` | path | MuJoCo navigation 任务 YAML。 |
 | `mujoco_wiping_config` | path | MuJoCo wiping 任务 YAML。 |
 
-## CLI 运行产物导出
+## 运行产物导出
 
-`run-tracking`、`run-mujoco-tracking`、`run-mujoco-navigation` 和
-`run-mujoco-wiping` 默认不保存 rollout 数据。加入 `--save-run` 后，会把本次运行写入
-`output/runs/<task_name>_<timestamp>/`：
+带 artifacts 的 scenario 会把本次运行写入 `output/runs/<scenario>_<timestamp>/`：
 
 ```powershell
-python cli.py run-mujoco-wiping --config configs/main_config.yaml --save-run
+python scripts/run_scenario.py configs/scenarios/single_mujoco_wiping.yaml
 ```
 
 保存产物包括 `result.npz`、`metadata.json`、复制后的 YAML 配置、PNG 曲线图、可用时生成的
@@ -169,7 +179,7 @@ python scripts/check_mujoco_offscreen_renderer.py --config configs/mujoco.yaml
 | `notes`                           | list[string] | 面向人的备注。                                   |
 
 `viewer.camera.*` 同时影响 passive viewer、生成 XML 的默认 MuJoCo visual camera，以及
-`--save-run` 的 MuJoCo replay GIF。`rendering.offscreen_*` 只控制离屏导出 framebuffer
+scenario artifacts 的 MuJoCo replay GIF。`rendering.offscreen_*` 只控制离屏导出 framebuffer
 尺寸，不改变仿真本身。
 
 ## Tracking YAML 配置
@@ -509,10 +519,10 @@ python scripts/test_indicator_3_3_force_tracking.py --result-npz output/runs/<ru
 ```
 
 每个脚本都会写出 Markdown 报告、PNG 曲线图、指标表、阈值结论和 CNAS/CMA 盖章预留区。推荐先通过
-CLI `--save-run` 生成 `result.npz`，再传入脚本分析：
+scenario 生成 `result.npz`，再传入脚本分析：
 
 ```powershell
-python cli.py run-mujoco-wiping --config configs/main_config_dynamic_wiping.yaml --save-run
+python scripts/run_scenario.py configs/scenarios/single_mujoco_wiping.yaml
 python scripts/test_indicator_3_3_force_tracking.py --result-npz output/runs/<run>/result.npz
 ```
 

@@ -42,7 +42,7 @@ def main() -> None:
 def _load_or_run_navigation(result_npz: Path | None, config: Path, mujoco_config: Path) -> dict[str, np.ndarray]:
     if result_npz is not None:
         return dict(np.load(result_npz, allow_pickle=True))
-    print("未提供 --result-npz，将启动完整 MuJoCo navigation 仿真；推荐正式验收时先用 CLI --save-run 生成 result.npz。")
+    print("未提供 --result-npz，将启动完整 MuJoCo navigation 仿真；推荐正式验收时先用 scenario artifacts 生成 result.npz。")
     from continuum_sim.runtime import run_mujoco_navigation
 
     result = run_mujoco_navigation(config, mujoco_config, show=False)

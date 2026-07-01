@@ -54,7 +54,7 @@ def _load_or_run_wiping(result_npz: Path | None, config: Path, mujoco_config: Pa
         if "tip_position" not in data and "tip_pose" in data:
             data["tip_position"] = np.asarray(data["tip_pose"], dtype=float)[:, :3, 3]
         return data
-    print("未提供 --result-npz，将启动完整 MuJoCo wiping 仿真；推荐正式验收时先用 CLI --save-run 生成 result.npz。")
+    print("未提供 --result-npz，将启动完整 MuJoCo wiping 仿真；推荐正式验收时先用 scenario artifacts 生成 result.npz。")
     from continuum_sim.runtime import run_mujoco_wiping
 
     result = run_mujoco_wiping(config, mujoco_config, show=False)

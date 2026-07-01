@@ -36,12 +36,12 @@ M(q) qddot + D qdot + K q = tau + J_tip(q).T F_contact
 - 指标 3.3 扰动：最大位移偏差不超过 4 cm。
 - 指标 3.3 力跟踪：接触力 RMSE 不超过 1 N。
 
-推荐流程是先用 CLI 的 `--save-run` 生成 `output/runs/<run>/result.npz`，再用验收脚本读取该文件。若不提供 `--result-npz`，脚本会自行启动完整 MuJoCo 仿真；动态阻抗模式包含 PCC 质量矩阵计算，耗时会明显更长。
+推荐流程是先运行带 artifacts 的 scenario 生成 `output/runs/<run>/result.npz`，再用验收脚本读取该文件。若不提供 `--result-npz`，脚本会自行启动完整 MuJoCo 仿真；动态阻抗模式包含 PCC 质量矩阵计算，耗时会明显更长。
 
 动力学级擦拭实验可以使用：
 
 ```powershell
-python cli.py run-mujoco-wiping --config configs/main_config_dynamic_wiping.yaml --save-run
+python scripts/run_scenario.py configs/scenarios/single_mujoco_wiping.yaml
 python scripts/test_indicator_3_3_force_tracking.py --result-npz output/runs/<run>/result.npz
 ```
 

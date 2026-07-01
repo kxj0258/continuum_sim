@@ -175,9 +175,9 @@ BackendState.tendon_length = data.ten_length - neutral_tendon_length
 
 现有 tracking、navigation、wiping 控制器仍只计算默认主臂 9 维 tendon 命令；runtime 会自动扩展为 18 维双臂 tendon 命令，并追加 6D 零基座命令。后续控制器可以逐步输出非零 base 6D 命令。
 
-## Debug Viewer
+## 诊断视图
 
-`debug-mujoco-tendons` 现在面向整机调试：
+旧 tendon debug CLI 已删除；整机调试能力现在应通过 scenario hooks 和 MuJoCo viewer 配置继续收敛：
 
 - 支持 18 根 tendon 的滑条。
 - 支持 6D mobile base 滑条。

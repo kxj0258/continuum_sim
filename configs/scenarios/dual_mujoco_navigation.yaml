@@ -11,7 +11,7 @@ scenario:
     structured_config_path: ../scenes/rocket_nozzle_entry.yaml
   task:
     type: navigation
-    waypoint_tolerance_m: 0.002
+    waypoint_tolerance_m: 0.005
     min_clearance_m: 0.010
     terminate_on_clearance_violation: true
     observer_roi_world: [0.025, -0.022, 0.095]

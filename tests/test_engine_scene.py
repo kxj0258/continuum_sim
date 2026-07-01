@@ -88,7 +88,7 @@ def test_iter_engine_regions_preserves_named_region_order() -> None:
 
     names = [name for name, _region in iter_engine_regions(config)]
 
-    assert names == ["entry_port"]
+    assert names == ["entry_port", "cleaning_patch"]
 
 
 def test_validate_engine_scene_config_allows_missing_assets_when_not_strict(tmp_path: Path) -> None:

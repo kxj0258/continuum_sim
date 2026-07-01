@@ -22,6 +22,14 @@ from continuum_sim.tasks.trajectory_tracking_config import (
     load_tracking_config,
 )
 from continuum_sim.tasks.dmp_trajectory import DiscreteDMP, DMPRollout, load_demonstration
+from continuum_sim.tasks.engine_cleaning_path import (
+    EngineCleaningPathSpec,
+    EngineCleaningPlan,
+    build_engine_cleaning_plan,
+)
+from continuum_sim.tasks.navigation_mission import NavigationMissionSpec, resolve_navigation_waypoints
+from continuum_sim.tasks.trajectory_generation import TrajectorySpec, generate_trajectory_waypoints
+from continuum_sim.tasks.wiping_path import WipingPathPlan, WipingPathSpec, build_wiping_plan
 from continuum_sim.tasks.wiping_config import (
     MujocoWipingConfig,
     WipingControllerConfig,
@@ -42,8 +50,11 @@ __all__ = [
     "MujocoWipingConfig",
     "DiscreteDMP",
     "DMPRollout",
+    "EngineCleaningPathSpec",
+    "EngineCleaningPlan",
     "NavigationControllerConfig",
     "NavigationMissionConfig",
+    "NavigationMissionSpec",
     "NavigationMujocoConfig",
     "NavigationSimulationConfig",
     "NavigationVisualizationConfig",
@@ -61,11 +72,18 @@ __all__ = [
     "WipingSimulationConfig",
     "WipingToolConfig",
     "WipingVisualizationConfig",
+    "WipingPathPlan",
+    "WipingPathSpec",
+    "TrajectorySpec",
+    "build_engine_cleaning_plan",
     "build_target_positions",
     "build_raster_wiping_path",
+    "build_wiping_plan",
+    "generate_trajectory_waypoints",
     "load_mujoco_navigation_config",
     "load_mujoco_tracking_config",
     "load_mujoco_wiping_config",
     "load_demonstration",
     "load_tracking_config",
+    "resolve_navigation_waypoints",
 ]

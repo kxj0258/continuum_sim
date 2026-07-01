@@ -7,13 +7,20 @@ scenario:
   scene: {}
   task:
     type: tracking
-    waypoint_tolerance_m: 0.001
+    waypoint_tolerance_m: 0.003
+    target_advance_mode: tolerance
     loop: false
-    waypoints_world:
-      - [0.000, 0.000, 0.145]
-      - [0.010, 0.000, 0.142]
-      - [0.010, 0.010, 0.138]
-      - [0.000, 0.010, 0.142]
+    trajectory:
+      type: square
+      samples: 24
+      radius_m: 0.010
+      placement:
+        center_mode: straight_tip_xy
+        z_mode: straight_tip_minus_radius
+        plane: xy
+        yaw_deg: 0.0
+      shape:
+        side_length_m: 0.020
   runtime:
     controller_dt_s: 0.02
     n_substeps: 1
@@ -24,4 +31,5 @@ scenario:
     tendon_debug_stride: 5
     viewer: matplotlib
     keep_viewer_open: true
-
+  artifacts:
+    video_stride: 20

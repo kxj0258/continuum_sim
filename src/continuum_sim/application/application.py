@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
+import numpy as np
+
 from continuum_sim.application.scenario import ScenarioConfig, load_scenario_config
 from continuum_sim.backends.analytic_system_backend import AnalyticSystemBackend
 from continuum_sim.backends.mujoco_system_backend import MujocoSystemBackend
@@ -19,7 +21,10 @@ from continuum_sim.control.scenario_controllers import (
 from continuum_sim.model.robot_assembly import load_robot_assembly_config
 from continuum_sim.runtime.hooks import (
     ControllerCompletionHook,
+    LiveTendonPanelHook,
+    LiveWipingForcePanelHook,
     MatplotlibSystemViewerHook,
+    MujocoLiveVideoRecorderHook,
     MujocoViewerHook,
     MujocoReplayRecorderHook,
     StateRecorderHook,
@@ -41,6 +46,10 @@ from continuum_sim.scenes.engine_scene import load_engine_scene_config
 from continuum_sim.scenes.scene_config import load_navigation_scene_config
 from continuum_sim.scenes.structured_query import StructuredSceneQuery
 from continuum_sim.scenes.scene_builder import inject_structured_scene
+from continuum_sim.tasks.engine_cleaning_path import build_engine_cleaning_plan
+from continuum_sim.tasks.navigation_mission import resolve_navigation_waypoints
+from continuum_sim.tasks.trajectory_generation import generate_trajectory_waypoints
+from continuum_sim.tasks.wiping_path import build_wiping_plan
 
 
 @dataclass
@@ -86,12 +95,13 @@ class SimulationApplication:
             scene_query = StructuredSceneQuery(structured_scene)
         else:
             scene_query = None
+        task_plan = _resolve_task_plan(config, assembly, engine_scene, structured_scene)
         if config.task.type == "idle":
             controller = ZeroSystemController(assembly)
         elif config.task.type == "navigation":
             controller = NavigationController(
                 assembly,
-                config.task.waypoints_world,
+                task_plan["waypoints_world"],
                 waypoint_tolerance_m=config.task.waypoint_tolerance_m,
                 observer_roi_world=config.task.observer_roi_world,
                 scene_query=scene_query,
@@ -99,24 +109,42 @@ class SimulationApplication:
                 terminate_on_clearance_violation=(
                     config.task.terminate_on_clearance_violation
                 ),
+                target_advance_mode=config.task.target_advance_mode,
+                controller_dt_s=config.runtime.controller_dt_s,
+                advance_time_s=config.task.advance_time_s,
+                advance_steps=config.task.advance_steps,
             )
-        elif config.task.type == "wiping":
+        elif config.task.type in ("wiping", "engine_cleaning"):
             controller = WipingController(
                 assembly,
-                config.task.waypoints_world,
+                task_plan["waypoints_world"],
                 waypoint_tolerance_m=config.task.waypoint_tolerance_m,
                 scene_query=scene_query,
-                surface_normal_world=config.task.surface_normal_world,
+                surface_normal_world=task_plan["surface_normal_world"],
                 target_contact_distance_m=config.task.target_contact_distance_m,
                 contact_tolerance_m=config.task.contact_tolerance_m,
+                target_advance_mode=config.task.target_advance_mode,
+                controller_dt_s=config.runtime.controller_dt_s,
+                advance_time_s=config.task.advance_time_s,
+                advance_steps=config.task.advance_steps,
+                phases=task_plan["phases"],
+                target_force_n=task_plan["target_force_n"],
+                control_type=config.task.wiping_control_type,
+                normal_force_gain=config.task.normal_force_gain,
+                force_proxy_stiffness_n_m=config.task.force_proxy_stiffness_n_m,
+                max_contact_force_n=config.task.max_contact_force_n,
             )
         else:
             controller = WaypointTrackingController(
                 assembly,
-                config.task.waypoints_world,
+                task_plan["waypoints_world"],
                 waypoint_tolerance_m=config.task.waypoint_tolerance_m,
                 observer_roi_world=config.task.observer_roi_world,
                 loop=config.task.loop,
+                target_advance_mode=config.task.target_advance_mode,
+                controller_dt_s=config.runtime.controller_dt_s,
+                advance_time_s=config.task.advance_time_s,
+                advance_steps=config.task.advance_steps,
                 scene_query=scene_query,
             )
         hooks: list[object] = []
@@ -127,7 +155,35 @@ class SimulationApplication:
             hooks_by_name["tendon_debug"] = TendonDiagnosticHook(
                 stride=config.hooks.tendon_debug_stride
             )
-        if config.backend.type == "mujoco" and config.artifacts.enabled:
+        if config.hooks.show_live_tendon_panel:
+            hooks_by_name["live_tendon_panel"] = LiveTendonPanelHook(
+                stride=config.hooks.live_tendon_panel_stride,
+                history_points=config.hooks.live_force_panel_history_points,
+            )
+        if config.hooks.show_live_force_panel:
+            hooks_by_name["live_force_panel"] = LiveWipingForcePanelHook(
+                stride=config.hooks.live_force_panel_stride,
+                history_points=config.hooks.live_force_panel_history_points,
+            )
+        if (
+            config.backend.type == "mujoco"
+            and config.artifacts.enabled
+            and config.artifacts.save_gif
+            and config.artifacts.video_mode == "live_mujoco"
+        ):
+            hooks_by_name["live_mujoco_video"] = MujocoLiveVideoRecorderHook(
+                backend,
+                config.artifacts.output_root / f"_{config.name}_live_mujoco_pending.gif",
+                fps=config.artifacts.video_fps,
+                stride=config.artifacts.video_stride,
+                width=backend.config.rendering.offscreen_width,
+                height=backend.config.rendering.offscreen_height,
+            )
+        if (
+            config.backend.type == "mujoco"
+            and config.artifacts.enabled
+            and config.artifacts.video_mode == "replay"
+        ):
             hooks_by_name["mujoco_replay"] = MujocoReplayRecorderHook(backend)
         if config.hooks.viewer == "matplotlib":
             hooks_by_name["viewer"] = MatplotlibSystemViewerHook(
@@ -201,3 +257,61 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
         assembly,
         xml_path=output_path,
     )
+
+
+def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
+    task = config.task
+    if task.type == "idle":
+        waypoints = task.waypoints_world
+        phases: tuple[str, ...] = ()
+        target_force = task.target_force_n
+        normal = task.surface_normal_world
+    elif task.trajectory is not None:
+        waypoints = generate_trajectory_waypoints(task.trajectory, assembly)
+        phases = task.waypoint_phases
+        target_force = task.target_force_n
+        normal = task.surface_normal_world
+    elif task.mission is not None:
+        if structured_scene is None:
+            raise ValueError("scenario.task.mission requires scenario.scene.structured_config_path.")
+        waypoints = resolve_navigation_waypoints(task.mission, structured_scene)
+        phases = task.waypoint_phases
+        target_force = task.target_force_n
+        normal = task.surface_normal_world
+    elif task.wiping_path is not None:
+        if structured_scene is None:
+            raise ValueError("scenario.task.wiping_path requires scenario.scene.structured_config_path.")
+        plan = build_wiping_plan(task.wiping_path, structured_scene)
+        waypoints = plan.waypoints_world
+        phases = plan.phases
+        target_force = task.target_force_n
+        normal = plan.surface_normal_world
+    elif task.engine_cleaning is not None:
+        if engine_scene is None:
+            raise ValueError("scenario.task.engine_cleaning requires scenario.scene.engine_config_path.")
+        plan = build_engine_cleaning_plan(task.engine_cleaning, engine_scene)
+        waypoints = plan.waypoints_world
+        phases = plan.phases
+        target_force = plan.target_force_n
+        normal = plan.normals_world[0]
+    else:
+        waypoints = task.waypoints_world
+        phases = task.waypoint_phases
+        target_force = task.target_force_n
+        normal = task.surface_normal_world
+    if phases and len(phases) != waypoints.shape[0]:
+        raise ValueError("scenario.task.waypoint_phases must match waypoint count.")
+    if target_force.size == 0:
+        target_force = np.zeros(waypoints.shape[0], dtype=float)
+        if task.target_normal_force_n > 0.0:
+            for index, phase in enumerate(phases):
+                if phase == "contact":
+                    target_force[index] = task.target_normal_force_n
+    elif target_force.shape != (waypoints.shape[0],):
+        raise ValueError("scenario.task.target_force_n must match waypoint count.")
+    return {
+        "waypoints_world": waypoints,
+        "phases": phases,
+        "target_force_n": target_force,
+        "surface_normal_world": normal,
+    }

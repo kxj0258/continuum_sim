@@ -10,20 +10,34 @@ scenario:
   scene: {}
   task:
     type: tracking
-    waypoint_tolerance_m: 0.001
+    waypoint_tolerance_m: 0.005
+    target_advance_mode: tolerance
     observer_roi_world: [0.010, 0.000, 0.135]
     loop: false
-    waypoints_world:
-      - [0.000, 0.010, 0.140]
-      - [0.010, 0.010, 0.137]
-      - [0.010, 0.020, 0.134]
+    trajectory:
+      type: square
+      samples: 60
+      radius_m: 0.018
+      placement:
+        center_mode: straight_tip_xy
+        z_mode: straight_tip_minus_radius
+        plane: xy
+        yaw_deg: 15.0
+      shape:
+        side_length_m: 0.040
   runtime:
     controller_dt_s: 0.02
     n_substeps: 20
-    max_steps: 1000
+    max_steps: 3000
   hooks:
     recorder: true
     tendon_debug: true
     tendon_debug_stride: 5
+    show_live_tendon_panel: false
     viewer: mujoco
-    keep_viewer_open: true
+    keep_viewer_open: false
+  artifacts:
+    save_gif: true
+    video_mode: live_mujoco
+    video_fps: 10
+    video_stride: 10

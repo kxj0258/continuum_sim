@@ -60,24 +60,6 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
             plot_files = [str(path) for path in _save_plots(arrays, paths.plots_dir)]
         except Exception as exc:  # Artifact failure must not discard simulation data.
             errors.append(f"plots: {type(exc).__name__}: {exc}")
-    video_path = None
-    if settings.save_gif:
-        try:
-            replay = _replay_result(application, arrays, scene_xml)
-            video_path = save_replay_video(
-                replay,
-                paths.videos_dir / "simulation.gif",
-                fps=settings.video_fps,
-                stride=settings.video_stride,
-                camera=(
-                    None
-                    if config.backend.type != "mujoco"
-                    else application.loop.backend.config.viewer.camera
-                ),
-            )
-        except Exception as exc:  # Video errors are reported alongside successful data.
-            errors.append(f"video: {type(exc).__name__}: {exc}")
-    metrics = _metrics(arrays)
     metadata = {
         "scenario": config.name,
         "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -87,18 +69,97 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
         "samples": len(result.states),
         "commands": len(result.commands),
         "stopped_early": result.stopped_early,
-        "metrics": metrics,
+        "metrics": _metrics(arrays),
         "npz_keys": sorted(arrays) if settings.save_npz else [],
         "plots": plot_files,
-        "video": None if video_path is None else str(video_path),
+        "video": None,
+        "video_mode": settings.video_mode if settings.save_gif else None,
+        "video_frames": None,
         "model": None if scene_xml is None else str(scene_xml),
         "errors": errors,
     }
-    paths.metadata_json.write_text(
+    _write_metadata(paths.metadata_json, metadata)
+    video_path = None
+    if settings.save_gif:
+        if settings.video_mode == "live_mujoco":
+            video_path = _collect_live_mujoco_video(
+                application,
+                paths.videos_dir / "simulation.gif",
+                errors,
+            )
+        else:
+            try:
+                replay = _replay_result(application, arrays, scene_xml)
+                video_path = save_replay_video(
+                    replay,
+                    paths.videos_dir / "simulation.gif",
+                    fps=settings.video_fps,
+                    stride=settings.video_stride,
+                    camera=(
+                        None
+                        if config.backend.type != "mujoco"
+                        else application.loop.backend.config.viewer.camera
+                    ),
+                )
+            except Exception as exc:  # Video errors are reported alongside successful data.
+                errors.append(f"video: {type(exc).__name__}: {exc}")
+    metadata["video"] = None if video_path is None else str(video_path)
+    metadata["video_frames"] = _video_frame_count(application)
+    metadata["errors"] = errors
+    _write_metadata(paths.metadata_json, metadata)
+    return paths
+
+
+def _video_frame_count(application) -> int | None:
+    recorder = application.hooks_by_name.get("live_mujoco_video")
+    if recorder is None:
+        return None
+    return int(getattr(recorder, "frame_count", 0))
+
+
+def _collect_live_mujoco_video(application, destination: Path, errors: list[str]) -> Path | None:
+    recorder = application.hooks_by_name.get("live_mujoco_video")
+    if recorder is None:
+        errors.append("video: live_mujoco recorder was not attached")
+        return None
+    for error in getattr(recorder, "errors", []):
+        errors.append(f"video: {error}")
+    source = getattr(recorder, "path", None)
+    if source is None:
+        source = getattr(recorder, "output_path", None)
+    source_path = None if source is None else Path(source)
+    if source_path is None or not source_path.is_file():
+        if not getattr(recorder, "errors", []):
+            errors.append("video: live_mujoco recorder produced no video file")
+        _write_live_video_error(destination, recorder)
+        return None
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(source_path), destination)
+    _write_live_video_error(destination, recorder)
+    return destination
+
+
+def _write_live_video_error(destination: Path, recorder: object) -> None:
+    messages = list(getattr(recorder, "errors", []))
+    pending_error = Path(getattr(recorder, "output_path", destination)).parent / "video_error.txt"
+    if pending_error.is_file():
+        for line in pending_error.read_text(encoding="utf-8").splitlines():
+            if line and line not in messages:
+                messages.append(line)
+        pending_error.unlink()
+    if not messages:
+        return
+    (destination.parent / "video_error.txt").write_text(
+        "\n".join(messages) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_metadata(path: Path, metadata: dict[str, object]) -> None:
+    path.write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    return paths
 
 
 def _flatten_result(application, result) -> dict[str, np.ndarray]:
@@ -138,6 +199,10 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
         arrays["waypoint_index"] = np.asarray(recorder.waypoint_index, dtype=int)
         arrays["min_clearance_m"] = np.asarray(recorder.min_clearance_m)
         arrays["contact_distance_m"] = np.asarray(recorder.contact_distance_m)
+        arrays["contact_error_m"] = np.asarray(recorder.contact_error_m)
+        arrays["target_force_n"] = np.asarray(recorder.target_force_n)
+        arrays["estimated_force_n"] = np.asarray(recorder.estimated_force_n)
+        arrays["force_error_n"] = np.asarray(recorder.force_error_n)
         arrays["task_phase"] = np.asarray(recorder.task_phase, dtype=str)
     replay = application.hooks_by_name.get("mujoco_replay")
     if replay is not None:
@@ -257,6 +322,10 @@ def _save_plots(arrays: dict[str, np.ndarray], output_dir: Path) -> list[Path]:
     for key, title, ylabel in (
         ("min_clearance_m", "Minimum clearance", "clearance [m]"),
         ("contact_distance_m", "Wiping contact distance", "distance [m]"),
+        ("contact_error_m", "Wiping contact error", "error [m]"),
+        ("target_force_n", "Target normal force", "force [N]"),
+        ("estimated_force_n", "Estimated normal force", "force [N]"),
+        ("force_error_n", "Normal force error", "force [N]"),
     ):
         values = arrays.get(key)
         if values is None or not np.any(np.isfinite(values)):

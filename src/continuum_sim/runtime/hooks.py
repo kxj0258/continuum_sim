@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 import time
 from typing import Any
 
@@ -23,6 +24,10 @@ class StateRecorderHook:
     tracking_error_m: list[float] = field(default_factory=list)
     min_clearance_m: list[float] = field(default_factory=list)
     contact_distance_m: list[float] = field(default_factory=list)
+    target_force_n: list[float] = field(default_factory=list)
+    estimated_force_n: list[float] = field(default_factory=list)
+    force_error_n: list[float] = field(default_factory=list)
+    contact_error_m: list[float] = field(default_factory=list)
     task_phase: list[str] = field(default_factory=list)
 
     def on_reset(self, state: RobotSystemState) -> None:
@@ -34,6 +39,10 @@ class StateRecorderHook:
         self.tracking_error_m.clear()
         self.min_clearance_m.clear()
         self.contact_distance_m.clear()
+        self.target_force_n.clear()
+        self.estimated_force_n.clear()
+        self.force_error_n.clear()
+        self.contact_error_m.clear()
         self.task_phase.clear()
         self._append(state)
 
@@ -56,6 +65,18 @@ class StateRecorderHook:
             )
             self.contact_distance_m.append(
                 float(command.metadata.get("contact_distance_m", np.nan))
+            )
+            self.target_force_n.append(
+                float(command.metadata.get("target_normal_force_n", np.nan))
+            )
+            self.estimated_force_n.append(
+                float(command.metadata.get("estimated_normal_force_n", np.nan))
+            )
+            self.force_error_n.append(
+                float(command.metadata.get("force_error_n", np.nan))
+            )
+            self.contact_error_m.append(
+                float(command.metadata.get("contact_error_m", np.nan))
             )
             self.task_phase.append(str(command.metadata.get("wiping_phase", "")))
 
@@ -117,6 +138,175 @@ class MujocoReplayRecorderHook:
         self.mocap_quat.append(np.asarray(data.mocap_quat, dtype=float).copy())
 
 
+class MujocoLiveVideoRecorderHook:
+    """Write MuJoCo scene frames during simulation instead of replaying afterward."""
+
+    def __init__(
+        self,
+        backend: object,
+        output_path: str | Path,
+        *,
+        fps: int = 20,
+        stride: int | None = None,
+        width: int = 640,
+        height: int = 480,
+    ) -> None:
+        if fps <= 0:
+            raise ValueError("MujocoLiveVideoRecorderHook fps must be positive.")
+        if stride is not None and stride <= 0:
+            raise ValueError("MujocoLiveVideoRecorderHook stride must be positive.")
+        self.backend = backend
+        self.output_path = Path(output_path)
+        self.fps = fps
+        self.stride = 1 if stride is None else stride
+        self.width = width
+        self.height = height
+        self.path: Path | None = None
+        self.errors: list[str] = []
+        self.frame_count = 0
+        self._mujoco = None
+        self._renderer = None
+        self._writer = None
+        self._camera = None
+        self._tip_trail: list[np.ndarray] = []
+        self._target_trail: list[np.ndarray] = []
+
+    def on_reset(self, state: RobotSystemState) -> None:
+        del state
+        self.path = None
+        self.errors.clear()
+        self.frame_count = 0
+        self._mujoco = None
+        self._renderer = None
+        self._writer = None
+        self._camera = None
+        self._tip_trail.clear()
+        self._target_trail.clear()
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            import imageio.v2 as imageio
+            import mujoco
+
+            self._mujoco = mujoco
+            model = self.backend.physics.model
+            self._renderer = mujoco.Renderer(
+                model,
+                height=self.height,
+                width=self.width,
+            )
+            self._camera = _mujoco_render_camera(
+                mujoco,
+                getattr(self.backend.config.viewer, "camera", None),
+            )
+            self._writer = _open_video_writer(imageio, self.output_path, self.fps)
+        except Exception as exc:  # noqa: BLE001 - video must not fail the run.
+            self._record_error(f"live video setup failed: {type(exc).__name__}: {exc}")
+            self._close_resources()
+
+    def on_step(
+        self,
+        state: RobotSystemState,
+        command: RobotSystemCommand,
+        step_index: int,
+    ) -> None:
+        if self._renderer is None or self._writer is None or self._mujoco is None:
+            return
+        target = command.metadata.get("executor_target_world")
+        if target is not None:
+            self._target_trail.append(np.asarray(target, dtype=float).copy())
+        executor = next(
+            (arm for arm in state.arms.values() if arm.role == "executor"),
+            None,
+        )
+        if executor is not None:
+            self._tip_trail.append(executor.tip_pose_world.position.copy())
+        if step_index % self.stride != 0:
+            return
+        try:
+            data = self.backend.physics.data
+            self._mujoco.mj_forward(self.backend.physics.model, data)
+            self._renderer.update_scene(data, camera=self._camera)
+            _draw_tracking_overlay_scene(
+                self._renderer.scene,
+                self._mujoco,
+                self.backend.config.viewer.overlays,
+                self._target_trail,
+                self._tip_trail,
+                reset_scene=False,
+            )
+            frame = self._renderer.render().copy()
+            self._writer.append_data(frame)
+            self.frame_count += 1
+        except Exception as exc:  # noqa: BLE001 - preserve non-video artifacts.
+            self._record_error(
+                f"live video frame {self.frame_count} failed at step "
+                f"{step_index}: {type(exc).__name__}: {exc}"
+            )
+            self._close_resources()
+
+    def should_stop(self, state: RobotSystemState, step_index: int) -> bool:
+        del state, step_index
+        return False
+
+    def on_finish(self, state: RobotSystemState) -> None:
+        del state
+        self._close_resources()
+        if self.frame_count > 0 and not self.errors:
+            self.path = self.output_path
+        elif self.frame_count > 0:
+            self.path = self.output_path
+        elif not self.errors:
+            self._record_error("live video produced no frames")
+
+    def _record_error(self, message: str) -> None:
+        self.errors.append(message)
+        error_path = self.output_path.parent / "video_error.txt"
+        error_path.parent.mkdir(parents=True, exist_ok=True)
+        existing = ""
+        if error_path.is_file():
+            existing = error_path.read_text(encoding="utf-8")
+        error_path.write_text(existing + message + "\n", encoding="utf-8")
+
+    def _close_resources(self) -> None:
+        writer = self._writer
+        self._writer = None
+        if writer is not None:
+            try:
+                writer.close()
+            except Exception as exc:  # noqa: BLE001 - report writer close errors.
+                self._record_error(
+                    f"live video writer close failed: {type(exc).__name__}: {exc}"
+                )
+        renderer = self._renderer
+        self._renderer = None
+        close = getattr(renderer, "close", None)
+        if close is not None:
+            try:
+                close()
+            except Exception as exc:  # noqa: BLE001 - report renderer close errors.
+                self._record_error(
+                    f"live video renderer close failed: {type(exc).__name__}: {exc}"
+                )
+
+
+def _open_video_writer(imageio, path: Path, fps: int):
+    if path.suffix.lower() == ".gif":
+        return imageio.get_writer(path, mode="I", duration=1000.0 / fps, loop=0)
+    return imageio.get_writer(path, fps=fps)
+
+
+def _mujoco_render_camera(mujoco, camera: object | None):
+    if camera is None:
+        return -1
+    render_camera = mujoco.MjvCamera()
+    render_camera.type = mujoco.mjtCamera.mjCAMERA_FREE
+    render_camera.lookat[:] = getattr(camera, "lookat")
+    render_camera.distance = float(getattr(camera, "distance"))
+    render_camera.azimuth = float(getattr(camera, "azimuth"))
+    render_camera.elevation = float(getattr(camera, "elevation"))
+    return render_camera
+
+
 @dataclass
 class TendonDiagnosticHook:
     """Collect tendon and singularity snapshots without a GUI dependency."""
@@ -163,6 +353,156 @@ class TendonDiagnosticHook:
             "command_metadata": {} if command is None else dict(command.metadata),
             "state_metadata": dict(state.metadata),
         }
+
+
+class LiveTendonPanelHook:
+    """Optional matplotlib tendon monitor attached to the scenario hook lifecycle."""
+
+    def __init__(self, *, stride: int = 1, history_points: int = 300) -> None:
+        if stride <= 0:
+            raise ValueError("LiveTendonPanelHook stride must be positive.")
+        self.stride = stride
+        self.history_points = history_points
+        self._plt = None
+        self._figure = None
+        self._axes = None
+        self._time: list[float] = []
+        self._values: dict[str, list[float]] = {}
+
+    def on_reset(self, state: RobotSystemState) -> None:
+        import matplotlib.pyplot as plt
+
+        self._plt = plt
+        self._figure, self._axes = plt.subplots()
+        self._time.clear()
+        self._values.clear()
+        plt.ion()
+        self._append(state)
+        self._draw()
+
+    def on_step(
+        self,
+        state: RobotSystemState,
+        command: RobotSystemCommand,
+        step_index: int,
+    ) -> None:
+        del command
+        if step_index % self.stride == 0:
+            self._append(state)
+            self._draw()
+
+    def should_stop(self, state: RobotSystemState, step_index: int) -> bool:
+        del state, step_index
+        return False
+
+    def on_finish(self, state: RobotSystemState) -> None:
+        del state
+        if self._plt is not None:
+            self._plt.ioff()
+
+    def _append(self, state: RobotSystemState) -> None:
+        self._time.append(float(state.time_s))
+        for arm_name, arm in state.arms.items():
+            for index, value in enumerate(arm.tendon_displacement_m):
+                key = f"{arm_name}:{index}"
+                self._values.setdefault(key, []).append(float(value))
+        self._trim()
+
+    def _trim(self) -> None:
+        if len(self._time) <= self.history_points:
+            return
+        excess = len(self._time) - self.history_points
+        del self._time[:excess]
+        for values in self._values.values():
+            del values[:excess]
+
+    def _draw(self) -> None:
+        if self._axes is None or self._figure is None:
+            return
+        self._axes.clear()
+        for key, values in self._values.items():
+            if len(values) == len(self._time):
+                self._axes.plot(self._time, values, label=key)
+        self._axes.set_xlabel("time [s]")
+        self._axes.set_ylabel("tendon displacement [m]")
+        self._axes.legend(loc="upper right", fontsize="x-small")
+        self._figure.canvas.draw_idle()
+        self._figure.canvas.flush_events()
+
+
+class LiveWipingForcePanelHook:
+    """Optional live panel for scenario wiping force/contact metadata."""
+
+    def __init__(self, *, stride: int = 1, history_points: int = 300) -> None:
+        if stride <= 0:
+            raise ValueError("LiveWipingForcePanelHook stride must be positive.")
+        self.stride = stride
+        self.history_points = history_points
+        self._plt = None
+        self._figure = None
+        self._axes = None
+        self._time: list[float] = []
+        self._target_force: list[float] = []
+        self._estimated_force: list[float] = []
+        self._contact_distance: list[float] = []
+
+    def on_reset(self, state: RobotSystemState) -> None:
+        import matplotlib.pyplot as plt
+
+        self._plt = plt
+        self._figure, self._axes = plt.subplots()
+        self._time.clear()
+        self._target_force.clear()
+        self._estimated_force.clear()
+        self._contact_distance.clear()
+        plt.ion()
+
+    def on_step(
+        self,
+        state: RobotSystemState,
+        command: RobotSystemCommand,
+        step_index: int,
+    ) -> None:
+        if step_index % self.stride != 0:
+            return
+        self._time.append(float(state.time_s))
+        self._target_force.append(float(command.metadata.get("target_normal_force_n", np.nan)))
+        self._estimated_force.append(
+            float(command.metadata.get("estimated_normal_force_n", np.nan))
+        )
+        self._contact_distance.append(float(command.metadata.get("contact_distance_m", np.nan)))
+        self._trim()
+        self._draw()
+
+    def should_stop(self, state: RobotSystemState, step_index: int) -> bool:
+        del state, step_index
+        return False
+
+    def on_finish(self, state: RobotSystemState) -> None:
+        del state
+        if self._plt is not None:
+            self._plt.ioff()
+
+    def _trim(self) -> None:
+        if len(self._time) <= self.history_points:
+            return
+        excess = len(self._time) - self.history_points
+        del self._time[:excess]
+        del self._target_force[:excess]
+        del self._estimated_force[:excess]
+        del self._contact_distance[:excess]
+
+    def _draw(self) -> None:
+        if self._axes is None or self._figure is None:
+            return
+        self._axes.clear()
+        self._axes.plot(self._time, self._target_force, label="target force [N]")
+        self._axes.plot(self._time, self._estimated_force, label="estimated force [N]")
+        self._axes.plot(self._time, self._contact_distance, label="contact distance [m]")
+        self._axes.set_xlabel("time [s]")
+        self._axes.legend(loc="upper right")
+        self._figure.canvas.draw_idle()
+        self._figure.canvas.flush_events()
 
 
 class MujocoViewerHook:
@@ -284,7 +624,27 @@ def _draw_mujoco_tracking_overlay(
     scene = getattr(viewer, "user_scn", None)
     if scene is None:
         return
-    scene.ngeom = 0
+    _draw_tracking_overlay_scene(
+        scene,
+        mujoco,
+        config,
+        target_trail,
+        tip_trail,
+        reset_scene=True,
+    )
+
+
+def _draw_tracking_overlay_scene(
+    scene,
+    mujoco,
+    config,
+    target_trail: list[np.ndarray],
+    tip_trail: list[np.ndarray],
+    *,
+    reset_scene: bool,
+) -> None:
+    if reset_scene:
+        scene.ngeom = 0
     if config.target_marker and target_trail:
         _add_overlay_sphere(
             scene,

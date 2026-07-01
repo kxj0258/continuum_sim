@@ -4,15 +4,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 from continuum_sim.config import load_yaml
 from continuum_sim.config_validation import resolve_path
+from continuum_sim.control.waypoint_scheduler import WAYPOINT_ADVANCE_MODES
+from continuum_sim.tasks.engine_cleaning_path import EngineCleaningPathSpec
+from continuum_sim.tasks.navigation_mission import NavigationMissionSpec
+from continuum_sim.tasks.trajectory_generation import TrajectorySpec
+from continuum_sim.tasks.wiping_path import WipingPathSpec
 
 
 BACKEND_TYPES = ("analytic", "mujoco")
-TASK_TYPES = ("idle", "tracking", "navigation", "wiping")
+TASK_TYPES = ("idle", "tracking", "navigation", "wiping", "engine_cleaning")
+WIPING_CONTROL_TYPES = ("contact_distance", "hybrid_force_position", "dynamic_adaptive_impedance")
+MUJOCO_FEEDBACK_MODES = ("pcc_command", "mujoco_actual")
+VIDEO_MODES = ("replay", "live_mujoco")
 
 
 @dataclass(frozen=True)
@@ -34,14 +43,31 @@ class ScenarioSceneConfig:
 class ScenarioTaskConfig:
     type: str
     waypoints_world: np.ndarray
+    waypoint_source: str
     waypoint_tolerance_m: float
     observer_roi_world: np.ndarray | None
     loop: bool
+    target_advance_mode: str
+    advance_time_s: float | None
+    advance_steps: int | None
     min_clearance_m: float
     terminate_on_clearance_violation: bool
     surface_normal_world: np.ndarray
     target_contact_distance_m: float
     contact_tolerance_m: float
+    trajectory: TrajectorySpec | None
+    mission: NavigationMissionSpec | None
+    wiping_path: WipingPathSpec | None
+    engine_cleaning: EngineCleaningPathSpec | None
+    waypoint_phases: tuple[str, ...]
+    target_force_n: np.ndarray
+    wiping_control_type: str
+    feedback_mode: str
+    normal_force_gain: float
+    target_normal_force_n: float
+    force_proxy_stiffness_n_m: float
+    max_contact_force_n: float | None
+    contact_loss_tolerance_steps: int
 
 
 @dataclass(frozen=True)
@@ -58,6 +84,11 @@ class ScenarioHookConfig:
     tendon_debug_stride: int
     viewer: str
     keep_viewer_open: bool
+    show_live_tendon_panel: bool
+    live_tendon_panel_stride: int
+    show_live_force_panel: bool
+    live_force_panel_stride: int
+    live_force_panel_history_points: int
 
 
 @dataclass(frozen=True)
@@ -68,6 +99,7 @@ class ScenarioArtifactConfig:
     save_plots: bool
     save_gif: bool
     save_model: bool
+    video_mode: str
     video_fps: int
     video_stride: int | None
 
@@ -99,11 +131,45 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     task_type = str(task_values.get("type", "idle"))
     if task_type not in TASK_TYPES:
         raise ValueError(f"scenario.task.type must be one of {TASK_TYPES}.")
+    trajectory = (
+        None
+        if task_values.get("trajectory") is None
+        else TrajectorySpec.from_mapping(
+            _mapping(task_values["trajectory"], "scenario.task.trajectory"),
+            base_path=config_path,
+        )
+    )
+    mission = (
+        None
+        if task_values.get("mission") is None
+        else NavigationMissionSpec.from_mapping(
+            _mapping(task_values["mission"], "scenario.task.mission")
+        )
+    )
+    wiping_path = (
+        None
+        if task_values.get("wiping_path") is None
+        else WipingPathSpec.from_mapping(
+            _mapping(task_values["wiping_path"], "scenario.task.wiping_path")
+        )
+    )
+    engine_cleaning = (
+        None
+        if task_values.get("engine_cleaning") is None
+        else EngineCleaningPathSpec.from_mapping(
+            _mapping(task_values["engine_cleaning"], "scenario.task.engine_cleaning")
+        )
+    )
+    waypoint_source = _waypoint_source(task_values)
     waypoints = np.asarray(task_values.get("waypoints_world", []), dtype=float)
     if task_type == "idle":
         waypoints = np.zeros((0, 3), dtype=float)
-    elif waypoints.ndim != 2 or waypoints.shape[1] != 3 or waypoints.shape[0] == 0:
+    elif waypoint_source == "waypoints_world" and (
+        waypoints.ndim != 2 or waypoints.shape[1] != 3 or waypoints.shape[0] == 0
+    ):
         raise ValueError("Non-idle scenario tasks require waypoints_world with shape (N, 3).")
+    elif waypoint_source != "waypoints_world":
+        waypoints = np.zeros((0, 3), dtype=float)
     roi_raw = task_values.get("observer_roi_world")
     roi = None if roi_raw is None else np.asarray(roi_raw, dtype=float)
     if roi is not None and roi.shape != (3,):
@@ -119,6 +185,24 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     hook_values = _mapping(values.get("hooks", {}), "scenario.hooks")
     scene_values = _mapping(values.get("scene", {}), "scenario.scene")
     artifact_values = _mapping(values.get("artifacts", {}), "scenario.artifacts")
+    video_mode = str(artifact_values.get("video_mode", "replay"))
+    if video_mode not in VIDEO_MODES:
+        raise ValueError(f"scenario.artifacts.video_mode must be one of {VIDEO_MODES}.")
+    if (
+        backend_type != "mujoco"
+        and bool(artifact_values.get("save_gif", True))
+        and video_mode == "live_mujoco"
+    ):
+        raise ValueError("scenario.artifacts.video_mode='live_mujoco' requires a MuJoCo backend.")
+    target_advance_mode = str(task_values.get("target_advance_mode", "tolerance"))
+    if target_advance_mode not in WAYPOINT_ADVANCE_MODES:
+        raise ValueError(f"scenario.task.target_advance_mode must be one of {WAYPOINT_ADVANCE_MODES}.")
+    wiping_control_type = str(task_values.get("wiping_control_type", "contact_distance"))
+    if wiping_control_type not in WIPING_CONTROL_TYPES:
+        raise ValueError(f"scenario.task.wiping_control_type must be one of {WIPING_CONTROL_TYPES}.")
+    feedback_mode = str(task_values.get("feedback_mode", "mujoco_actual"))
+    if feedback_mode not in MUJOCO_FEEDBACK_MODES:
+        raise ValueError(f"scenario.task.feedback_mode must be one of {MUJOCO_FEEDBACK_MODES}.")
     viewer = str(hook_values.get("viewer", "none"))
     if viewer not in ("none", "matplotlib", "mujoco"):
         raise ValueError("scenario.hooks.viewer must be none, matplotlib, or mujoco.")
@@ -162,9 +246,17 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
         task=ScenarioTaskConfig(
             type=task_type,
             waypoints_world=waypoints.copy(),
+            waypoint_source=waypoint_source,
             waypoint_tolerance_m=float(task_values.get("waypoint_tolerance_m", 0.001)),
             observer_roi_world=None if roi is None else roi.copy(),
             loop=bool(task_values.get("loop", False)),
+            target_advance_mode=target_advance_mode,
+            advance_time_s=_optional_float(task_values.get("advance_time_s")),
+            advance_steps=(
+                None
+                if task_values.get("advance_steps") is None
+                else int(task_values["advance_steps"])
+            ),
             min_clearance_m=float(task_values.get("min_clearance_m", 0.01)),
             terminate_on_clearance_violation=bool(
                 task_values.get("terminate_on_clearance_violation", True)
@@ -174,6 +266,23 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
                 task_values.get("target_contact_distance_m", 0.0)
             ),
             contact_tolerance_m=float(task_values.get("contact_tolerance_m", 0.002)),
+            trajectory=trajectory,
+            mission=mission,
+            wiping_path=wiping_path,
+            engine_cleaning=engine_cleaning,
+            waypoint_phases=tuple(str(value) for value in task_values.get("waypoint_phases", ())),
+            target_force_n=np.asarray(task_values.get("target_force_n", []), dtype=float),
+            wiping_control_type=wiping_control_type,
+            feedback_mode=feedback_mode,
+            normal_force_gain=float(task_values.get("normal_force_gain", 0.0)),
+            target_normal_force_n=float(task_values.get("target_normal_force_n", 0.0)),
+            force_proxy_stiffness_n_m=float(
+                task_values.get("force_proxy_stiffness_n_m", 600.0)
+            ),
+            max_contact_force_n=_optional_float(task_values.get("max_contact_force_n")),
+            contact_loss_tolerance_steps=int(
+                task_values.get("contact_loss_tolerance_steps", 20)
+            ),
         ),
         runtime=ScenarioRuntimeConfig(
             controller_dt_s=float(runtime_values.get("controller_dt_s", 0.02)),
@@ -186,6 +295,13 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             tendon_debug_stride=int(hook_values.get("tendon_debug_stride", 1)),
             viewer=viewer,
             keep_viewer_open=bool(hook_values.get("keep_viewer_open", True)),
+            show_live_tendon_panel=bool(hook_values.get("show_live_tendon_panel", False)),
+            live_tendon_panel_stride=int(hook_values.get("live_tendon_panel_stride", 1)),
+            show_live_force_panel=bool(hook_values.get("show_live_force_panel", False)),
+            live_force_panel_stride=int(hook_values.get("live_force_panel_stride", 1)),
+            live_force_panel_history_points=int(
+                hook_values.get("live_force_panel_history_points", 300)
+            ),
         ),
         artifacts=ScenarioArtifactConfig(
             enabled=bool(artifact_values.get("enabled", task_type != "idle")),
@@ -197,6 +313,7 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             save_plots=bool(artifact_values.get("save_plots", True)),
             save_gif=bool(artifact_values.get("save_gif", True)),
             save_model=bool(artifact_values.get("save_model", True)),
+            video_mode=video_mode,
             video_fps=int(artifact_values.get("video_fps", 20)),
             video_stride=(
                 None
@@ -213,6 +330,19 @@ def _mapping(value: object, name: str) -> dict:
     return value
 
 
+def _waypoint_source(task_values: dict[str, Any]) -> str:
+    sources = [
+        name
+        for name in ("waypoints_world", "trajectory", "mission", "wiping_path", "engine_cleaning")
+        if task_values.get(name) is not None
+    ]
+    if not sources:
+        return "waypoints_world"
+    if len(sources) > 1:
+        raise ValueError(f"scenario.task defines multiple waypoint sources: {sources}.")
+    return sources[0]
+
+
 def _required(values: dict, name: str, section: str) -> object:
     if name not in values:
         raise ValueError(f"Missing required field {section}.{name}.")
@@ -223,3 +353,9 @@ def _optional_path(config_path: Path, value: object) -> Path | None:
     if value in (None, ""):
         return None
     return resolve_path(config_path, value)
+
+
+def _optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    return float(value)

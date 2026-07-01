@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from continuum_sim.control.waypoint_scheduler import WaypointScheduler
 from continuum_sim.control.coordinated_tracking import (
     CoordinatedTrackingController,
     CoordinatedTrackingTarget,
@@ -38,6 +39,10 @@ class WaypointTrackingController:
         waypoint_tolerance_m: float = 1.0e-3,
         observer_roi_world: np.ndarray | None = None,
         loop: bool = False,
+        target_advance_mode: str = "tolerance",
+        controller_dt_s: float = 0.02,
+        advance_time_s: float | None = None,
+        advance_steps: int | None = None,
         scene_query: EngineSceneQueryProtocol | None = None,
     ) -> None:
         waypoints = np.asarray(waypoints_world, dtype=float)
@@ -56,8 +61,15 @@ class WaypointTrackingController:
         if self.observer_roi_world is not None and self.observer_roi_world.shape != (3,):
             raise ValueError("observer_roi_world must have shape (3,).")
         self.loop = loop
-        self.active_index = 0
-        self.done = False
+        self.scheduler = WaypointScheduler(
+            waypoint_count=waypoints.shape[0],
+            mode=target_advance_mode,
+            tolerance_m=self.waypoint_tolerance_m,
+            loop=loop,
+            controller_dt_s=controller_dt_s,
+            step_interval=advance_steps,
+            time_interval_s=advance_time_s,
+        )
         self._executor_name = _single_role_name(assembly, "executor")
         self._controller = CoordinatedTrackingController(
             assembly,
@@ -69,11 +81,18 @@ class WaypointTrackingController:
     def last_diagnostics(self) -> dict[str, object]:
         return self._controller.last_diagnostics
 
+    @property
+    def active_index(self) -> int:
+        return self.scheduler.active_index
+
+    @property
+    def done(self) -> bool:
+        return self.scheduler.done
+
     def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
         position = state.arms[self._executor_name].tip_pose_world.position
         error = self.waypoints_world[self.active_index] - position
-        if float(np.linalg.norm(error)) <= self.waypoint_tolerance_m:
-            self._advance()
+        self.scheduler.update(error_norm_m=float(np.linalg.norm(error)))
         if self.done:
             return RobotSystemCommand.zeros(
                 {
@@ -91,6 +110,7 @@ class WaypointTrackingController:
                 **command.metadata,
                 "task_type": "tracking",
                 "waypoint_index": self.active_index,
+                "target_advance_mode": self.scheduler.mode,
                 "executor_target_world": target.executor_position_world.copy(),
                 "executor_error_m": float(np.linalg.norm(
                     target.executor_position_world - position
@@ -103,14 +123,6 @@ class WaypointTrackingController:
             executor_position_world=self.waypoints_world[self.active_index],
             observer_roi_position_world=self.observer_roi_world,
         )
-
-    def _advance(self) -> None:
-        if self.active_index < self.waypoints_world.shape[0] - 1:
-            self.active_index += 1
-        elif self.loop:
-            self.active_index = 0
-        else:
-            self.done = True
 
 
 class NavigationController:
@@ -126,6 +138,10 @@ class NavigationController:
         min_clearance_m: float,
         terminate_on_clearance_violation: bool,
         observer_roi_world: np.ndarray | None = None,
+        target_advance_mode: str = "tolerance",
+        controller_dt_s: float = 0.02,
+        advance_time_s: float | None = None,
+        advance_steps: int | None = None,
     ) -> None:
         if scene_query is None:
             raise ValueError("NavigationController requires a scene query.")
@@ -134,6 +150,10 @@ class NavigationController:
             waypoints_world,
             waypoint_tolerance_m=waypoint_tolerance_m,
             observer_roi_world=observer_roi_world,
+            target_advance_mode=target_advance_mode,
+            controller_dt_s=controller_dt_s,
+            advance_time_s=advance_time_s,
+            advance_steps=advance_steps,
             scene_query=scene_query,
         )
         self.scene_query = scene_query
@@ -188,11 +208,25 @@ class WipingController:
         surface_normal_world: np.ndarray,
         target_contact_distance_m: float,
         contact_tolerance_m: float,
+        target_advance_mode: str = "tolerance",
+        controller_dt_s: float = 0.02,
+        advance_time_s: float | None = None,
+        advance_steps: int | None = None,
+        phases: tuple[str, ...] = (),
+        target_force_n: np.ndarray | None = None,
+        control_type: str = "contact_distance",
+        normal_force_gain: float = 0.0,
+        force_proxy_stiffness_n_m: float = 600.0,
+        max_contact_force_n: float | None = None,
     ) -> None:
         self._tracking = WaypointTrackingController(
             assembly,
             waypoints_world,
             waypoint_tolerance_m=waypoint_tolerance_m,
+            target_advance_mode=target_advance_mode,
+            controller_dt_s=controller_dt_s,
+            advance_time_s=advance_time_s,
+            advance_steps=advance_steps,
             # Contact regulation intentionally replaces generic clearance
             # avoidance for the executor at the wiping surface.
             scene_query=None,
@@ -201,6 +235,19 @@ class WipingController:
         self.surface_normal_world = np.asarray(surface_normal_world, dtype=float)
         self.target_contact_distance_m = target_contact_distance_m
         self.contact_tolerance_m = contact_tolerance_m
+        self.phases = tuple(phases)
+        force = (
+            np.zeros(self._tracking.waypoints_world.shape[0], dtype=float)
+            if target_force_n is None
+            else np.asarray(target_force_n, dtype=float)
+        )
+        if force.shape != (self._tracking.waypoints_world.shape[0],):
+            raise ValueError("target_force_n must match waypoint count.")
+        self.target_force_n = force
+        self.control_type = control_type
+        self.normal_force_gain = float(normal_force_gain)
+        self.force_proxy_stiffness_n_m = float(force_proxy_stiffness_n_m)
+        self.max_contact_force_n = max_contact_force_n
         self.phase = "approach"
 
     @property
@@ -210,13 +257,16 @@ class WipingController:
     def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
         executor = next(arm for arm in state.arms.values() if arm.role == "executor")
         distance = float("nan")
+        query = None
         if self.scene_query is not None:
             query = self.scene_query.nearest_distance(executor.tip_pose_world.position)
             distance = float(query.distance_m)
-        if self._tracking.active_index == 0:
+        if self.phases:
+            self.phase = self.phases[self._tracking.active_index]
+        elif self._tracking.active_index == 0:
             self.phase = "approach"
         elif self._tracking.active_index == self._tracking.waypoints_world.shape[0] - 1:
-            self.phase = "retract"
+            self.phase = "retreat"
         else:
             self.phase = "contact"
         contact_error = (
@@ -224,14 +274,31 @@ class WipingController:
             if not np.isfinite(distance)
             else self.target_contact_distance_m - distance
         )
+        estimated_force = (
+            float("nan")
+            if not np.isfinite(distance)
+            else max(0.0, -distance * self.force_proxy_stiffness_n_m)
+        )
         waypoint_index = self._tracking.active_index
+        target_force = float(self.target_force_n[waypoint_index])
+        force_error = (
+            float("nan")
+            if not np.isfinite(estimated_force)
+            else target_force - estimated_force
+        )
         original_waypoint = self._tracking.waypoints_world[waypoint_index].copy()
-        if self.phase == "contact" and np.isfinite(contact_error):
-            query = self.scene_query.nearest_distance(
-                executor.tip_pose_world.position
-            )
+        if self.phase == "contact" and np.isfinite(contact_error) and query is not None:
+            normal_correction = contact_error
+            if (
+                self.control_type in ("hybrid_force_position", "dynamic_adaptive_impedance")
+                and target_force > 0.0
+                and np.isfinite(force_error)
+            ):
+                normal_correction += self.normal_force_gain * (
+                    force_error / max(self.force_proxy_stiffness_n_m, 1.0e-12)
+                )
             self._tracking.waypoints_world[waypoint_index] = (
-                original_waypoint + contact_error * query.normal
+                original_waypoint + normal_correction * query.normal
             )
         try:
             command = self._tracking.compute_command(state)
@@ -244,6 +311,13 @@ class WipingController:
                 **command.metadata,
                 "task_type": "wiping",
                 "wiping_phase": self.phase,
+                "wiping_control_type": self.control_type,
+                "target_normal_force_n": float(self.target_force_n[waypoint_index]),
+                "estimated_normal_force_n": estimated_force,
+                "force_error_n": force_error,
+                "normal_force_gain": self.normal_force_gain,
+                "force_proxy_stiffness_n_m": self.force_proxy_stiffness_n_m,
+                "max_contact_force_n": self.max_contact_force_n,
                 "contact_distance_m": distance,
                 "contact_error_m": contact_error,
                 "contact_established": bool(

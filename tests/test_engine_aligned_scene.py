@@ -40,7 +40,7 @@ def test_engine_scene_preserves_entry_region_and_exploration_metadata() -> None:
     assert config.engine.scale == pytest.approx(0.001)
     assert config.engine.pose.position_m.tolist() == pytest.approx([0.0, 0.0, 0.0])
     assert config.engine.pose.quat_wxyz.tolist() == pytest.approx([1.0, 0.0, 0.0, 0.0])
-    assert set(config.regions) == {"entry_port"}
+    assert set(config.regions) == {"entry_port", "cleaning_patch"}
     assert len(hints) == 1
     assert hints[0].name == "debug_box_1"
     assert hints[0].frame == "world"

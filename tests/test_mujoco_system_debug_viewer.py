@@ -5,6 +5,7 @@ from numpy.testing import assert_allclose
 
 from continuum_sim.visualization.mujoco_system_debug_viewer import (
     named_system_target,
+    normalize_target_mm,
     target_rates,
 )
 
@@ -42,3 +43,15 @@ def test_named_system_target_addresses_arms_by_name() -> None:
     assert np.count_nonzero(single["executor"]) == 0
     assert_allclose(triplet["executor"][:3], [-0.001, -0.001, -0.001])
     assert np.count_nonzero(triplet["observer"]) == 0
+
+
+def test_normalize_target_mm_accepts_and_clips_finite_values() -> None:
+    assert normalize_target_mm("12.5", -20.0, 20.0, 0.0) == 12.5
+    assert normalize_target_mm("25", -20.0, 20.0, 0.0) == 20.0
+    assert normalize_target_mm("-25", -20.0, 20.0, 0.0) == -20.0
+
+
+def test_normalize_target_mm_restores_fallback_for_invalid_values() -> None:
+    assert normalize_target_mm("not-a-number", -20.0, 20.0, 3.25) == 3.25
+    assert normalize_target_mm("nan", -20.0, 20.0, 3.25) == 3.25
+    assert normalize_target_mm("inf", -20.0, 20.0, 3.25) == 3.25

@@ -1,4 +1,4 @@
-"""Executor/observer whole-body tracking with direct tendon-rate commands."""
+"""Executor-primary tracking with observer-only avoidance and observation."""
 
 from __future__ import annotations
 
@@ -66,7 +66,12 @@ class CoordinatedTrackingTarget:
 
 @dataclass(frozen=True)
 class CoordinatedTrackingConfig:
-    """Task gains and executor/observer safety distances."""
+    """Task gains and executor/observer safety distances.
+
+    Executor tracking is the primary task. Observer avoidance and observation
+    objectives are projected onto observer tendons only, so they cannot pull the
+    executor or shared base away from the tracking trajectory.
+    """
 
     executor_position_gain: float = 4.0
     observer_position_gain: float = 5.0
@@ -80,7 +85,7 @@ class CoordinatedTrackingConfig:
 
 
 class CoordinatedTrackingController:
-    """Build executor, observer, and collision tasks from named system state."""
+    """Build executor-primary tracking and observer-only secondary tasks."""
 
     def __init__(
         self,
@@ -107,6 +112,8 @@ class CoordinatedTrackingController:
             for arm in self.assembly.enabled_arms
         }
         tasks: list[WholeBodyTask] = []
+        observer_collision_active = False
+        observer_tracking_active = False
         executor_name = self._arm_name_for_role("executor")
         executor_state = state.arms[executor_name]
         executor_error = (
@@ -124,41 +131,45 @@ class CoordinatedTrackingController:
 
         observer_name = self._optional_arm_name_for_role("observer")
         if observer_name is not None:
-            observer_state = state.arms[observer_name]
-            desired_observer = (
-                executor_state.tip_pose_world.position
-                + self.target.observer_executor_offset_world
-            )
-            if self.target.observer_roi_position_world is not None:
-                blend = self.target.observer_roi_blend
-                desired_observer = (
-                    (1.0 - blend) * desired_observer
-                    + blend * self.target.observer_roi_position_world
-                )
-            tasks.append(
-                WholeBodyTask(
-                    name="observer_tracking",
-                    jacobian=jacobians[observer_name],
-                    target_velocity=self.config.observer_position_gain
-                    * (desired_observer - observer_state.tip_pose_world.position),
-                    weight=self.solver.weight_for("observer_tracking"),
-                )
-            )
             collision_task = self._inter_arm_collision_task(
                 state,
                 executor_name,
                 observer_name,
-                jacobians,
             )
             if collision_task is not None:
                 tasks.append(collision_task)
+                observer_collision_active = True
+            else:
+                observer_state = state.arms[observer_name]
+                desired_observer = (
+                    executor_state.tip_pose_world.position
+                    + self.target.observer_executor_offset_world
+                )
+                if self.target.observer_roi_position_world is not None:
+                    blend = self.target.observer_roi_blend
+                    desired_observer = (
+                        (1.0 - blend) * desired_observer
+                        + blend * self.target.observer_roi_position_world
+                    )
+                tasks.append(
+                    WholeBodyTask(
+                        name="observer_tracking",
+                        jacobian=self._observer_only_jacobian(
+                            jacobians[observer_name],
+                            observer_name,
+                        ),
+                        target_velocity=self.config.observer_position_gain
+                        * (desired_observer - observer_state.tip_pose_world.position),
+                        weight=self.solver.weight_for("observer_tracking"),
+                    )
+                )
+                observer_tracking_active = True
 
         if self.scene_query is not None:
             for arm in self.assembly.enabled_arms:
                 scene_task = self._engine_collision_task(
                     state,
                     arm.name,
-                    jacobians[arm.name],
                 )
                 if scene_task is not None:
                     tasks.append(scene_task)
@@ -166,6 +177,8 @@ class CoordinatedTrackingController:
         self.last_diagnostics = {
             "whole_body_singularity": result.singularity,
             "residual_norm": result.residual_norm,
+            "observer_collision_active": observer_collision_active,
+            "observer_tracking_active": observer_tracking_active,
             "tendon_mapping_singularity": {
                 arm.name: analyze_tendon_mapping(
                     arm.spatial_arm.params,
@@ -214,14 +227,23 @@ class CoordinatedTrackingController:
             jacobian_world,
         )
 
+    def _observer_only_jacobian(
+        self,
+        jacobian: np.ndarray,
+        observer_name: str,
+    ) -> np.ndarray:
+        result = np.zeros_like(jacobian)
+        observer_slice = self.solver.layout.arms[observer_name]
+        result[:, observer_slice] = jacobian[:, observer_slice]
+        return result
+
     def _inter_arm_collision_task(
         self,
         state: RobotSystemState,
         executor_name: str,
         observer_name: str,
-        jacobians: dict[str, np.ndarray],
     ) -> WholeBodyTask | None:
-        executor_centerline, executor_q, executor_mount = self._world_centerline(
+        executor_centerline, _, _ = self._world_centerline(
             state,
             executor_name,
         )
@@ -246,14 +268,6 @@ class CoordinatedTrackingController:
             if distance > 1.0e-12
             else np.array([0.0, -1.0, 0.0], dtype=float)
         )
-        executor_point_jacobian = self._centerline_system_jacobian(
-            state,
-            executor_name,
-            executor_q,
-            executor_mount,
-            int(executor_index),
-            executor_point,
-        )
         observer_point_jacobian = self._centerline_system_jacobian(
             state,
             observer_name,
@@ -262,8 +276,9 @@ class CoordinatedTrackingController:
             int(observer_index),
             observer_point,
         )
-        relative_jacobian = normal[None, :] @ (
-            observer_point_jacobian - executor_point_jacobian
+        relative_jacobian = normal[None, :] @ self._observer_only_jacobian(
+            observer_point_jacobian,
+            observer_name,
         )
         desired_speed = self.config.inter_arm_avoidance_gain * max(
             self.config.inter_arm_min_distance_m - distance,
@@ -328,9 +343,7 @@ class CoordinatedTrackingController:
         self,
         state: RobotSystemState,
         arm_name: str,
-        jacobian: np.ndarray,
     ) -> WholeBodyTask | None:
-        del jacobian
         centerline, q, mount = self._world_centerline(state, arm_name)
         queries = [self.scene_query.nearest_distance(point) for point in centerline]
         centerline_index = int(np.argmin([query.distance_m for query in queries]))
@@ -345,6 +358,8 @@ class CoordinatedTrackingController:
             centerline_index,
             centerline[centerline_index],
         )
+        if self.assembly.arms[arm_name].role == "observer":
+            point_jacobian = self._observer_only_jacobian(point_jacobian, arm_name)
         desired_speed = self.config.engine_avoidance_gain * max(
             self.config.engine_min_clearance_m - query.distance_m,
             0.0,

@@ -9,6 +9,8 @@ import numpy as np
 
 from continuum_sim.model.base_pose import Pose6D
 
+ARM_CONTROL_SPACES = ("bending_compatible", "raw_tendon_debug")
+
 
 @dataclass(frozen=True)
 class BaseSystemState:
@@ -92,11 +94,17 @@ class ArmTendonRateCommand:
     """Direct tendon-length change rate for one arm, in metres per second."""
 
     tendon_rate_mps: np.ndarray
+    control_space: str = "bending_compatible"
 
     def __post_init__(self) -> None:
         values = np.asarray(self.tendon_rate_mps, dtype=float)
         if values.ndim != 1 or not np.all(np.isfinite(values)):
             raise ValueError("tendon_rate_mps must be a finite 1D array.")
+        if self.control_space not in ARM_CONTROL_SPACES:
+            raise ValueError(
+                f"control_space must be one of {ARM_CONTROL_SPACES}, "
+                f"got {self.control_space!r}."
+            )
         object.__setattr__(self, "tendon_rate_mps", values.copy())
 
 

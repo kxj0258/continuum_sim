@@ -24,6 +24,6 @@ spatial_arm:
     - {local_index: 7, anchor_segment_index: 2, angle_deg: 150.0, radial_offset_m: 0.00625, path_segment_indices: [0, 1, 2]}
     - {local_index: 8, anchor_segment_index: 2, angle_deg: 270.0, radial_offset_m: 0.00625, path_segment_indices: [0, 1, 2]}
   limits:
-    min_tendon_displacement_m: -0.020
-    max_tendon_displacement_m: 0.020
-    max_tendon_rate_mps: 0.010
+    min_tendon_displacement_m: -0.050
+    max_tendon_displacement_m: 0.050
+    max_tendon_rate_mps: 1.0

@@ -22,7 +22,7 @@ scenario:
         center_mode: straight_tip_xy
         z_mode: straight_tip_minus_radius
         plane: xy
-        yaw_deg: 15.0
+        yaw_deg: 60.0
       shape:
         side_length_m: 0.040
   runtime:

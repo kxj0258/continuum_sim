@@ -2,7 +2,7 @@ schema_version: 1
 robot_assembly:
   name: dual_spatial_executor_observer
   base:
-    control_mode: prescribed_twist
+    control_mode: fixed #prescribed_twist
     command_frame: world
     initial_pose:
       position_m: [0.0, 0.0, 0.0]

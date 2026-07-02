@@ -1,5 +1,6 @@
 """Robot parameter and routing definitions."""
 
+from continuum_sim.model.bending_space import BendingSpaceModel
 from continuum_sim.model.physical_tendon import (
     PhysicalTendonPath,
     load_physical_tendons_from_yaml,
@@ -36,6 +37,7 @@ from continuum_sim.model.tendon_coupling import (
 )
 
 __all__ = [
+    "BendingSpaceModel",
     "PhysicalTendonPath",
     "DualArmRobotConfig",
     "MobileBaseArmContext",

@@ -206,9 +206,13 @@ python scripts/debug_mujoco.py configs/scenarios/single_mujoco_tracking.yaml
 python scripts/debug_mujoco.py configs/scenarios/dual_mujoco_tracking.yaml --panel-only
 ```
 
-调试器提供每根肌腱的绝对目标位移滑块、Reset、Zero、Step、Run/Pause，以及单根
-肌腱、第一段三根肌腱和全部肌腱的预设命令。滑块目标会转换成受 assembly
-`max_tendon_rate_mps` 限制的 `RobotSystemCommand`，不会绕开新的系统控制边界。
+调试器为每根肌腱提供同步的目标位移滑块和数值输入框，二者统一使用 mm。拖动
+滑块会刷新输入框；在输入框按 Enter 会更新并裁剪对应滑块，但不会自动推进
+仿真，仍需使用 Step 或 Run。Reset、Zero 和预设命令也会同步刷新两种控件。
+
+界面还提供单根肌腱、第一段三根肌腱和全部肌腱的预设命令。UI 在边界处把 mm
+转换为 m，再生成受 assembly `max_tendon_rate_mps` 限制的
+`RobotSystemCommand`，不会改变后端的 SI 单位或绕开新的系统控制边界。
 
 ## 运行产物
 
@@ -258,6 +262,16 @@ artifacts:
 ```
 
 `live_mujoco` 会在仿真循环中写入真实 MuJoCo 场景画面，并叠加与 viewer 一致的目标点、目标轨迹和 executor 实际轨迹；结束后把临时 GIF 移入本次 `output/runs/.../videos/`。如果本机 MuJoCo `Renderer` / OpenGL 上下文初始化失败，仿真和 NPZ、metadata、plots 仍会继续保存，视频错误会记录到 `metadata.json.errors` 和 `videos/video_error.txt`。
+
+### MuJoCo overlay 标记
+
+`configs/mujoco_dual.yaml` 的 `viewer.overlays.segment_endpoints` 用于在运行时叠加每个 segment 末端标记；默认 executor 为红色，observer 为黄色。该标记不修改 MuJoCo XML，也不影响 tendon 走线或控制逻辑；使用 `artifacts.video_mode: live_mujoco` 时会一并录入 `simulation.gif`。
+
+### Dual tracking 控制逻辑
+
+双臂 tracking 采用 executor-primary 控制：executor 主臂只执行目标轨迹追踪主任务；observer 从臂的避碰和观测任务只作用在 observer 自身 tendon 上，不能反向拉动 executor 或共享 base。observer 与 executor 距离进入避碰影响范围时，observer 优先执行双臂避碰；距离安全后再执行相对主臂/ROI 的观测任务。
+
+当 assembly 的 `base.control_mode: fixed` 时，控制布局会移除 base DOF，whole-body Jacobian 只包含各臂 tendon-rate 变量；此时控制器按纯肌腱驱动求解，而不是先求 base 速度再清零。
 
 ## 架构概览
 

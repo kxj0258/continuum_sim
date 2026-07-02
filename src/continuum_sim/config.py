@@ -144,6 +144,10 @@ class MujocoViewerOverlayConfig:
     target_marker: bool
     target_marker_radius: float
     target_marker_rgba: tuple[float, float, float, float]
+    segment_endpoints: bool
+    segment_endpoint_radius: float
+    executor_segment_endpoint_rgba: tuple[float, float, float, float]
+    observer_segment_endpoint_rgba: tuple[float, float, float, float]
     tip_trail: bool
     target_trail: bool
     trail_max_points: int
@@ -592,6 +596,19 @@ def _load_mujoco_viewer_overlay_config(
         target_marker_rgba=_rgba_tuple(
             values.get("target_marker_rgba", (1.0, 0.12, 0.08, 1.0)),
             "viewer.overlays.target_marker_rgba",
+        ),
+        segment_endpoints=_bool(values, "segment_endpoints", default=False),
+        segment_endpoint_radius=_positive_float_value(
+            values.get("segment_endpoint_radius", 0.003),
+            "viewer.overlays.segment_endpoint_radius",
+        ),
+        executor_segment_endpoint_rgba=_rgba_tuple(
+            values.get("executor_segment_endpoint_rgba", (1.0, 0.0, 0.0, 1.0)),
+            "viewer.overlays.executor_segment_endpoint_rgba",
+        ),
+        observer_segment_endpoint_rgba=_rgba_tuple(
+            values.get("observer_segment_endpoint_rgba", (1.0, 0.85, 0.0, 1.0)),
+            "viewer.overlays.observer_segment_endpoint_rgba",
         ),
         tip_trail=_bool(values, "tip_trail", default=True),
         target_trail=_bool(values, "target_trail", default=True),

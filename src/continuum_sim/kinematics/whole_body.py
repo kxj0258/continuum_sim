@@ -131,7 +131,7 @@ def assemble_whole_body_jacobian(
     base_jacobian: np.ndarray,
     arm_jacobian: np.ndarray,
 ) -> np.ndarray:
-    """Insert base and one named arm Jacobian into the system layout."""
+    """Insert active base and one named arm Jacobian into the system layout."""
 
     base = np.asarray(base_jacobian, dtype=float)
     arm = np.asarray(arm_jacobian, dtype=float)
@@ -147,7 +147,8 @@ def assemble_whole_body_jacobian(
             f"got {arm.shape}."
         )
     result = np.zeros((base.shape[0], layout.size), dtype=float)
-    result[:, layout.base] = base
+    if layout.base_size:
+        result[:, layout.base] = base
     result[:, arm_slice] = arm
     return result
 

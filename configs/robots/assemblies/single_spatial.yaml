@@ -2,7 +2,7 @@ schema_version: 1
 robot_assembly:
   name: single_spatial_executor
   base:
-    control_mode: prescribed_twist
+    control_mode: fixed #prescribed_twist
     command_frame: world
     initial_pose:
       position_m: [0.0, 0.0, 0.0]
@@ -21,5 +21,5 @@ robot_assembly:
       spatial_arm_config_path: ../spatial_arm_executor.yaml
       attachment: carbon_remover
       mount_pose:
-        position_m: [0.0, 0.0, 0.025]
+        position_m: [0.0, 0.01, 0.02]
         quat_wxyz: [1.0, 0.0, 0.0, 0.0]

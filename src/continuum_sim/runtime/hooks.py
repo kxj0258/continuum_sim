@@ -232,6 +232,7 @@ class MujocoLiveVideoRecorderHook:
                 self.backend.config.viewer.overlays,
                 self._target_trail,
                 self._tip_trail,
+                state=state,
                 reset_scene=False,
             )
             frame = self._renderer.render().copy()
@@ -527,6 +528,7 @@ class MujocoViewerHook:
                 self.backend.config.viewer.overlays,
                 self._target_trail,
                 self._tip_trail,
+                state=state,
             )
             self._viewer.sync()
             viewer_config = self.backend.config.viewer
@@ -590,6 +592,7 @@ def _draw_mujoco_tracking_overlay(
     config,
     target_trail: list[np.ndarray],
     tip_trail: list[np.ndarray],
+    state: RobotSystemState | None = None,
 ) -> None:
     scene = getattr(viewer, "user_scn", None)
     if scene is None:
@@ -600,6 +603,7 @@ def _draw_mujoco_tracking_overlay(
         config,
         target_trail,
         tip_trail,
+        state=state,
         reset_scene=True,
     )
 
@@ -611,6 +615,7 @@ def _draw_tracking_overlay_scene(
     target_trail: list[np.ndarray],
     tip_trail: list[np.ndarray],
     *,
+    state: RobotSystemState | None = None,
     reset_scene: bool,
 ) -> None:
     if reset_scene:
@@ -639,6 +644,31 @@ def _draw_tracking_overlay_scene(
             config.target_trail_radius,
             config.target_trail_rgba,
         )
+    if state is not None and config.segment_endpoints:
+        _draw_segment_endpoint_overlay_scene(scene, mujoco, state, config)
+
+
+def _draw_segment_endpoint_overlay_scene(
+    scene,
+    mujoco,
+    state: RobotSystemState,
+    config,
+) -> None:
+    for arm in state.arms.values():
+        if arm.role == "executor":
+            rgba = config.executor_segment_endpoint_rgba
+        elif arm.role == "observer":
+            rgba = config.observer_segment_endpoint_rgba
+        else:
+            continue
+        for pose in arm.segment_poses_world:
+            _add_overlay_sphere(
+                scene,
+                mujoco,
+                np.asarray(pose, dtype=float)[:3, 3],
+                config.segment_endpoint_radius,
+                rgba,
+            )
 
 
 def _add_overlay_sphere(scene, mujoco, position, radius, rgba) -> None:

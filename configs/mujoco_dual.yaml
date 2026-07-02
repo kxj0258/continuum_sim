@@ -76,6 +76,10 @@ viewer:
     target_marker: true
     target_marker_radius: 0.004
     target_marker_rgba: [1.0, 0.12, 0.08, 1.0]
+    segment_endpoints: true
+    segment_endpoint_radius: 0.003
+    executor_segment_endpoint_rgba: [1.0, 0.0, 0.0, 1.0]
+    observer_segment_endpoint_rgba: [1.0, 0.85, 0.0, 1.0]
     tip_trail: true
     target_trail: true
     trail_max_points: 250

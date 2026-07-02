@@ -26,4 +26,4 @@ spatial_arm:
   limits:
     min_tendon_displacement_m: -0.020
     max_tendon_displacement_m: 0.020
-    max_tendon_rate_mps: 0.010
+    max_tendon_rate_mps: 1.0

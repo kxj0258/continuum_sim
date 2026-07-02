@@ -21,7 +21,7 @@ hole_pattern:
     out_site_rgba: [0.1, 0.4, 1.0, 1.0]
 
   visualization:
-    hole_display: all
+    hole_display: routed
     show_tendons: true
 
   segment_terminal_links:

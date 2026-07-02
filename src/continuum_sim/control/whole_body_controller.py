@@ -58,10 +58,11 @@ class WholeBodySolveResult:
     system_velocity: np.ndarray
     singularity: SingularityReport
     residual_norm: float
+    arm_diagnostics: dict[str, dict[str, object]]
 
 
 class WholeBodyController:
-    """Solve weighted tasks and return world-base/tendon-rate commands."""
+    """Solve base-plus-bending tasks and return compatible tendon rates."""
 
     def __init__(
         self,
@@ -88,6 +89,18 @@ class WholeBodyController:
                     self.config.singularity,
                 ),
                 residual_norm=0.0,
+                arm_diagnostics={
+                    arm.name: self._arm_diagnostics(
+                        arm.name,
+                        np.zeros(
+                            self.layout.arms[arm.name].stop
+                            - self.layout.arms[arm.name].start,
+                            dtype=float,
+                        ),
+                        1.0,
+                    )
+                    for arm in self.assembly.enabled_arms
+                },
             )
         for task in tasks:
             if task.jacobian.shape[1] != self.layout.size:
@@ -113,7 +126,7 @@ class WholeBodyController:
         )
         rhs = augmented_jacobian.T @ augmented_target
         velocity = np.linalg.solve(lhs, rhs) * singularity.velocity_scale
-        velocity = self._apply_limits(velocity)
+        velocity, arm_scales = self._apply_limits(velocity)
         command = self.layout.unflatten(velocity)
         residual = weighted_jacobian @ velocity - weighted_target
         return WholeBodySolveResult(
@@ -121,6 +134,10 @@ class WholeBodyController:
             system_velocity=velocity,
             singularity=singularity,
             residual_norm=float(np.linalg.norm(residual)),
+            arm_diagnostics={
+                name: self._arm_diagnostics(name, velocity[arm_slice], arm_scales[name])
+                for name, arm_slice in self.layout.arms.items()
+            },
         )
 
     def weight_for(self, objective: str) -> float:
@@ -145,8 +162,12 @@ class WholeBodyController:
         diagonal[self.layout.base] = np.sqrt(self.config.base_regularization_weight)
         return np.diag(diagonal)
 
-    def _apply_limits(self, velocity: np.ndarray) -> np.ndarray:
+    def _apply_limits(
+        self,
+        velocity: np.ndarray,
+    ) -> tuple[np.ndarray, dict[str, float]]:
         result = np.asarray(velocity, dtype=float).copy()
+        arm_scales: dict[str, float] = {}
         if self.assembly.base.control_mode == "fixed":
             result[self.layout.base] = 0.0
         else:
@@ -162,7 +183,34 @@ class WholeBodyController:
             )
         for arm in self.assembly.enabled_arms:
             arm_slice = self.layout.arms[arm.name]
+            model = self.layout.bending_models[arm.name]
+            tendon_rate = model.to_tendon(result[arm_slice])
             rate_limit = arm.spatial_arm.limits.max_tendon_rate_mps
-            result[arm_slice] = np.clip(result[arm_slice], -rate_limit, rate_limit)
-        return result
+            ratios = np.divide(
+                rate_limit,
+                np.abs(tendon_rate),
+                out=np.full_like(rate_limit, np.inf),
+                where=np.abs(tendon_rate) > 0.0,
+            )
+            scale = float(min(1.0, np.min(ratios)))
+            result[arm_slice] *= scale
+            arm_scales[arm.name] = scale
+        return result, arm_scales
 
+    def _arm_diagnostics(
+        self,
+        arm_name: str,
+        bending_rate: np.ndarray,
+        scale: float,
+    ) -> dict[str, object]:
+        model = self.layout.bending_models[arm_name]
+        tendon_rate = model.to_tendon(bending_rate)
+        return {
+            "bending_rate_rad_per_m_s": np.asarray(bending_rate, dtype=float).copy(),
+            "tendon_rate_mps": tendon_rate,
+            "compatibility_residual_mps": model.residual(tendon_rate),
+            "compatibility_residual_norm_mps": model.residual_norm(tendon_rate),
+            "limit_scale": float(scale),
+            "bending_mapping_rank": model.rank,
+            "bending_mapping_condition_number": model.condition_number,
+        }

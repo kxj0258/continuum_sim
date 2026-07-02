@@ -9,11 +9,13 @@ from continuum_sim.control.mobile_base_controller import (
     MobileBaseState,
     integrate_base_pose,
 )
-from continuum_sim.control.tendon_rate_control import TendonRateIntegrator, TendonRateLimits
+from continuum_sim.control.tendon_rate_control import (
+    CompatibleTendonRateIntegrator,
+    TendonRateLimits,
+)
 from continuum_sim.kinematics.pcc import forward_kinematics
 from continuum_sim.model.base_pose import Pose6D
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
-from continuum_sim.model.tendon_coupling import physical_tendon_delta_to_q
 from continuum_sim.system.control_layout import ControlLayout
 from continuum_sim.system.types import (
     ArmSystemState,
@@ -24,7 +26,7 @@ from continuum_sim.system.types import (
 
 
 class AnalyticSystemBackend:
-    """Deterministic PCC backend sharing the MuJoCo system contract."""
+    """Deterministic bending-compatible PCC system backend."""
 
     def __init__(
         self,
@@ -40,7 +42,8 @@ class AnalyticSystemBackend:
         self._time_s = 0.0
         self._base_state = self._initial_base_state()
         self._integrators = {
-            arm.name: TendonRateIntegrator(
+            arm.name: CompatibleTendonRateIntegrator(
+                self.layout.bending_models[arm.name],
                 TendonRateLimits(
                     displacement_min_m=arm.spatial_arm.limits.tendon_displacement_min_m,
                     displacement_max_m=arm.spatial_arm.limits.tendon_displacement_max_m,
@@ -96,6 +99,7 @@ class AnalyticSystemBackend:
             step = self._integrators[arm_name].step(
                 arm_command.tendon_rate_mps,
                 dt,
+                raw_debug=arm_command.control_space == "raw_tendon_debug",
             )
             self._last_rates[arm_name] = step.applied_rate_mps
         self._time_s += float(dt)
@@ -105,11 +109,9 @@ class AnalyticSystemBackend:
         arms: dict[str, ArmSystemState] = {}
         for arm in self.assembly.enabled_arms:
             displacement = self._integrators[arm.name].displacement_m
-            q = physical_tendon_delta_to_q(
-                displacement,
-                arm.spatial_arm.params,
-                arm.spatial_arm.tendons,
-            )
+            model = self.layout.bending_models[arm.name]
+            bending = model.estimate(displacement)
+            q = model.to_q(bending)
             fk = forward_kinematics(
                 q,
                 arm.spatial_arm.params,
@@ -131,7 +133,13 @@ class AnalyticSystemBackend:
                 tendon_target_m=displacement,
                 actuator_force_n=np.zeros_like(displacement),
                 centerline_world=world_mount.transform_points(fk.centerline),
-                metadata={"q": q, "backend": "analytic"},
+                metadata={
+                    "q": q,
+                    "bending": bending,
+                    "compatibility_residual_m": model.residual(displacement),
+                    "compatibility_residual_norm_m": model.residual_norm(displacement),
+                    "backend": "analytic",
+                },
             )
         return RobotSystemState(
             time_s=self._time_s,
@@ -140,7 +148,7 @@ class AnalyticSystemBackend:
                 twist_world=self._base_state.last_twist,
             ),
             arms=arms,
-            metadata={"backend": "analytic", "control": "direct_tendon_rate"},
+            metadata={"backend": "analytic", "control": "bending_compatible"},
         )
 
     def _initial_base_state(self) -> MobileBaseState:

@@ -14,9 +14,9 @@ from continuum_sim.backends.base_types import BackendState
 from continuum_sim.config import load_yaml
 from continuum_sim.kinematics import forward_kinematics
 from continuum_sim.model import (
+    BendingSpaceModel,
     ThreeSegmentRobotParams,
     load_physical_tendons_from_yaml,
-    physical_tendon_delta_to_q,
 )
 
 
@@ -81,7 +81,8 @@ class AnalyticBackend:
 
     def _compute_state(self) -> BackendState:
         tendon_delta = motor_position_to_tendon_delta(self._motor_position, self.motor_params)
-        q_est = physical_tendon_delta_to_q(tendon_delta, self.params, self.physical_tendons)
+        model = BendingSpaceModel.from_arm(self.params, self.physical_tendons)
+        q_est = model.to_q(model.estimate(tendon_delta))
         fk = forward_kinematics(
             q_est,
             self.params,

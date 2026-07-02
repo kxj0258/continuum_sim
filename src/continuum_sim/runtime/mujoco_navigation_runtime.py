@@ -21,6 +21,7 @@ from continuum_sim.control.navigation_controller import (
     compute_navigation_motor_velocity_command_from_observation,
 )
 from continuum_sim.model import (
+    BendingSpaceModel,
     ThreeSegmentRobotParams,
     load_physical_tendons_from_yaml,
 )
@@ -103,6 +104,7 @@ def run_mujoco_navigation(
 
     params = ThreeSegmentRobotParams.from_yaml(task_config.robot_config_path)
     physical_tendons = load_physical_tendons_from_yaml(task_config.robot_config_path)
+    bending_model = BendingSpaceModel.from_arm(params, physical_tendons)
     motor_params = load_motor_params_from_yaml(task_config.robot_config_path)
     n_substeps = compute_mujoco_control_substeps(
         task_config.simulation.dt,
@@ -237,6 +239,7 @@ def run_mujoco_navigation(
                     mujoco_control = _clip_tendon_position_control(
                         tendon_delta + task_config.simulation.dt * tendon_velocity_cmd,
                         mujoco_config.actuators.tendon_position.ctrlrange_m,
+                        bending_model=bending_model,
                     )
                 else:
                     controller_motor_position = motor_position.copy()
@@ -257,6 +260,7 @@ def run_mujoco_navigation(
                     mujoco_control = _clip_tendon_position_control(
                         tendon_delta,
                         mujoco_config.actuators.tendon_position.ctrlrange_m,
+                        bending_model=bending_model,
                     )
                 joint_targets = np.zeros((0,), dtype=float)
             else:

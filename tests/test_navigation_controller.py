@@ -3,8 +3,13 @@ from pathlib import Path
 import numpy as np
 
 from continuum_sim.actuation import load_motor_params_from_yaml
+from continuum_sim.actuation.motor_mapping import motor_velocity_to_tendon_velocity
 from continuum_sim.control import compute_navigation_motor_velocity_command
-from continuum_sim.model import ThreeSegmentRobotParams, load_physical_tendons_from_yaml
+from continuum_sim.model import (
+    BendingSpaceModel,
+    ThreeSegmentRobotParams,
+    load_physical_tendons_from_yaml,
+)
 from continuum_sim.scenes import load_navigation_scene_config
 from continuum_sim.tasks import load_mujoco_navigation_config
 
@@ -38,3 +43,7 @@ def test_navigation_controller_reports_clearance_and_avoidance_term() -> None:
     assert np.isfinite(float(info["min_clearance_m"]))
     assert np.asarray(info["centerline"]).shape[1] == 3
     assert np.asarray(info["avoidance_motor_velocity"]).shape == (9,)
+    model = BendingSpaceModel.from_arm(params, physical_tendons)
+    assert model.is_compatible(
+        motor_velocity_to_tendon_velocity(command, motor_params)
+    )

@@ -13,13 +13,14 @@ from continuum_sim.actuation.motor_mapping import (
 from continuum_sim.control.cbf_qp_kinematics import cbf_lower_bound, solve_cbf_qp_velocity
 from continuum_sim.control.differential_ik import damped_least_squares
 from continuum_sim.kinematics.differential import (
-    motor_position_jacobian,
+    bending_position_jacobian,
+    bending_rate_to_motor_velocity,
     motor_velocity_to_qdot_matrix,
 )
 from continuum_sim.kinematics.pcc import forward_kinematics
 from continuum_sim.model.physical_tendon import PhysicalTendonPath
+from continuum_sim.model.bending_space import BendingSpaceModel
 from continuum_sim.model.robot_params import ThreeSegmentRobotParams
-from continuum_sim.model.tendon_coupling import physical_tendon_delta_to_q
 from continuum_sim.scenes.primitives import ClearancePrimitive, DistanceQuery, nearest_clearance
 from continuum_sim.tasks.navigation_config import NavigationControllerConfig
 
@@ -41,7 +42,8 @@ def compute_navigation_motor_velocity_command(
         expected_size=len(motor_params),
     )
     tendon_delta = motor_position_to_tendon_delta(motor_position_array, motor_params)
-    q_est = physical_tendon_delta_to_q(tendon_delta, params, physical_tendons)
+    bending_model = BendingSpaceModel.from_arm(params, physical_tendons)
+    q_est = bending_model.to_q(bending_model.estimate(tendon_delta))
     fk = forward_kinematics(
         q_est,
         params,
@@ -77,7 +79,8 @@ def compute_navigation_motor_velocity_command_from_observation(
         "actual_tendon_delta",
         expected_size=len(physical_tendons),
     )
-    q_est = physical_tendon_delta_to_q(tendon_delta, params, physical_tendons)
+    bending_model = BendingSpaceModel.from_arm(params, physical_tendons)
+    q_est = bending_model.to_q(bending_model.estimate(tendon_delta))
     fk = forward_kinematics(
         q_est,
         params,
@@ -111,11 +114,10 @@ def _compute_navigation_command_from_state(
     _validate_config(config)
     position_error = target_position - tip_position
     desired_tip_velocity = config.position_gain * position_error
-    tip_jacobian = motor_position_jacobian(
+    tip_jacobian = bending_position_jacobian(
         q_est,
         params,
         physical_tendons,
-        motor_params,
         step=config.finite_difference_step_rad,
     )
     track_velocity = damped_least_squares(
@@ -130,18 +132,17 @@ def _compute_navigation_command_from_state(
     )
     avoidance_velocity = np.zeros_like(track_velocity)
     if _avoidance_is_active(clearance_query, config):
-        point_jacobian = centerline_point_motor_jacobian(
+        point_jacobian = centerline_point_bending_jacobian(
             q_est,
             clearance_index,
             params,
             physical_tendons,
-            motor_params,
             samples_per_segment=config.centerline_samples_per_segment,
             step=config.finite_difference_step_rad,
         )
         if config.type == "navigation_cbf_qp":
             barrier_jacobian = clearance_query.normal[None, :] @ point_jacobian
-            motor_velocity_cmd = solve_cbf_qp_velocity(
+            bending_rate_cmd = solve_cbf_qp_velocity(
                 track_velocity,
                 barrier_jacobian=barrier_jacobian,
                 barrier_lower_bound=np.array(
@@ -162,13 +163,15 @@ def _compute_navigation_command_from_state(
                 desired_point_velocity,
                 config.damping,
             )
-            motor_velocity_cmd = track_velocity + avoidance_velocity
+            bending_rate_cmd = track_velocity + avoidance_velocity
     else:
-        motor_velocity_cmd = track_velocity
-    motor_velocity_cmd = np.clip(
-        motor_velocity_cmd,
-        -config.max_motor_velocity_rad_s,
-        config.max_motor_velocity_rad_s,
+        bending_rate_cmd = track_velocity
+    motor_velocity_cmd = bending_rate_to_motor_velocity(
+        bending_rate_cmd,
+        params,
+        physical_tendons,
+        motor_params,
+        max_motor_velocity_rad_s=config.max_motor_velocity_rad_s,
     )
     info: dict[str, np.ndarray | float | str] = {
         "q_est": np.asarray(q_est, dtype=float).copy(),
@@ -177,8 +180,21 @@ def _compute_navigation_command_from_state(
         "position_error": position_error,
         "error_norm": float(np.linalg.norm(position_error)),
         "desired_tip_velocity": desired_tip_velocity,
-        "track_motor_velocity": track_velocity,
-        "avoidance_motor_velocity": avoidance_velocity,
+        "track_motor_velocity": bending_rate_to_motor_velocity(
+            track_velocity,
+            params,
+            physical_tendons,
+            motor_params,
+        ),
+        "avoidance_motor_velocity": bending_rate_to_motor_velocity(
+            avoidance_velocity,
+            params,
+            physical_tendons,
+            motor_params,
+        ),
+        "track_bending_rate": track_velocity,
+        "avoidance_bending_rate": avoidance_velocity,
+        "bending_rate": bending_rate_cmd,
         "centerline": np.asarray(centerline, dtype=float).copy(),
         "min_clearance_m": float(clearance_query.distance_m),
         "clearance_normal": clearance_query.normal.copy(),
@@ -242,6 +258,39 @@ def centerline_point_motor_jacobian(
         physical_tendons,
         motor_params,
     )
+
+
+def centerline_point_bending_jacobian(
+    q: np.ndarray,
+    centerline_index: int,
+    params: ThreeSegmentRobotParams,
+    physical_tendons: tuple[PhysicalTendonPath, ...],
+    *,
+    samples_per_segment: int,
+    step: float,
+) -> np.ndarray:
+    """Return one centerline-point Jacobian with respect to bending rate."""
+
+    q_array = _as_vector(q, "q", expected_size=params.q_size)
+    jacobian_q = np.zeros((3, params.q_size), dtype=float)
+    for index in range(params.q_size):
+        offset = np.zeros(params.q_size, dtype=float)
+        offset[index] = step
+        point_plus = _centerline_point(
+            q_array + offset,
+            centerline_index,
+            params,
+            samples_per_segment,
+        )
+        point_minus = _centerline_point(
+            q_array - offset,
+            centerline_index,
+            params,
+            samples_per_segment,
+        )
+        jacobian_q[:, index] = (point_plus - point_minus) / (2.0 * step)
+    model = BendingSpaceModel.from_arm(params, physical_tendons)
+    return jacobian_q @ model.selection_matrix
 
 
 def _nearest_centerline_clearance(

@@ -6,6 +6,8 @@ from continuum_sim.control.coordinated_tracking import (
     CoordinatedTrackingTarget,
 )
 from continuum_sim.control.tendon_rate_control import (
+    CompatibleTendonRateIntegrator,
+    CompatibleTendonRateStep,
     TendonRateIntegrator,
     TendonRateLimits,
     TendonRateStep,
@@ -20,6 +22,8 @@ from continuum_sim.control.whole_body_controller import (
 __all__ = [
     "CoordinatedTrackingConfig",
     "CoordinatedTrackingController",
+    "CompatibleTendonRateIntegrator",
+    "CompatibleTendonRateStep",
     "CoordinatedTrackingTarget",
     "TendonRateIntegrator",
     "TendonRateLimits",

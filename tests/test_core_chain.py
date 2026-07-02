@@ -11,9 +11,9 @@ from continuum_sim.control import DifferentialIKConfig, simulate_position_tracki
 from continuum_sim.kinematics import ContinuumKinematicsChain
 from continuum_sim.kinematics.differential import motor_position_jacobian, tip_position_from_q
 from continuum_sim.model import (
+    BendingSpaceModel,
     ThreeSegmentRobotParams,
     load_physical_tendons_from_yaml,
-    physical_tendon_delta_to_q,
 )
 
 
@@ -66,7 +66,8 @@ def test_core_chain_matches_existing_manual_chain() -> None:
     )
 
     expected_tendon_delta = motor_position_to_tendon_delta(motor_position, motor_params)
-    expected_q = physical_tendon_delta_to_q(expected_tendon_delta, params, physical_tendons)
+    bending_model = BendingSpaceModel.from_arm(params, physical_tendons)
+    expected_q = bending_model.to_q(bending_model.estimate(expected_tendon_delta))
     expected_tip = tip_position_from_q(expected_q, params)
     expected_jacobian = motor_position_jacobian(
         expected_q,

@@ -10,7 +10,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from continuum_sim.actuation import load_motor_params_from_yaml
-from continuum_sim.actuation.motor_mapping import motor_position_to_tendon_delta
+from continuum_sim.actuation.motor_mapping import (
+    motor_position_to_tendon_delta,
+    motor_velocity_to_tendon_velocity,
+)
 from continuum_sim.control import (
     DifferentialIKConfig,
     compute_motor_velocity_command,
@@ -20,9 +23,9 @@ from continuum_sim.control import (
 )
 from continuum_sim.kinematics.differential import tip_position_from_q
 from continuum_sim.model import (
+    BendingSpaceModel,
     ThreeSegmentRobotParams,
     load_physical_tendons_from_yaml,
-    physical_tendon_delta_to_q,
 )
 from continuum_sim.visualization.trajectory_tracking_viewer import (
     animate_tracking_result,
@@ -78,6 +81,10 @@ def test_compute_motor_velocity_command_shape_and_limit() -> None:
     assert info["position_error"].shape == (3,)
     assert info["desired_tip_velocity"].shape == (3,)
     assert info["J_motor"].shape == (3, 9)
+    model = BendingSpaceModel.from_arm(params, physical_tendons)
+    assert model.is_compatible(
+        motor_velocity_to_tendon_velocity(command, motor_params)
+    )
     assert float(info["error_norm"]) > 0.0
 
 
@@ -89,7 +96,8 @@ def test_compute_motor_velocity_command_from_observation_uses_actual_tip_and_ten
         dtype=float,
     )
     actual_tendon_delta = motor_position_to_tendon_delta(actual_motor_position, motor_params)
-    expected_q_est = physical_tendon_delta_to_q(actual_tendon_delta, params, physical_tendons)
+    model = BendingSpaceModel.from_arm(params, physical_tendons)
+    expected_q_est = model.to_q(model.estimate(actual_tendon_delta))
     modeled_tip = tip_position_from_q(expected_q_est, params)
     actual_tip = modeled_tip + np.array([0.002, -0.001, 0.0015], dtype=float)
     target = actual_tip + np.array([0.001, 0.002, -0.001], dtype=float)

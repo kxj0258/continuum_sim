@@ -8,10 +8,14 @@ import numpy as np
 
 from continuum_sim.actuation.motor_mapping import MotorParams
 from continuum_sim.control.differential_ik import damped_least_squares
-from continuum_sim.kinematics.differential import motor_position_jacobian
+from continuum_sim.kinematics.differential import (
+    bending_position_jacobian,
+    bending_rate_to_motor_velocity,
+    motor_position_jacobian,
+)
+from continuum_sim.model.bending_space import BendingSpaceModel
 from continuum_sim.model.physical_tendon import PhysicalTendonPath
 from continuum_sim.model.robot_params import ThreeSegmentRobotParams
-from continuum_sim.model.tendon_coupling import physical_tendon_delta_to_q
 from continuum_sim.scenes.contact_surfaces import WorkSurfaceConfig
 from continuum_sim.tasks.wiping_config import WipingControllerConfig
 
@@ -47,7 +51,8 @@ def compute_wiping_motor_velocity_command_from_observation(
         "actual_tendon_delta",
         expected_size=len(physical_tendons),
     )
-    q_est = physical_tendon_delta_to_q(tendon_delta, params, physical_tendons)
+    bending_model = BendingSpaceModel.from_arm(params, physical_tendons)
+    q_est = bending_model.to_q(bending_model.estimate(tendon_delta))
     return _compute_wiping_command_from_state(
         tip_position=_as_position(actual_tip_position, "actual_tip_position"),
         q_est=q_est,
@@ -221,18 +226,19 @@ def _compute_wiping_command_from_state(
         contact_radius_m=contact_radius_m,
         force_control_enabled=force_control_enabled,
     )
-    jacobian = motor_position_jacobian(
+    jacobian = bending_position_jacobian(
         q_est,
         params,
         physical_tendons,
-        motor_params,
         step=config.finite_difference_step_rad,
     )
-    motor_velocity_cmd = damped_least_squares(jacobian, desired_velocity, config.damping)
-    motor_velocity_cmd = np.clip(
-        motor_velocity_cmd,
-        -config.max_motor_velocity_rad_s,
-        config.max_motor_velocity_rad_s,
+    bending_rate = damped_least_squares(jacobian, desired_velocity, config.damping)
+    motor_velocity_cmd = bending_rate_to_motor_velocity(
+        bending_rate,
+        params,
+        physical_tendons,
+        motor_params,
+        max_motor_velocity_rad_s=config.max_motor_velocity_rad_s,
     )
     info.update(
         {
@@ -240,7 +246,15 @@ def _compute_wiping_command_from_state(
             "tip_position": np.asarray(tip_position, dtype=float).copy(),
             "target_position": np.asarray(target_position, dtype=float).copy(),
             "error_norm": float(np.linalg.norm(target_position - tip_position)),
-            "J_motor": jacobian,
+            "J_bending": jacobian,
+            "J_motor": motor_position_jacobian(
+                q_est,
+                params,
+                physical_tendons,
+                motor_params,
+                step=config.finite_difference_step_rad,
+            ),
+            "bending_rate": bending_rate,
         }
     )
     return motor_velocity_cmd, info

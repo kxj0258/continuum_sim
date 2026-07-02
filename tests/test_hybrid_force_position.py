@@ -5,12 +5,17 @@ import numpy as np
 from numpy.testing import assert_allclose
 
 from continuum_sim.actuation import load_motor_params_from_yaml
+from continuum_sim.actuation.motor_mapping import motor_velocity_to_tendon_velocity
 from continuum_sim.control import (
     contact_measurement_from_surface_proxy,
     compute_wiping_motor_velocity_command_from_state,
     desired_hybrid_tip_velocity,
 )
-from continuum_sim.model import ThreeSegmentRobotParams, load_physical_tendons_from_yaml
+from continuum_sim.model import (
+    BendingSpaceModel,
+    ThreeSegmentRobotParams,
+    load_physical_tendons_from_yaml,
+)
 from continuum_sim.scenes import load_navigation_scene_config
 from continuum_sim.tasks import load_mujoco_wiping_config
 
@@ -94,4 +99,7 @@ def test_hybrid_controller_returns_nine_motor_velocities() -> None:
     assert motor_velocity.shape == (9,)
     assert np.all(np.isfinite(motor_velocity))
     assert np.max(np.abs(motor_velocity)) <= controller.max_motor_velocity_rad_s
+    assert BendingSpaceModel.from_arm(params, physical_tendons).is_compatible(
+        motor_velocity_to_tendon_velocity(motor_velocity, motor_params)
+    )
     assert_allclose(info["normal_velocity"], np.zeros(3, dtype=float))

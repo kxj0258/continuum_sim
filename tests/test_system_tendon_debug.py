@@ -72,7 +72,10 @@ def test_system_tendon_view_data_flattens_named_arms_in_state_order() -> None:
     assert_allclose(view.actual_m, [0.0005, 0.0015, -0.0008, -0.0018])
     assert_allclose(view.error_m, view.target_m - view.actual_m)
     assert_allclose(view.force_n, [1.0, 2.0, 0.5, 0.75])
-    assert view.saturation_summary == "executor: rate 1/2, displacement 0/2"
+    assert view.saturation_summary == (
+        "executor: rate 1/2, displacement 0/2\n"
+        "  mode compatible, scale 1.0000, residual 0.000e+00 m/s"
+    )
 
 
 def _arm_state(

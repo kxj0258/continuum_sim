@@ -303,9 +303,20 @@ def compute_mujoco_control_substeps(controller_dt: float, mujoco_timestep: float
 def _clip_tendon_position_control(
     tendon_delta_command: np.ndarray,
     ctrlrange_m: tuple[float, float],
+    *,
+    bending_model=None,
 ) -> np.ndarray:
     lower, upper = ctrlrange_m
-    return np.clip(np.asarray(tendon_delta_command, dtype=float), lower, upper)
+    values = np.asarray(tendon_delta_command, dtype=float)
+    if bending_model is None:
+        return np.clip(values, lower, upper)
+    compatible = bending_model.project(values)
+    scales = np.ones_like(compatible)
+    positive = compatible > 0.0
+    negative = compatible < 0.0
+    scales[positive] = upper / compatible[positive]
+    scales[negative] = lower / compatible[negative]
+    return min(1.0, float(np.min(scales))) * compatible
 
 
 def _append_trail_sample(

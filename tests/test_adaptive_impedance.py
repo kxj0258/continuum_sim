@@ -3,11 +3,16 @@ from pathlib import Path
 import numpy as np
 
 from continuum_sim.actuation import load_motor_params_from_yaml
+from continuum_sim.actuation.motor_mapping import motor_velocity_to_tendon_velocity
 from continuum_sim.control.adaptive_impedance import (
     AdaptiveImpedanceConfig,
     compute_dynamic_wiping_motor_velocity_command_from_state,
 )
-from continuum_sim.model import ThreeSegmentRobotParams, load_physical_tendons_from_yaml
+from continuum_sim.model import (
+    BendingSpaceModel,
+    ThreeSegmentRobotParams,
+    load_physical_tendons_from_yaml,
+)
 from continuum_sim.scenes import load_navigation_scene_config
 from continuum_sim.tasks import build_raster_wiping_path, load_mujoco_wiping_config
 
@@ -49,6 +54,9 @@ def test_dynamic_impedance_controller_returns_motor_command_and_prediction() -> 
     assert np.all(np.isfinite(command))
     assert info["predicted_q"].shape == (params.q_size,)
     assert info["stiffness_diag"].shape == (params.q_size,)
+    assert BendingSpaceModel.from_arm(params, physical_tendons).is_compatible(
+        motor_velocity_to_tendon_velocity(command, motor_params)
+    )
 
 
 def test_dynamic_impedance_controller_removes_axial_strain_dofs() -> None:

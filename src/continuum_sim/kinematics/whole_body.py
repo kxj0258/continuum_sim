@@ -8,6 +8,7 @@ import numpy as np
 
 from continuum_sim.kinematics.differential import finite_difference_position_jacobian
 from continuum_sim.kinematics.pcc import forward_kinematics
+from continuum_sim.model.bending_space import BendingSpaceModel
 from continuum_sim.model.robot_params import ThreeSegmentRobotParams
 from continuum_sim.model.tendon_coupling import TendonPathLike, build_coupling_matrix
 from continuum_sim.system.control_layout import ControlLayout
@@ -71,6 +72,21 @@ def tendon_position_jacobian(
     return position_jacobian @ tendon_rate_to_shape_rate_matrix(params, physical_tendons)
 
 
+def bending_position_jacobian(
+    q: np.ndarray,
+    params: ThreeSegmentRobotParams,
+    physical_tendons: tuple[TendonPathLike, ...],
+    *,
+    step: float = 1.0e-5,
+) -> np.ndarray:
+    """Map bending-coordinate rates to local tip linear velocity."""
+
+    model = BendingSpaceModel.from_arm(params, physical_tendons)
+    return finite_difference_position_jacobian(q, params, step=step) @ (
+        model.selection_matrix
+    )
+
+
 def centerline_point_tendon_jacobian(
     q: np.ndarray,
     centerline_index: int,
@@ -108,6 +124,46 @@ def centerline_point_tendon_jacobian(
         ).centerline[centerline_index]
         jacobian_q[:, index] = (plus - minus) / (2.0 * step)
     return jacobian_q @ tendon_rate_to_shape_rate_matrix(params, physical_tendons)
+
+
+def centerline_point_bending_jacobian(
+    q: np.ndarray,
+    centerline_index: int,
+    params: ThreeSegmentRobotParams,
+    physical_tendons: tuple[TendonPathLike, ...],
+    *,
+    samples_per_segment: int = 6,
+    step: float = 1.0e-5,
+) -> np.ndarray:
+    """Map bending rates to one sampled local centerline point velocity."""
+
+    q_values = np.asarray(q, dtype=float)
+    if q_values.shape != (params.q_size,):
+        raise ValueError(f"q must have shape ({params.q_size},).")
+    reference = forward_kinematics(
+        q_values,
+        params,
+        samples_per_segment=samples_per_segment,
+    ).centerline
+    if centerline_index < 0 or centerline_index >= reference.shape[0]:
+        raise ValueError("centerline_index is outside the sampled centerline.")
+    jacobian_q = np.zeros((3, params.q_size), dtype=float)
+    for index in range(params.q_size):
+        offset = np.zeros(params.q_size, dtype=float)
+        offset[index] = step
+        plus = forward_kinematics(
+            q_values + offset,
+            params,
+            samples_per_segment=samples_per_segment,
+        ).centerline[centerline_index]
+        minus = forward_kinematics(
+            q_values - offset,
+            params,
+            samples_per_segment=samples_per_segment,
+        ).centerline[centerline_index]
+        jacobian_q[:, index] = (plus - minus) / (2.0 * step)
+    model = BendingSpaceModel.from_arm(params, physical_tendons)
+    return jacobian_q @ model.selection_matrix
 
 
 def rotate_position_jacobian_to_world(
@@ -199,10 +255,8 @@ def analyze_tendon_mapping(
 ) -> SingularityReport:
     """Analyze numerical rank of the tendon-to-shape coupling matrix."""
 
-    return analyze_singularity(
-        build_coupling_matrix(params, physical_tendons),
-        config,
-    )
+    model = BendingSpaceModel.from_arm(params, physical_tendons)
+    return analyze_singularity(model.coupling_matrix, config)
 
 
 def _skew(vector: np.ndarray) -> np.ndarray:

@@ -134,6 +134,7 @@ class MujocoSystemDebugViewer:
         }
         self._running = False
         self._updating_controls = False
+        self.control_space = "bending_compatible"
 
         self.panel = SystemTendonMonitorPanel(
             title="continuum_sim MuJoCo system tendon debug"
@@ -175,6 +176,11 @@ class MujocoSystemDebugViewer:
         self.radio = RadioButtons(
             self.panel.fig.add_axes((0.68, 0.07, 0.29, 0.19)),
             self.named_targets,
+            active=0,
+        )
+        self.mode_radio = RadioButtons(
+            self.panel.fig.add_axes((0.54, 0.07, 0.12, 0.10)),
+            ("compatible", "raw tendon"),
             active=0,
         )
         self.timer = self.panel.fig.canvas.new_timer(
@@ -247,6 +253,7 @@ class MujocoSystemDebugViewer:
         self.step_button.on_clicked(lambda _event: self.step())
         self.run_button.on_clicked(lambda _event: self.toggle_run())
         self.radio.on_clicked(self.apply_named_target)
+        self.mode_radio.on_clicked(self._set_control_mode)
 
     def _on_slider(self, arm_name: str, tendon_index: int, value_mm: float) -> None:
         if self._updating_controls:
@@ -259,6 +266,7 @@ class MujocoSystemDebugViewer:
             )
         finally:
             self._updating_controls = False
+        self._project_targets_if_compatible(arm_name)
 
     def _on_target_input(
         self,
@@ -285,6 +293,19 @@ class MujocoSystemDebugViewer:
             )
         finally:
             self._updating_controls = False
+        self._project_targets_if_compatible(arm_name)
+
+    def _project_targets_if_compatible(self, arm_name: str) -> None:
+        if self.control_space != "bending_compatible":
+            return
+        projected = {
+            name: values.copy()
+            for name, values in self.targets.items()
+        }
+        projected[arm_name] = self.backend.layout.bending_models[arm_name].project(
+            projected[arm_name]
+        )
+        self.set_targets(projected)
 
     def reset(self) -> RobotSystemState:
         self.pause()
@@ -353,13 +374,31 @@ class MujocoSystemDebugViewer:
             max_rate = arms_by_name[
                 arm_name
             ].spatial_arm.limits.max_tendon_rate_mps
-            commands[arm_name] = ArmTendonRateCommand(
-                target_rates(
-                    self.targets[arm_name],
+            target = self.targets[arm_name]
+            model = self.backend.layout.bending_models[arm_name]
+            if self.control_space == "bending_compatible":
+                target = model.project(target)
+                requested = (
+                    target - np.asarray(arm_state.tendon_target_m, dtype=float)
+                ) / self.control_dt_s
+                requested = model.project(requested)
+                ratios = np.divide(
+                    max_rate,
+                    np.abs(requested),
+                    out=np.full_like(max_rate, np.inf),
+                    where=np.abs(requested) > 0.0,
+                )
+                rates = min(1.0, float(np.min(ratios))) * requested
+            else:
+                rates = target_rates(
+                    target,
                     np.asarray(arm_state.tendon_target_m, dtype=float),
                     max_rate,
                     dt=self.control_dt_s,
                 )
+            commands[arm_name] = ArmTendonRateCommand(
+                rates,
+                control_space=self.control_space,
             )
         self.state = self.backend.step_system(
             RobotSystemCommand(
@@ -372,6 +411,17 @@ class MujocoSystemDebugViewer:
         )
         self._update_views()
         return self.state
+
+    def _set_control_mode(self, label: str) -> None:
+        self.control_space = (
+            "bending_compatible" if label == "compatible" else "raw_tendon_debug"
+        )
+        if self.control_space == "bending_compatible":
+            projected = {
+                arm_name: self.backend.layout.bending_models[arm_name].project(values)
+                for arm_name, values in self.targets.items()
+            }
+            self.set_targets(projected)
 
     def toggle_run(self) -> None:
         if self._running:

@@ -1,5 +1,28 @@
 # Coordinate and Command Conventions
 
+## Bending coordinates and tendon compatibility
+
+For segment `i`, the normal control coordinate order is `[kx_i, ky_i]`, in
+inverse metres. A three-segment arm therefore uses:
+
+```text
+[kx_1, ky_1, kx_2, ky_2, kx_3, ky_3]
+```
+
+The existing PCC order remains `[kx_i, ky_i, eps_i]`, but normal control inserts
+`eps_i = 0`. `C_b` maps bending coordinates to tendon displacement in metres;
+its time derivative maps bending rates to tendon rates in metres per second.
+
+Positive/negative curvature directions are arm-local. Mount-pose rotation then
+expresses Cartesian Jacobians in the MuJoCo world frame. The tendon mapping
+itself is not rebuilt in world coordinates: tendon routing belongs to the arm
+local frame.
+
+A tendon vector is compatible when its residual
+`r = delta_l - C_b pinv(C_b) delta_l` is within the configured numerical
+tolerance. Normal commands must satisfy this condition. Measured state may have
+a nonzero residual, which is reported before projection.
+
 This document is normative for the composable spatial-arm system.
 
 ## Frames and transforms

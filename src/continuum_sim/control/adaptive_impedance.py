@@ -19,8 +19,8 @@ from continuum_sim.dynamics import (
     stiffness_matrix,
 )
 from continuum_sim.kinematics.differential import (
+    bending_rate_to_motor_velocity,
     finite_difference_position_jacobian,
-    motor_velocity_to_qdot_matrix,
 )
 from continuum_sim.model.physical_tendon import PhysicalTendonPath
 from continuum_sim.model.robot_params import PCC_VALUES_PER_SEGMENT, ThreeSegmentRobotParams
@@ -95,12 +95,13 @@ def compute_dynamic_wiping_motor_velocity_command_from_state(
         config=adaptive_config.dynamics,
         dt=dt,
     )
-    M_qm = motor_velocity_to_qdot_matrix(params, physical_tendons, motor_params)
-    motor_velocity_cmd = np.linalg.pinv(M_qm) @ predicted.qdot
-    motor_velocity_cmd = np.clip(
-        motor_velocity_cmd,
-        -wiping_config.max_motor_velocity_rad_s,
-        wiping_config.max_motor_velocity_rad_s,
+    bending_rate = predicted.qdot[active_dofs]
+    motor_velocity_cmd = bending_rate_to_motor_velocity(
+        bending_rate,
+        params,
+        physical_tendons,
+        motor_params,
+        max_motor_velocity_rad_s=wiping_config.max_motor_velocity_rad_s,
     )
     info.update(
         {
@@ -111,6 +112,7 @@ def compute_dynamic_wiping_motor_velocity_command_from_state(
             "predicted_q": predicted.q.copy(),
             "predicted_qdot": predicted.qdot.copy(),
             "predicted_qddot": np.asarray(dyn_info["qddot"], dtype=float),
+            "bending_rate": bending_rate,
             "stiffness_diag": np.diag(K),
             "damping_diag": np.diag(D),
             "contact_generalized_force": contact_tau,

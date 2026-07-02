@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from continuum_sim.actuation.motor_mapping import MotorParams
+from continuum_sim.actuation.motor_mapping import (
+    MotorParams,
+    tendon_velocity_to_motor_velocity,
+)
 from continuum_sim.kinematics.pcc import forward_kinematics
 from continuum_sim.model.physical_tendon import PhysicalTendonPath
+from continuum_sim.model.bending_space import BendingSpaceModel
 from continuum_sim.model.robot_params import ThreeSegmentRobotParams
 from continuum_sim.model.tendon_coupling import build_coupling_matrix
 
@@ -62,6 +66,43 @@ def motor_position_jacobian(
     J_pos = finite_difference_position_jacobian(q, params, step=step)
     M_qm = motor_velocity_to_qdot_matrix(params, physical_tendons, motor_params)
     return J_pos @ M_qm
+
+
+def bending_position_jacobian(
+    q: np.ndarray,
+    params: ThreeSegmentRobotParams,
+    physical_tendons: tuple[PhysicalTendonPath, ...],
+    *,
+    step: float = 1.0e-5,
+) -> np.ndarray:
+    """Return the tip-position Jacobian with respect to bending rate."""
+
+    model = BendingSpaceModel.from_arm(params, physical_tendons)
+    return finite_difference_position_jacobian(q, params, step=step) @ (
+        model.selection_matrix
+    )
+
+
+def bending_rate_to_motor_velocity(
+    bending_rate: np.ndarray,
+    params: ThreeSegmentRobotParams,
+    physical_tendons: tuple[PhysicalTendonPath, ...],
+    motor_params: tuple[MotorParams, ...],
+    *,
+    max_motor_velocity_rad_s: float | None = None,
+) -> np.ndarray:
+    """Map a bending rate to compatible motor rates with common scaling."""
+
+    model = BendingSpaceModel.from_arm(params, physical_tendons)
+    tendon_rate = model.to_tendon(bending_rate)
+    motor_rate = tendon_velocity_to_motor_velocity(tendon_rate, motor_params)
+    if max_motor_velocity_rad_s is None:
+        return motor_rate
+    if max_motor_velocity_rad_s <= 0.0:
+        raise ValueError("max_motor_velocity_rad_s must be positive.")
+    maximum = float(np.max(np.abs(motor_rate)))
+    scale = min(1.0, max_motor_velocity_rad_s / maximum) if maximum > 0.0 else 1.0
+    return scale * motor_rate
 
 
 def _motor_velocity_to_tendon_velocity_matrix(

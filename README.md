@@ -1,5 +1,41 @@
 # continuum_sim
 
+## Bending-space 相容控制
+
+正常控制任务统一在每臂 6 维 bending-space 中求解：
+
+```text
+b = [kx_1, ky_1, kx_2, ky_2, kx_3, ky_3]
+q = S_b b
+delta_l = C_b b,  C_b = C_q S_b
+```
+
+每段轴向应变固定为零，和 MuJoCo
+`tendon_model.include_axial_strain: false` 一致。`tracking`、`navigation`、
+`wiping`、`engine_cleaning`、双臂 observer 协同和避障任务均先求
+`b_dot`，再由 `C_b` 一次性生成 9 根 tendon 的相容速度。
+
+限速和目标位移限幅使用每臂统一缩放系数，不再逐根裁剪，因此不会破坏
+tendon 比例。MuJoCo 实际绳长仍可能因弹性、动力学滞后和求解误差产生小量
+不相容残差；控制器使用其 bending-space 投影作为状态，并在 metadata 中记录
+原始 residual。
+
+系统 tendon debug 默认使用 `compatible` 模式：逐根输入会投影到可实现的
+bending 子空间。只有显式选择 `raw tendon` 才会保留独立 tendon 命令；该模式
+专用于检查 routing、方向和 actuator force，不应作为任务控制策略。
+
+建议手动验证：
+
+```powershell
+conda activate continuum_sim
+pytest tests/test_bending_space.py tests/test_differential_ik.py tests/test_navigation_controller.py tests/test_hybrid_force_position.py tests/test_adaptive_impedance.py
+pytest tests/test_system_tendon_debug.py tests/test_mujoco_system_debug_viewer.py
+pytest tests/test_scenario_migrated_task_features.py tests/test_scenario_mujoco_composition.py
+python -m compileall src scripts
+```
+
+本次实现过程未自动执行上述命令。
+
 面向空间连续体机械臂的组合式仿真项目。当前主入口统一为：
 
 ```powershell

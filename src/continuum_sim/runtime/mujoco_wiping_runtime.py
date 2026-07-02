@@ -36,7 +36,7 @@ from continuum_sim.runtime.mujoco_contact_projection import (
     apply_projected_qfrc,
     project_follower_contacts,
 )
-from continuum_sim.model.tendon_coupling import physical_tendon_delta_to_q
+from continuum_sim.model.bending_space import BendingSpaceModel
 from continuum_sim.runtime import mujoco_runtime_utils as _mujoco_runtime_utils
 from continuum_sim.runtime.mujoco_viewer_runtime import (
     ViewerControlState,
@@ -137,6 +137,7 @@ def run_mujoco_wiping(
 
     params = ThreeSegmentRobotParams.from_yaml(task_config.robot_config_path)
     physical_tendons = load_physical_tendons_from_yaml(task_config.robot_config_path)
+    bending_model = BendingSpaceModel.from_arm(params, physical_tendons)
     motor_params = load_motor_params_from_yaml(task_config.robot_config_path)
     adaptive_config = _adaptive_impedance_config(task_config, params)
     n_substeps = compute_mujoco_control_substeps(
@@ -284,11 +285,9 @@ def run_mujoco_wiping(
                     motor_params,
                 )
                 if task_config.controller.type == "dynamic_adaptive_impedance":
-                    q_est = physical_tendon_delta_to_q(tendon_delta, params, physical_tendons)
-                    qdot_est = physical_tendon_delta_to_q(
-                        observed_state.tendon_velocity,
-                        params,
-                        physical_tendons,
+                    q_est = bending_model.to_q(bending_model.estimate(tendon_delta))
+                    qdot_est = bending_model.to_q(
+                        bending_model.estimate(observed_state.tendon_velocity)
                     )
                     motor_velocity_cmd, info = (
                         compute_dynamic_wiping_motor_velocity_command_from_state(
@@ -332,6 +331,7 @@ def run_mujoco_wiping(
                 mujoco_control = _clip_tendon_position_control(
                     tendon_delta + task_config.simulation.dt * tendon_velocity_cmd,
                     mujoco_config.actuators.tendon_position.ctrlrange_m,
+                    bending_model=bending_model,
                 )
             else:
                 controller_motor_position = motor_position.copy()
@@ -339,7 +339,7 @@ def run_mujoco_wiping(
                     controller_motor_position,
                     motor_params,
                 )
-                q_est = physical_tendon_delta_to_q(tendon_delta, params, physical_tendons)
+                q_est = bending_model.to_q(bending_model.estimate(tendon_delta))
                 fk = forward_kinematics(q_est, params)
                 contact_position = (
                     fk.tip_pose[:3, 3]
@@ -381,6 +381,7 @@ def run_mujoco_wiping(
                 mujoco_control = _clip_tendon_position_control(
                     tendon_delta,
                     mujoco_config.actuators.tendon_position.ctrlrange_m,
+                    bending_model=bending_model,
                 )
 
             backend_control = _mujoco_runtime_utils.append_zero_mobile_base_control(

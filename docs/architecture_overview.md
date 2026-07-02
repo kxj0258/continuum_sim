@@ -183,3 +183,27 @@ Scenario 产物导出刻意放在 runtime 控制循环之外。运行命令会�
 对 MuJoCo 结果，回放视频导出被隔离在 `scripts/export_replay_video.py`，这样渲染器会在新进程中创建。导出器用保存的 `qpos/qvel` 复现归档的 `model/scene.xml`，尺寸使用 `configs/mujoco.yaml` 的 `rendering.offscreen_*`，相机使用 `viewer.camera`，与 passive viewer 的前侧斜视角保持一致。如果视频导出失败，原因会记录到 `videos/video_error.txt`，数值和曲线产物仍会保留。
 
 如果要在完整运行前诊断某台机器上的渲染环境问题，可以先运行 `scripts/check_mujoco_offscreen_renderer.py`。它会直接探测配置中的 XML，并报告失败发生在 XML 加载、渲染器创建还是帧渲染阶段。
+## Bending-space control path
+
+Normal arm commands use six bending variables per three-segment arm, not nine
+independent tendon variables:
+
+```text
+Cartesian task
+  -> J_b = J_q S_b
+  -> base + bending weighted solve
+  -> tendon rate = C_b bending rate
+  -> common-scale rate/displacement limiting
+  -> bending-target integration
+  -> analytic or MuJoCo tendon-position target
+```
+
+`BendingSpaceModel` owns `S_b`, `C_b`, projection, inverse estimation, rank, and
+compatibility residuals. `ControlLayout` owns base-plus-bending optimization
+slices and separate physical-tendon slices. `RobotSystemCommand` remains the
+runtime boundary; an arm command is compatible by default and raw tendon control
+requires the explicit `raw_tendon_debug` mode.
+
+Measured tendon state is projected before PCC kinematics and always reconstructs
+zero axial strain. The discarded component is diagnostic model/physics residual,
+not an additional control degree of freedom.

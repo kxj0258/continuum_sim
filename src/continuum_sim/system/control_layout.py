@@ -16,7 +16,7 @@ class ControlLayout:
     """Slices for enabled control variables.
 
     Fixed-base assemblies omit base DOFs from the flat control vector, so
-    whole-body solves become tendon-only instead of solving base motion and
+    whole-body solves become bending-only instead of solving base motion and
     clearing it afterward.
     """
 

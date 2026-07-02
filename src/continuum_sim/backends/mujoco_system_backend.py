@@ -1,4 +1,4 @@
-"""Composable MuJoCo backend with direct tendon-rate system commands."""
+"""Composable MuJoCo backend with bending-compatible tendon commands."""
 
 from __future__ import annotations
 
@@ -14,7 +14,10 @@ from continuum_sim.control.mobile_base_controller import (
     MobileBaseState,
     integrate_base_pose,
 )
-from continuum_sim.control.tendon_rate_control import TendonRateIntegrator, TendonRateLimits
+from continuum_sim.control.tendon_rate_control import (
+    CompatibleTendonRateIntegrator,
+    TendonRateLimits,
+)
 from continuum_sim.model.base_pose import Pose6D
 from continuum_sim.model.mount_frame import MobileBaseLimitsConfig
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig, load_robot_assembly_config
@@ -28,7 +31,7 @@ from continuum_sim.system.types import (
 
 
 class MujocoSystemBackend:
-    """MuJoCo boundary for named world-base and direct tendon-rate control."""
+    """MuJoCo boundary for named base and compatible tendon-rate control."""
 
     def __init__(
         self,
@@ -73,7 +76,8 @@ class MujocoSystemBackend:
         # expansion is not part of this backend contract.
         self.physics._dual_arm_command_adapter = None
         self._integrators = {
-            arm.name: TendonRateIntegrator(
+            arm.name: CompatibleTendonRateIntegrator(
+                self.layout.bending_models[arm.name],
                 TendonRateLimits(
                     displacement_min_m=arm.spatial_arm.limits.tendon_displacement_min_m,
                     displacement_max_m=arm.spatial_arm.limits.tendon_displacement_max_m,
@@ -163,6 +167,9 @@ class MujocoSystemBackend:
             step = self._integrators[arm_name].step(
                 command.arms[arm_name].tendon_rate_mps,
                 dt,
+                raw_debug=(
+                    command.arms[arm_name].control_space == "raw_tendon_debug"
+                ),
             )
             tendon_slice = self.layout.tendon_slice(arm_name)
             tendon_target[tendon_slice] = step.displacement_m
@@ -170,6 +177,9 @@ class MujocoSystemBackend:
             saturation[arm_name] = {
                 "rate": step.rate_saturated,
                 "displacement": step.displacement_saturated,
+                "common_scale": step.common_scale,
+                "compatibility_residual_mps": step.compatibility_residual_mps,
+                "raw_debug": step.raw_debug,
             }
 
         base_rpy = _pose_to_xyz_rpy(self._base_state.pose)
@@ -216,7 +226,18 @@ class MujocoSystemBackend:
                     if actuator_force.size
                     else np.zeros_like(tendon_displacement[tendon_slice])
                 ),
-                metadata={"attachment": arm.attachment},
+                metadata={
+                    "attachment": arm.attachment,
+                    "bending": self.layout.bending_models[arm.name].estimate(
+                        tendon_displacement[tendon_slice]
+                    ),
+                    "compatibility_residual_m": self.layout.bending_models[
+                        arm.name
+                    ].residual(tendon_displacement[tendon_slice]),
+                    "compatibility_residual_norm_m": self.layout.bending_models[
+                        arm.name
+                    ].residual_norm(tendon_displacement[tendon_slice]),
+                },
             )
         return RobotSystemState(
             time_s=float(self.physics.data.time),
@@ -225,7 +246,7 @@ class MujocoSystemBackend:
                 twist_world=self._base_state.last_twist,
             ),
             arms=arms,
-            metadata={"backend": "mujoco", "control": "direct_tendon_rate"},
+            metadata={"backend": "mujoco", "control": "bending_compatible"},
         )
 
     def _site_names(self, arm_name: str, *, dual: bool) -> tuple[str, tuple[str, ...]]:

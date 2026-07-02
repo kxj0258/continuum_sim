@@ -24,7 +24,7 @@ from continuum_sim.model.physical_tendon import (
     load_physical_tendons_from_yaml,
 )
 from continuum_sim.model.robot_params import ThreeSegmentRobotParams
-from continuum_sim.model.tendon_coupling import physical_tendon_delta_to_q
+from continuum_sim.model.bending_space import BendingSpaceModel
 
 
 @dataclass(frozen=True)
@@ -63,7 +63,8 @@ class ContinuumKinematicsChain:
     def motor_position_to_q(self, motor_position: np.ndarray) -> np.ndarray:
         """Estimate PCC q from motor positions."""
         tendon_delta = self.motor_position_to_tendon_delta(motor_position)
-        return physical_tendon_delta_to_q(tendon_delta, self.params, self.physical_tendons)
+        model = BendingSpaceModel.from_arm(self.params, self.physical_tendons)
+        return model.to_q(model.estimate(tendon_delta))
 
     def forward_kinematics_from_motor(
         self,

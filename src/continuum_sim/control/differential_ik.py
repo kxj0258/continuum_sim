@@ -11,12 +11,14 @@ from continuum_sim.actuation.motor_mapping import (
     motor_position_to_tendon_delta,
 )
 from continuum_sim.kinematics.differential import (
+    bending_position_jacobian,
+    bending_rate_to_motor_velocity,
     motor_position_jacobian,
     tip_position_from_q,
 )
 from continuum_sim.model.physical_tendon import PhysicalTendonPath
 from continuum_sim.model.robot_params import ThreeSegmentRobotParams
-from continuum_sim.model.tendon_coupling import physical_tendon_delta_to_q
+from continuum_sim.model.bending_space import BendingSpaceModel
 
 
 @dataclass(frozen=True)
@@ -85,7 +87,8 @@ def compute_motor_velocity_command(
     _validate_config(config)
 
     tendon_delta = motor_position_to_tendon_delta(motor_position_array, motor_params)
-    q_est = physical_tendon_delta_to_q(tendon_delta, params, physical_tendons)
+    bending_model = BendingSpaceModel.from_arm(params, physical_tendons)
+    q_est = bending_model.to_q(bending_model.estimate(tendon_delta))
     tip_position = tip_position_from_q(q_est, params)
     return _compute_motor_velocity_command_from_state(
         tip_position=tip_position,
@@ -116,11 +119,8 @@ def compute_motor_velocity_command_from_observation(
     target_position_array = _as_position(target_position, "target_position")
     _validate_config(config)
 
-    q_est = physical_tendon_delta_to_q(
-        actual_tendon_delta_array,
-        params,
-        physical_tendons,
-    )
+    bending_model = BendingSpaceModel.from_arm(params, physical_tendons)
+    q_est = bending_model.to_q(bending_model.estimate(actual_tendon_delta_array))
     return _compute_motor_velocity_command_from_state(
         tip_position=actual_tip_position_array,
         q_est=q_est,
@@ -144,16 +144,22 @@ def _compute_motor_velocity_command_from_state(
 ) -> tuple[np.ndarray, dict[str, np.ndarray | float]]:
     position_error = target_position - tip_position
     desired_tip_velocity = config.position_gain * position_error
-    J_motor = motor_position_jacobian(q_est, params, physical_tendons, motor_params)
-    motor_velocity_cmd = damped_least_squares(
-        J_motor,
+    J_bending = bending_position_jacobian(
+        q_est,
+        params,
+        physical_tendons,
+    )
+    bending_rate_cmd = damped_least_squares(
+        J_bending,
         desired_tip_velocity,
         config.damping,
     )
-    motor_velocity_cmd = np.clip(
-        motor_velocity_cmd,
-        -config.max_motor_velocity_rad_s,
-        config.max_motor_velocity_rad_s,
+    motor_velocity_cmd = bending_rate_to_motor_velocity(
+        bending_rate_cmd,
+        params,
+        physical_tendons,
+        motor_params,
+        max_motor_velocity_rad_s=config.max_motor_velocity_rad_s,
     )
 
     info: dict[str, np.ndarray | float] = {
@@ -162,7 +168,14 @@ def _compute_motor_velocity_command_from_state(
         "position_error": position_error,
         "error_norm": float(np.linalg.norm(position_error)),
         "desired_tip_velocity": desired_tip_velocity,
-        "J_motor": J_motor,
+        "J_bending": J_bending,
+        "J_motor": motor_position_jacobian(
+            q_est,
+            params,
+            physical_tendons,
+            motor_params,
+        ),
+        "bending_rate": bending_rate_cmd,
     }
     return motor_velocity_cmd, info
 

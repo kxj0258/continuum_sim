@@ -15,13 +15,12 @@ from continuum_sim.kinematics.whole_body import (
     analyze_tendon_mapping,
     assemble_whole_body_jacobian,
     base_point_jacobian_world,
-    centerline_point_tendon_jacobian,
+    bending_position_jacobian,
+    centerline_point_bending_jacobian,
     rotate_position_jacobian_to_world,
-    tendon_position_jacobian,
 )
 from continuum_sim.kinematics.pcc import forward_kinematics
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
-from continuum_sim.model.tendon_coupling import physical_tendon_delta_to_q
 from continuum_sim.scenes.engine_query import EngineSceneQueryProtocol
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
 
@@ -187,6 +186,11 @@ class CoordinatedTrackingController:
                 )
                 for arm in self.assembly.enabled_arms
             },
+            "bending_control": result.arm_diagnostics,
+            "measured_compatibility": {
+                arm.name: self._measured_compatibility(state, arm.name)
+                for arm in self.assembly.enabled_arms
+            },
         }
         return RobotSystemCommand(
             base_twist_world=result.command.base_twist_world,
@@ -201,12 +205,9 @@ class CoordinatedTrackingController:
     ) -> np.ndarray:
         arm_config = self.assembly.arms[arm_name]
         arm_state = state.arms[arm_name]
-        q = physical_tendon_delta_to_q(
-            arm_state.tendon_displacement_m,
-            arm_config.spatial_arm.params,
-            arm_config.spatial_arm.tendons,
-        )
-        jacobian_local = tendon_position_jacobian(
+        model = self.solver.layout.bending_models[arm_name]
+        q = model.to_q(model.estimate(arm_state.tendon_displacement_m))
+        jacobian_local = bending_position_jacobian(
             q,
             arm_config.spatial_arm.params,
             arm_config.spatial_arm.tendons,
@@ -298,11 +299,8 @@ class CoordinatedTrackingController:
     ) -> tuple[np.ndarray, np.ndarray, object]:
         arm = self.assembly.arms[arm_name]
         arm_state = state.arms[arm_name]
-        q = physical_tendon_delta_to_q(
-            arm_state.tendon_displacement_m,
-            arm.spatial_arm.params,
-            arm.spatial_arm.tendons,
-        )
+        model = self.solver.layout.bending_models[arm_name]
+        q = model.to_q(model.estimate(arm_state.tendon_displacement_m))
         local = forward_kinematics(
             q,
             arm.spatial_arm.params,
@@ -321,7 +319,7 @@ class CoordinatedTrackingController:
         point_world: np.ndarray,
     ) -> np.ndarray:
         arm = self.assembly.arms[arm_name]
-        local_jacobian = centerline_point_tendon_jacobian(
+        local_jacobian = centerline_point_bending_jacobian(
             q,
             centerline_index,
             arm.spatial_arm.params,
@@ -370,6 +368,21 @@ class CoordinatedTrackingController:
             target_velocity=np.array([desired_speed], dtype=float),
             weight=self.solver.weight_for("executor_collision_avoidance"),
         )
+
+    def _measured_compatibility(
+        self,
+        state: RobotSystemState,
+        arm_name: str,
+    ) -> dict[str, object]:
+        displacement = state.arms[arm_name].tendon_displacement_m
+        model = self.solver.layout.bending_models[arm_name]
+        residual = model.residual(displacement)
+        return {
+            "residual_m": residual,
+            "residual_norm_m": float(np.linalg.norm(residual)),
+            "tolerance_m": model.compatibility_tolerance(displacement),
+            "compatible": model.is_compatible(displacement),
+        }
 
     def _arm_name_for_role(self, role: str) -> str:
         name = self._optional_arm_name_for_role(role)

@@ -2,6 +2,8 @@
 
 from continuum_sim.kinematics.core_chain import ContinuumKinematicsChain
 from continuum_sim.kinematics.differential import (
+    bending_position_jacobian as differential_bending_position_jacobian,
+    bending_rate_to_motor_velocity,
     finite_difference_position_jacobian,
     motor_position_jacobian,
     motor_velocity_to_qdot_matrix,
@@ -22,6 +24,8 @@ from continuum_sim.kinematics.whole_body import (
     analyze_tendon_mapping,
     assemble_whole_body_jacobian,
     base_point_jacobian_world,
+    bending_position_jacobian,
+    centerline_point_bending_jacobian,
     centerline_point_tendon_jacobian,
     rotate_position_jacobian_to_world,
     tendon_position_jacobian,
@@ -30,6 +34,8 @@ from continuum_sim.kinematics.whole_body import (
 
 __all__ = [
     "ContinuumKinematicsChain",
+    "bending_rate_to_motor_velocity",
+    "differential_bending_position_jacobian",
     "PCCForwardKinematicsResult",
     "damped_pseudoinverse",
     "finite_difference_position_jacobian",
@@ -47,6 +53,8 @@ __all__ = [
     "analyze_tendon_mapping",
     "assemble_whole_body_jacobian",
     "base_point_jacobian_world",
+    "bending_position_jacobian",
+    "centerline_point_bending_jacobian",
     "centerline_point_tendon_jacobian",
     "rotate_position_jacobian_to_world",
     "tendon_position_jacobian",

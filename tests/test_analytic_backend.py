@@ -52,6 +52,7 @@ def test_analytic_backend_step_tracks_motor_position_command() -> None:
     assert state.time == pytest.approx(2.0)
     assert np.linalg.norm(state.tendon_length) > 0.0
     assert np.linalg.norm(state.qpos) > 0.0
+    assert_allclose(state.qpos[[2, 5, 8]], 0.0, atol=1.0e-14)
     assert np.all(np.isfinite(state.tip_pose))
     assert np.all(np.isfinite(state.segment_poses))
 

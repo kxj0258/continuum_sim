@@ -8,6 +8,7 @@ from continuum_sim.visualization.mujoco_system_debug_viewer import (
     normalize_target_mm,
     target_rates,
 )
+from continuum_sim.system.types import ArmTendonRateCommand
 
 
 def test_target_rates_reach_near_target_and_clip_large_error() -> None:
@@ -55,3 +56,14 @@ def test_normalize_target_mm_restores_fallback_for_invalid_values() -> None:
     assert normalize_target_mm("not-a-number", -20.0, 20.0, 3.25) == 3.25
     assert normalize_target_mm("nan", -20.0, 20.0, 3.25) == 3.25
     assert normalize_target_mm("inf", -20.0, 20.0, 3.25) == 3.25
+
+
+def test_raw_debug_command_requires_explicit_mode() -> None:
+    compatible = ArmTendonRateCommand(np.zeros(9, dtype=float))
+    raw = ArmTendonRateCommand(
+        np.zeros(9, dtype=float),
+        control_space="raw_tendon_debug",
+    )
+
+    assert compatible.control_space == "bending_compatible"
+    assert raw.control_space == "raw_tendon_debug"

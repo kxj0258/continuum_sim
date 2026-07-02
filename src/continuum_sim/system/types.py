@@ -31,6 +31,8 @@ class ArmSystemState:
     segment_poses_world: np.ndarray
     tendon_displacement_m: np.ndarray
     tendon_velocity_mps: np.ndarray
+    tendon_target_m: np.ndarray | None = None
+    actuator_force_n: np.ndarray | None = None
     centerline_world: np.ndarray | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -43,11 +45,31 @@ class ArmSystemState:
             )
         displacement = np.asarray(self.tendon_displacement_m, dtype=float)
         velocity = np.asarray(self.tendon_velocity_mps, dtype=float)
-        if displacement.ndim != 1 or velocity.shape != displacement.shape:
-            raise ValueError("Tendon displacement and velocity must be matching 1D arrays.")
+        target = (
+            displacement
+            if self.tendon_target_m is None
+            else np.asarray(self.tendon_target_m, dtype=float)
+        )
+        force = (
+            np.zeros_like(displacement)
+            if self.actuator_force_n is None
+            else np.asarray(self.actuator_force_n, dtype=float)
+        )
+        tendon_vectors = (displacement, velocity, target, force)
+        if (
+            displacement.ndim != 1
+            or any(values.shape != displacement.shape for values in tendon_vectors[1:])
+            or any(not np.all(np.isfinite(values)) for values in tendon_vectors)
+        ):
+            raise ValueError(
+                "Tendon displacement, velocity, target, and force must be "
+                "finite matching 1D arrays."
+            )
         object.__setattr__(self, "segment_poses_world", segment_poses.copy())
         object.__setattr__(self, "tendon_displacement_m", displacement.copy())
         object.__setattr__(self, "tendon_velocity_mps", velocity.copy())
+        object.__setattr__(self, "tendon_target_m", target.copy())
+        object.__setattr__(self, "actuator_force_n", force.copy())
         if self.centerline_world is not None:
             centerline = np.asarray(self.centerline_world, dtype=float)
             if centerline.ndim != 2 or centerline.shape[1] != 3:
@@ -109,4 +131,3 @@ def _vector(values: np.ndarray, size: int, name: str) -> np.ndarray:
     if result.shape != (size,) or not np.all(np.isfinite(result)):
         raise ValueError(f"{name} must be a finite vector with shape ({size},).")
     return result.copy()
-

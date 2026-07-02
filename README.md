@@ -167,7 +167,16 @@ task:
 
 ### Live Debug Panel
 
-旧 live panel 能力迁入 hook 体系，不再依赖旧 runtime loop：
+富肌腱监控面板已经迁入 scenario hook 体系，不再依赖旧 runtime loop。开启后会按
+`executor:1`、`observer:1` 这样的命名显示每根肌腱：
+
+- 目标位移与 MuJoCo 当前位移，单位为 mm；
+- 目标误差，单位为 mm；
+- MuJoCo `actuator_force`，单位为 N；
+- 当前时间以及速率/位移饱和数量。
+
+这里的长度是相对于 reset 中性长度的变化量，与 direct tendon-rate 控制器的目标
+定义一致。单臂和双臂场景会根据 assembly 自动生成 9 根或 18 根肌腱标签。
 
 ```yaml
 hooks:
@@ -177,6 +186,29 @@ hooks:
   live_force_panel_stride: 5
   live_force_panel_history_points: 300
 ```
+
+交互式 MuJoCo 场景默认打开肌腱面板；批处理时可将
+`show_live_tendon_panel` 改为 `false`。关闭肌腱面板不会终止场景任务。
+
+### 独立 MuJoCo 肌腱调试
+
+新的调试入口直接读取 scenario YAML，因此使用的 assembly、生成 XML、单/双臂
+布局和普通任务完全一致：
+
+```powershell
+# 双臂调试：MuJoCo 3D viewer + 肌腱控制/监控面板
+python scripts/debug_mujoco.py configs/scenarios/dual_mujoco_tracking.yaml
+
+# 单臂调试
+python scripts/debug_mujoco.py configs/scenarios/single_mujoco_tracking.yaml
+
+# 只打开 Matplotlib 控制/监控面板
+python scripts/debug_mujoco.py configs/scenarios/dual_mujoco_tracking.yaml --panel-only
+```
+
+调试器提供每根肌腱的绝对目标位移滑块、Reset、Zero、Step、Run/Pause，以及单根
+肌腱、第一段三根肌腱和全部肌腱的预设命令。滑块目标会转换成受 assembly
+`max_tendon_rate_mps` 限制的 `RobotSystemCommand`，不会绕开新的系统控制边界。
 
 ## 运行产物
 
@@ -255,12 +287,14 @@ ScenarioConfig
 
 ```powershell
 python -m compileall src scripts/run_scenario.py
+pytest tests/test_system_tendon_debug.py tests/test_mujoco_system_debug_viewer.py
 pytest tests/test_scenario_migrated_task_features.py
 pytest tests/test_scenario_import_boundaries.py tests/test_scenario_mujoco_composition.py tests/test_scenario_artifacts.py
 
 python scripts/run_scenario.py configs/scenarios/single_analytic_tracking.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_tracking.yaml
 python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml
+python scripts/debug_mujoco.py configs/scenarios/dual_mujoco_tracking.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_navigation.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_wiping.yaml
 python scripts/run_scenario.py configs/scenarios/single_engine_cleaning.yaml

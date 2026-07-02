@@ -190,6 +190,7 @@ class MujocoSystemBackend:
     def get_system_state(self) -> RobotSystemState:
         tendon_displacement = self.physics.get_tendon_length()
         tendon_velocity = self.physics.get_tendon_velocity()
+        actuator_force = self.physics.get_actuator_force()
         arms: dict[str, ArmSystemState] = {}
         dual = len(self.layout.arms) > 1
         for arm in self.assembly.enabled_arms:
@@ -208,6 +209,12 @@ class MujocoSystemBackend:
                     tendon_velocity[tendon_slice]
                     if tendon_velocity.size
                     else self._last_applied_rates[arm.name]
+                ),
+                tendon_target_m=self._integrators[arm.name].displacement_m,
+                actuator_force_n=(
+                    actuator_force[tendon_slice]
+                    if actuator_force.size
+                    else np.zeros_like(tendon_displacement[tendon_slice])
                 ),
                 metadata={"attachment": arm.attachment},
             )

@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+import numpy as np
+from numpy.testing import assert_allclose
+
+from continuum_sim.visualization.mujoco_system_debug_viewer import (
+    named_system_target,
+    target_rates,
+)
+
+
+def test_target_rates_reach_near_target_and_clip_large_error() -> None:
+    target = np.array([0.001, 0.010, -0.010], dtype=float)
+    current = np.zeros(3, dtype=float)
+    max_rate = np.array([0.10, 0.02, 0.03], dtype=float)
+
+    rates = target_rates(target, current, max_rate, dt=0.1)
+
+    assert_allclose(rates, [0.01, 0.02, -0.03])
+
+
+def test_named_system_target_addresses_arms_by_name() -> None:
+    zeros = {
+        "executor": np.zeros(9, dtype=float),
+        "observer": np.zeros(9, dtype=float),
+    }
+
+    single = named_system_target(
+        "observer_tendon_1_pull",
+        zeros,
+        single_pull_m=-0.002,
+        triplet_pull_m=-0.001,
+    )
+    triplet = named_system_target(
+        "executor_segment_1_triplet",
+        zeros,
+        single_pull_m=-0.002,
+        triplet_pull_m=-0.001,
+    )
+
+    assert single["observer"][0] == -0.002
+    assert np.count_nonzero(single["executor"]) == 0
+    assert_allclose(triplet["executor"][:3], [-0.001, -0.001, -0.001])
+    assert np.count_nonzero(triplet["observer"]) == 0

@@ -345,8 +345,10 @@ class TendonDiagnosticHook:
             "time_s": state.time_s,
             "arms": {
                 name: {
+                    "tendon_target_m": arm.tendon_target_m.copy(),
                     "tendon_displacement_m": arm.tendon_displacement_m.copy(),
                     "tendon_velocity_mps": arm.tendon_velocity_mps.copy(),
+                    "actuator_force_n": arm.actuator_force_n.copy(),
                 }
                 for name, arm in state.arms.items()
             },
@@ -356,29 +358,25 @@ class TendonDiagnosticHook:
 
 
 class LiveTendonPanelHook:
-    """Optional matplotlib tendon monitor attached to the scenario hook lifecycle."""
+    """Optional rich tendon monitor attached to the scenario hook lifecycle."""
 
     def __init__(self, *, stride: int = 1, history_points: int = 300) -> None:
         if stride <= 0:
             raise ValueError("LiveTendonPanelHook stride must be positive.")
         self.stride = stride
         self.history_points = history_points
-        self._plt = None
-        self._figure = None
-        self._axes = None
-        self._time: list[float] = []
-        self._values: dict[str, list[float]] = {}
+        self._panel = None
 
     def on_reset(self, state: RobotSystemState) -> None:
-        import matplotlib.pyplot as plt
+        from continuum_sim.visualization.system_tendon_debug import (
+            SystemTendonMonitorPanel,
+        )
 
-        self._plt = plt
-        self._figure, self._axes = plt.subplots()
-        self._time.clear()
-        self._values.clear()
-        plt.ion()
-        self._append(state)
-        self._draw()
+        if self._panel is not None:
+            self._panel.close()
+        self._panel = SystemTendonMonitorPanel()
+        self._panel.update(state, redraw=False)
+        self._panel.show(block=False)
 
     def on_step(
         self,
@@ -388,8 +386,9 @@ class LiveTendonPanelHook:
     ) -> None:
         del command
         if step_index % self.stride == 0:
-            self._append(state)
-            self._draw()
+            if self._panel is not None and self._panel.is_open():
+                self._panel.update(state)
+                self._panel.flush_events()
 
     def should_stop(self, state: RobotSystemState, step_index: int) -> bool:
         del state, step_index
@@ -397,37 +396,8 @@ class LiveTendonPanelHook:
 
     def on_finish(self, state: RobotSystemState) -> None:
         del state
-        if self._plt is not None:
-            self._plt.ioff()
-
-    def _append(self, state: RobotSystemState) -> None:
-        self._time.append(float(state.time_s))
-        for arm_name, arm in state.arms.items():
-            for index, value in enumerate(arm.tendon_displacement_m):
-                key = f"{arm_name}:{index}"
-                self._values.setdefault(key, []).append(float(value))
-        self._trim()
-
-    def _trim(self) -> None:
-        if len(self._time) <= self.history_points:
-            return
-        excess = len(self._time) - self.history_points
-        del self._time[:excess]
-        for values in self._values.values():
-            del values[:excess]
-
-    def _draw(self) -> None:
-        if self._axes is None or self._figure is None:
-            return
-        self._axes.clear()
-        for key, values in self._values.items():
-            if len(values) == len(self._time):
-                self._axes.plot(self._time, values, label=key)
-        self._axes.set_xlabel("time [s]")
-        self._axes.set_ylabel("tendon displacement [m]")
-        self._axes.legend(loc="upper right", fontsize="x-small")
-        self._figure.canvas.draw_idle()
-        self._figure.canvas.flush_events()
+        if self._panel is not None:
+            self._panel.flush_events()
 
 
 class LiveWipingForcePanelHook:

@@ -128,6 +128,8 @@ class AnalyticSystemBackend:
                 segment_poses_world=segment_world,
                 tendon_displacement_m=displacement,
                 tendon_velocity_mps=self._last_rates[arm.name],
+                tendon_target_m=displacement,
+                actuator_force_n=np.zeros_like(displacement),
                 centerline_world=world_mount.transform_points(fk.centerline),
                 metadata={"q": q, "backend": "analytic"},
             )
@@ -146,4 +148,3 @@ class AnalyticSystemBackend:
             pose=self.assembly.base.initial_pose,
             locked=self.assembly.base.control_mode == "fixed",
         )
-

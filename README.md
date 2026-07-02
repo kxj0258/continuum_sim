@@ -36,6 +36,18 @@ python -m compileall src scripts
 
 本次实现过程未自动执行上述命令。
 
+### Tracking 速度与双臂距离
+
+whole-body 求解器在 bending-space 中正则化 compatible tendon effort
+`||C_b b_dot||²`，避免用 tendon-space 的旧权重直接压制曲率速度。奇异性保护
+根据可控子空间中的最小非零奇异值调节速度；结构性不可控方向仍会报告
+`full_rank: false`，但不会自动把所有可控运动压到 5%。
+
+双臂默认最小中心线距离为 `10 mm`。固定 mount/root 采样点不参与碰撞任务；
+只有可运动中心线低于该距离且具有非零相对 Jacobian 时，observer avoidance
+才会覆盖 observer tracking。该数值是当前仿真模型设置，并非经过硬件安全认证
+的真实安全间距。
+
 面向空间连续体机械臂的组合式仿真项目。当前主入口统一为：
 
 ```powershell

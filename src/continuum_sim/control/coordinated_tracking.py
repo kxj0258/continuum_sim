@@ -74,7 +74,7 @@ class CoordinatedTrackingConfig:
 
     executor_position_gain: float = 4.0
     observer_position_gain: float = 5.0
-    inter_arm_min_distance_m: float = 0.025
+    inter_arm_min_distance_m: float = 0.010
     inter_arm_influence_distance_m: float = 0.05
     inter_arm_avoidance_gain: float = 4.0
     centerline_samples_per_segment: int = 6
@@ -252,17 +252,24 @@ class CoordinatedTrackingController:
             state,
             observer_name,
         )
-        pairwise = observer_centerline[:, None, :] - executor_centerline[None, :, :]
+        movable_executor = executor_centerline[1:]
+        movable_observer = observer_centerline[1:]
+        pairwise = (
+            movable_observer[:, None, :]
+            - movable_executor[None, :, :]
+        )
         distances = np.linalg.norm(pairwise, axis=2)
-        observer_index, executor_index = np.unravel_index(
+        observer_offset, executor_offset = np.unravel_index(
             int(np.argmin(distances)),
             distances.shape,
         )
+        observer_index = int(observer_offset + 1)
+        executor_index = int(executor_offset + 1)
         executor_point = executor_centerline[executor_index]
         observer_point = observer_centerline[observer_index]
         separation = observer_point - executor_point
         distance = float(np.linalg.norm(separation))
-        if distance >= self.config.inter_arm_influence_distance_m:
+        if distance >= self.config.inter_arm_min_distance_m:
             return None
         normal = (
             separation / distance
@@ -285,6 +292,12 @@ class CoordinatedTrackingController:
             self.config.inter_arm_min_distance_m - distance,
             0.0,
         )
+        if (
+            desired_speed <= 0.0
+            or np.linalg.norm(relative_jacobian)
+            <= self.solver.config.singularity.rank_tolerance
+        ):
+            return None
         return WholeBodyTask(
             name="executor_observer_collision_avoidance",
             jacobian=relative_jacobian,

@@ -154,13 +154,26 @@ class WholeBodyController:
             raise KeyError(f"Unknown whole-body objective {objective!r}.") from exc
 
     def _regularization_matrix(self) -> np.ndarray:
-        diagonal = np.full(
-            self.layout.size,
-            np.sqrt(self.config.tendon_regularization_weight),
-            dtype=float,
-        )
-        diagonal[self.layout.base] = np.sqrt(self.config.base_regularization_weight)
-        return np.diag(diagonal)
+        blocks: list[np.ndarray] = []
+        if self.layout.base_size:
+            base = np.zeros((self.layout.base_size, self.layout.size), dtype=float)
+            base[:, self.layout.base] = (
+                np.sqrt(self.config.base_regularization_weight)
+                * np.eye(self.layout.base_size, dtype=float)
+            )
+            blocks.append(base)
+        for arm_name, arm_slice in self.layout.arms.items():
+            model = self.layout.bending_models[arm_name]
+            tendon_effort = np.zeros(
+                (model.tendon_count, self.layout.size),
+                dtype=float,
+            )
+            tendon_effort[:, arm_slice] = (
+                np.sqrt(self.config.tendon_regularization_weight)
+                * model.coupling_matrix
+            )
+            blocks.append(tendon_effort)
+        return np.vstack(blocks)
 
     def _apply_limits(
         self,

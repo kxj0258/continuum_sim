@@ -7,13 +7,26 @@ from continuum_sim.control.tendon_rate_control import (
     CompatibleTendonRateIntegrator,
     TendonRateLimits,
 )
+from continuum_sim.control.coordinated_tracking import CoordinatedTrackingConfig
+from continuum_sim.control.whole_body_controller import (
+    WholeBodyController,
+    WholeBodyControllerConfig,
+)
+from continuum_sim.kinematics.whole_body import (
+    SingularityConfig,
+    analyze_singularity,
+)
 from continuum_sim.model.bending_space import BendingSpaceModel
 from continuum_sim.model.physical_tendon import load_physical_tendons_from_yaml
+from continuum_sim.model.robot_assembly import load_robot_assembly_config
 from continuum_sim.model.robot_params import ThreeSegmentRobotParams
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ROBOT_CONFIG = PROJECT_ROOT / "configs" / "robot_3seg.yaml"
+SINGLE_ASSEMBLY_CONFIG = (
+    PROJECT_ROOT / "configs" / "robots" / "assemblies" / "single_spatial.yaml"
+)
 
 
 def _model() -> BendingSpaceModel:
@@ -85,3 +98,43 @@ def test_raw_debug_mode_allows_incompatible_tendon_rate() -> None:
 
     assert step.raw_debug is True
     assert np.linalg.norm(step.compatibility_residual_mps) > 0.0
+
+
+def test_structural_zero_singular_value_does_not_throttle_controllable_space() -> None:
+    config = SingularityConfig(minimum_singular_value=0.5)
+
+    report = analyze_singularity(np.diag([1.0, 0.0]), config)
+
+    assert report.rank == 1
+    assert report.full_rank is False
+    assert report.condition_number == float("inf")
+    assert_allclose(report.damping, config.nominal_damping)
+    assert_allclose(report.velocity_scale, 1.0)
+
+
+def test_all_zero_jacobian_keeps_maximum_singularity_protection() -> None:
+    config = SingularityConfig()
+
+    report = analyze_singularity(np.zeros((2, 3), dtype=float), config)
+
+    assert report.rank == 0
+    assert report.damping == config.maximum_damping
+    assert report.velocity_scale == config.minimum_velocity_scale
+
+
+def test_whole_body_regularization_penalizes_mapped_tendon_effort() -> None:
+    assembly = load_robot_assembly_config(SINGLE_ASSEMBLY_CONFIG)
+    config = WholeBodyControllerConfig(tendon_regularization_weight=0.2)
+    controller = WholeBodyController(assembly, config)
+    model = controller.layout.bending_models["executor"]
+
+    regularization = controller._regularization_matrix()
+
+    assert_allclose(
+        regularization,
+        np.sqrt(config.tendon_regularization_weight) * model.coupling_matrix,
+    )
+
+
+def test_dual_arm_minimum_distance_defaults_to_ten_millimetres() -> None:
+    assert CoordinatedTrackingConfig().inter_arm_min_distance_m == 0.010

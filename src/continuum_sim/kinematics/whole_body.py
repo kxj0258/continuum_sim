@@ -219,9 +219,10 @@ def analyze_singularity(
     if values.ndim != 2:
         raise ValueError("matrix must be 2D.")
     singular_values = np.linalg.svd(values, compute_uv=False)
-    minimum = float(singular_values[-1]) if singular_values.size else 0.0
+    controllable = singular_values[singular_values > config.rank_tolerance]
+    minimum = float(controllable[-1]) if controllable.size else 0.0
     maximum = float(singular_values[0]) if singular_values.size else 0.0
-    rank = int(np.sum(singular_values > config.rank_tolerance))
+    rank = int(controllable.size)
     target_rank = min(values.shape)
     ratio = np.clip(
         minimum / max(config.minimum_singular_value, np.finfo(float).eps),
@@ -236,7 +237,11 @@ def analyze_singularity(
         config.minimum_velocity_scale
         + ratio * (1.0 - config.minimum_velocity_scale)
     )
-    condition = float("inf") if minimum <= 0.0 else maximum / minimum
+    condition = (
+        float("inf")
+        if rank < target_rank or minimum <= 0.0
+        else maximum / minimum
+    )
     return SingularityReport(
         rank=rank,
         full_rank=rank == target_rank,

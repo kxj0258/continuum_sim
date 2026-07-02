@@ -24,6 +24,7 @@ class SpatialArmLimits:
     tendon_displacement_min_m: np.ndarray
     tendon_displacement_max_m: np.ndarray
     max_tendon_rate_mps: np.ndarray
+    target_lead_m: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -115,10 +116,17 @@ def load_spatial_arm_config(path: str | Path) -> SpatialArmConfig:
         tendon_count,
         "spatial_arm.limits.max_tendon_rate_mps",
     )
+    target_lead = _vector_or_scalar(
+        limits.get("target_lead_m", 0.0005),
+        tendon_count,
+        "spatial_arm.limits.target_lead_m",
+    )
     if np.any(lower >= upper):
         raise ValueError("Spatial-arm tendon displacement lower limits must be below upper limits.")
     if np.any(max_rate <= 0.0):
         raise ValueError("Spatial-arm max tendon rates must be positive.")
+    if np.any(target_lead <= 0.0):
+        raise ValueError("Spatial-arm tendon target lead limits must be positive.")
     segments_raw = values.get("segments")
     if not isinstance(segments_raw, list) or len(segments_raw) != 3:
         raise ValueError("spatial_arm.segments must contain exactly three segments.")
@@ -189,6 +197,7 @@ def load_spatial_arm_config(path: str | Path) -> SpatialArmConfig:
             tendon_displacement_min_m=lower,
             tendon_displacement_max_m=upper,
             max_tendon_rate_mps=max_rate,
+            target_lead_m=target_lead,
         ),
         params=ThreeSegmentRobotParams(segments=segments),  # type: ignore[arg-type]
         tendons=tuple(sorted(tendons, key=lambda tendon: tendon.global_index)),

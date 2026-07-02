@@ -119,7 +119,7 @@ tendon_model:
   include_axial_strain: false
 actuators:
   tendon_position:
-    kp: 500000.0
+    kp: 40000.0
     ctrllimited: true
     ctrlrange_m: [-0.020, 0.020]
     forcelimited: true

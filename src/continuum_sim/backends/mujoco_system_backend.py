@@ -82,6 +82,7 @@ class MujocoSystemBackend:
                     displacement_min_m=arm.spatial_arm.limits.tendon_displacement_min_m,
                     displacement_max_m=arm.spatial_arm.limits.tendon_displacement_max_m,
                     max_rate_mps=arm.spatial_arm.limits.max_tendon_rate_mps,
+                    target_lead_m=arm.spatial_arm.limits.target_lead_m,
                 )
             )
             for arm in assembly.enabled_arms
@@ -162,16 +163,18 @@ class MujocoSystemBackend:
         )
 
         tendon_target = np.zeros(self.layout.tendon_size, dtype=float)
+        actual_tendon_displacement = self.physics.get_tendon_length()
         saturation: dict[str, dict[str, np.ndarray]] = {}
-        for arm_name, system_slice in self.layout.arms.items():
+        for arm_name in self.layout.arms:
+            tendon_slice = self.layout.tendon_slice(arm_name)
             step = self._integrators[arm_name].step(
                 command.arms[arm_name].tendon_rate_mps,
                 dt,
                 raw_debug=(
                     command.arms[arm_name].control_space == "raw_tendon_debug"
                 ),
+                actual_displacement_m=actual_tendon_displacement[tendon_slice],
             )
-            tendon_slice = self.layout.tendon_slice(arm_name)
             tendon_target[tendon_slice] = step.displacement_m
             self._last_applied_rates[arm_name] = step.applied_rate_mps
             saturation[arm_name] = {
@@ -246,7 +249,14 @@ class MujocoSystemBackend:
                 twist_world=self._base_state.last_twist,
             ),
             arms=arms,
-            metadata={"backend": "mujoco", "control": "bending_compatible"},
+            metadata={
+                "backend": "mujoco",
+                "control": "bending_compatible",
+                "mujoco_mobile_base_pose_rpy": self.physics.get_mobile_base_pose_rpy(),
+                "mujoco_mobile_base_frame_pose": self.physics.get_site_pose(
+                    "mobile_base_frame"
+                ),
+            },
         )
 
     def _site_names(self, arm_name: str, *, dual: bool) -> tuple[str, tuple[str, ...]]:

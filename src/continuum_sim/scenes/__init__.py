@@ -19,6 +19,7 @@ from continuum_sim.scenes.scene_builder import (
     build_mujoco_wiping_xml,
     inject_mobile_base_wrapper,
     inject_tool_contact_pad,
+    lock_mobile_base_freejoint,
 )
 from continuum_sim.scenes.scene_config import (
     InspectionTargetConfig,
@@ -58,6 +59,7 @@ __all__ = [
     "build_mujoco_wiping_xml",
     "inject_mobile_base_wrapper",
     "inject_tool_contact_pad",
+    "lock_mobile_base_freejoint",
     "load_navigation_scene_config",
     "nearest_clearance",
     "build_engine_mujoco_scene_xml",

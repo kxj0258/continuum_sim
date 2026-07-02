@@ -6,7 +6,13 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from continuum_sim.control.cbf_qp_kinematics import CBFQPConfig, solve_cbf_qp_velocity
 from continuum_sim.model.bending_space import BendingSpaceModel
+
+
+DEFAULT_TARGET_LEAD_M = 0.0005
+_BENDING_LIMIT_PROJECTION_CONFIG = CBFQPConfig(max_projection_iterations=32)
+
 
 @dataclass(frozen=True)
 class TendonRateLimits:
@@ -15,18 +21,27 @@ class TendonRateLimits:
     displacement_min_m: np.ndarray
     displacement_max_m: np.ndarray
     max_rate_mps: np.ndarray
+    target_lead_m: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         lower = _as_vector(self.displacement_min_m, "displacement_min_m")
         upper = _as_vector(self.displacement_max_m, "displacement_max_m", lower.size)
         max_rate = _as_vector(self.max_rate_mps, "max_rate_mps", lower.size)
+        target_lead = (
+            np.full(lower.shape, DEFAULT_TARGET_LEAD_M, dtype=float)
+            if self.target_lead_m is None
+            else _as_vector_or_scalar(self.target_lead_m, "target_lead_m", lower.size)
+        )
         if np.any(lower >= upper):
             raise ValueError("Tendon displacement lower limits must be below upper limits.")
         if np.any(max_rate <= 0.0):
             raise ValueError("Tendon max rates must be positive.")
+        if np.any(target_lead <= 0.0):
+            raise ValueError("Tendon target lead limits must be positive.")
         object.__setattr__(self, "displacement_min_m", lower)
         object.__setattr__(self, "displacement_max_m", upper)
         object.__setattr__(self, "max_rate_mps", max_rate)
+        object.__setattr__(self, "target_lead_m", target_lead)
 
 
 @dataclass(frozen=True)
@@ -168,6 +183,7 @@ class CompatibleTendonRateIntegrator:
         dt: float,
         *,
         raw_debug: bool = False,
+        actual_displacement_m: np.ndarray | None = None,
     ) -> CompatibleTendonRateStep:
         if dt <= 0.0:
             raise ValueError(f"dt must be positive, got {dt}.")
@@ -178,12 +194,22 @@ class CompatibleTendonRateIntegrator:
         )
         if raw_debug:
             return self._step_raw(requested, float(dt))
-        return self._step_compatible(requested, float(dt))
+        actual = (
+            None
+            if actual_displacement_m is None
+            else _as_vector(
+                actual_displacement_m,
+                "actual_displacement_m",
+                self.model.tendon_count,
+            )
+        )
+        return self._step_compatible(requested, float(dt), actual)
 
     def _step_compatible(
         self,
         requested: np.ndarray,
         dt: float,
+        actual_displacement_m: np.ndarray | None,
     ) -> CompatibleTendonRateStep:
         if self._raw_mode:
             self._bending = self.model.estimate(self._raw_target)
@@ -197,33 +223,46 @@ class CompatibleTendonRateIntegrator:
             )
         bending_rate = self.model.estimate(requested)
         compatible_rate = self.model.to_tendon(bending_rate)
+        if actual_displacement_m is not None:
+            self._bending = _project_bending_displacement(
+                self.model,
+                self._bending,
+                self.limits.displacement_min_m,
+                self.limits.displacement_max_m,
+                actual_displacement_m,
+                self.limits.target_lead_m,
+            )
         current = self.model.to_tendon(self._bending)
-        rate_scale = _common_rate_scale(compatible_rate, self.limits.max_rate_mps)
-        displacement_scale = _common_displacement_scale(
+        applied_bending_rate = _project_bending_rate(
+            self.model,
+            bending_rate,
             current,
-            compatible_rate,
             dt,
             self.limits.displacement_min_m,
             self.limits.displacement_max_m,
+            self.limits.max_rate_mps,
+            actual_displacement_m,
+            self.limits.target_lead_m,
         )
-        scale = min(rate_scale, displacement_scale)
-        applied_bending_rate = scale * bending_rate
         applied_rate = self.model.to_tendon(applied_bending_rate)
         self._bending = self._bending + dt * applied_bending_rate
         displacement = self.model.to_tendon(self._bending)
+        effective_scale = _effective_scale(compatible_rate, applied_rate)
         return CompatibleTendonRateStep(
             requested_rate_mps=requested.copy(),
             applied_rate_mps=applied_rate,
             bending_rate=applied_bending_rate,
             bending_displacement=self._bending.copy(),
             displacement_m=displacement,
-            common_scale=float(scale),
+            common_scale=effective_scale,
             compatibility_residual_mps=residual,
             rate_saturated=np.abs(applied_rate - compatible_rate) > 1.0e-15,
-            displacement_saturated=np.full(
-                self.model.tendon_count,
-                displacement_scale < rate_scale,
-                dtype=bool,
+            displacement_saturated=_displacement_saturated(
+                displacement,
+                self.limits.displacement_min_m,
+                self.limits.displacement_max_m,
+                actual_displacement_m,
+                self.limits.target_lead_m,
             ),
             raw_debug=False,
         )
@@ -289,11 +328,157 @@ def _common_displacement_scale(
     return float(np.clip(np.min(scales), 0.0, 1.0))
 
 
+def _project_bending_displacement(
+    model: BendingSpaceModel,
+    bending: np.ndarray,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    actual: np.ndarray,
+    target_lead: np.ndarray,
+) -> np.ndarray:
+    finite_lead = np.isfinite(target_lead)
+    if not np.any(finite_lead):
+        return bending
+    lead_lower = lower.copy()
+    lead_upper = upper.copy()
+    lead_lower[finite_lead] = np.maximum(
+        lead_lower[finite_lead],
+        actual[finite_lead] - target_lead[finite_lead],
+    )
+    lead_upper[finite_lead] = np.minimum(
+        lead_upper[finite_lead],
+        actual[finite_lead] + target_lead[finite_lead],
+    )
+    lead_lower, lead_upper = _ensure_feasible_bounds(
+        lead_lower,
+        lead_upper,
+        actual,
+    )
+    return _project_with_tendon_bounds(
+        model,
+        bending,
+        lead_lower,
+        lead_upper,
+    )
+
+
+def _project_bending_rate(
+    model: BendingSpaceModel,
+    bending_rate: np.ndarray,
+    current: np.ndarray,
+    dt: float,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    max_rate: np.ndarray,
+    actual: np.ndarray | None,
+    target_lead: np.ndarray,
+) -> np.ndarray:
+    rate_lower = np.maximum(-max_rate, (lower - current) / dt)
+    rate_upper = np.minimum(max_rate, (upper - current) / dt)
+    if actual is not None:
+        finite_lead = np.isfinite(target_lead)
+        rate_lower[finite_lead] = np.maximum(
+            rate_lower[finite_lead],
+            (actual[finite_lead] - target_lead[finite_lead] - current[finite_lead])
+            / dt,
+        )
+        rate_upper[finite_lead] = np.minimum(
+            rate_upper[finite_lead],
+            (actual[finite_lead] + target_lead[finite_lead] - current[finite_lead])
+            / dt,
+        )
+    rate_lower, rate_upper = _ensure_feasible_bounds(
+        rate_lower,
+        rate_upper,
+        np.zeros_like(rate_lower),
+    )
+    return _project_with_tendon_bounds(
+        model,
+        bending_rate,
+        rate_lower,
+        rate_upper,
+    )
+
+
+def _project_with_tendon_bounds(
+    model: BendingSpaceModel,
+    reference_bending: np.ndarray,
+    tendon_lower: np.ndarray,
+    tendon_upper: np.ndarray,
+) -> np.ndarray:
+    coupling = model.coupling_matrix
+    barrier_jacobian = np.vstack((coupling, -coupling))
+    barrier_lower_bound = np.concatenate((tendon_lower, -tendon_upper))
+    return solve_cbf_qp_velocity(
+        reference_bending,
+        barrier_jacobian=barrier_jacobian,
+        barrier_lower_bound=barrier_lower_bound,
+        config=_BENDING_LIMIT_PROJECTION_CONFIG,
+    )
+
+
+def _ensure_feasible_bounds(
+    lower: np.ndarray,
+    upper: np.ndarray,
+    fallback: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    fixed = lower > upper
+    if not np.any(fixed):
+        return lower, upper
+    midpoint = np.clip(fallback[fixed], upper[fixed], lower[fixed])
+    lower = lower.copy()
+    upper = upper.copy()
+    lower[fixed] = midpoint
+    upper[fixed] = midpoint
+    return lower, upper
+
+
+def _effective_scale(reference_rate: np.ndarray, applied_rate: np.ndarray) -> float:
+    denom = float(reference_rate @ reference_rate)
+    if denom <= 1.0e-30:
+        return 1.0
+    return float(np.clip((applied_rate @ reference_rate) / denom, 0.0, 1.0))
+
+
+def _displacement_saturated(
+    displacement: np.ndarray,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    actual: np.ndarray | None,
+    target_lead: np.ndarray,
+) -> np.ndarray:
+    tolerance = 1.0e-12
+    saturated = (displacement <= lower + tolerance) | (
+        displacement >= upper - tolerance
+    )
+    if actual is not None:
+        finite_lead = np.isfinite(target_lead)
+        saturated[finite_lead] |= (
+            displacement[finite_lead]
+            <= actual[finite_lead] - target_lead[finite_lead] + tolerance
+        ) | (
+            displacement[finite_lead]
+            >= actual[finite_lead] + target_lead[finite_lead] - tolerance
+        )
+    return saturated
+
+
 def _as_vector(values: np.ndarray, name: str, size: int | None = None) -> np.ndarray:
     result = np.asarray(values, dtype=float)
     if result.ndim != 1 or (size is not None and result.shape != (size,)):
         expected = "a 1D vector" if size is None else f"shape ({size},)"
         raise ValueError(f"{name} must have {expected}, got {result.shape}.")
+    if not np.all(np.isfinite(result)):
+        raise ValueError(f"{name} must contain finite values.")
+    return result.copy()
+
+
+def _as_vector_or_scalar(values: np.ndarray, name: str, size: int) -> np.ndarray:
+    result = np.asarray(values, dtype=float)
+    if result.ndim == 0:
+        result = np.full((size,), float(result), dtype=float)
+    elif result.shape != (size,):
+        raise ValueError(f"{name} must be a scalar or have shape ({size},), got {result.shape}.")
     if not np.all(np.isfinite(result)):
         raise ValueError(f"{name} must contain finite values.")
     return result.copy()

@@ -48,6 +48,7 @@ class AnalyticSystemBackend:
                     displacement_min_m=arm.spatial_arm.limits.tendon_displacement_min_m,
                     displacement_max_m=arm.spatial_arm.limits.tendon_displacement_max_m,
                     max_rate_mps=arm.spatial_arm.limits.max_tendon_rate_mps,
+                    target_lead_m=arm.spatial_arm.limits.target_lead_m,
                 )
             )
             for arm in assembly.enabled_arms

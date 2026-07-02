@@ -104,6 +104,11 @@ python scripts/check_mujoco_offscreen_renderer.py --config configs/mujoco.yaml
 | `actuation.limits.max_length_delta`      | float, m    | 腱长命令上限。                       |
 | `actuation.limits.max_tension`           | float, N    | 张力元数据。                         |
 
+Spatial-arm assembly configs also accept `spatial_arm.limits.target_lead_m`.
+This positive scalar or per-tendon vector limits how far a tendon-position
+target may lead the measured tendon length. The current default and executor /
+observer configs use `0.0005` m.
+
 ## `configs/pcc.yaml`
 
 | 字段                                  | 类型         | 说明                             |
@@ -170,6 +175,7 @@ python scripts/check_mujoco_offscreen_renderer.py --config configs/mujoco.yaml
 | `joints.hinge.*`                  | scalar       | hinge damping、armature、limit、range、stiffness 和 springref。 |
 | `tendon_model.*`                  | scalar       | tendon model 类型、数量、限幅、damping、stiffness 和 coefficient source。 |
 | `actuators.tendon_position.*`     | scalar       | tendon position gain、命令范围和力范围。         |
+| `actuators.tendon_position.kp`    | float, N/m   | Tendon position gain. Current configs use `40000.0`, giving a 0.5 mm unsaturated tracking band with `forcerange_n: [-20.0, 20.0]`. |
 | `actuators.joint_position.*`      | scalar       | joint position gain、命令范围和力矩范围。        |
 | `sensors.*`                       | bool         | tendon length、velocity 和 actuator force sensor 开关。 |
 | `smoke_tests.*`                   | scalar       | MuJoCo smoke 路径使用的轻量数值检查参数。        |

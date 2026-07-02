@@ -156,6 +156,19 @@ def inject_mobile_base_wrapper(
     return output_path
 
 
+def lock_mobile_base_freejoint(root: ET.Element) -> ET.Element:
+    """Remove the optional mobile-base freejoint while keeping the wrapper body."""
+
+    for body in root.findall(".//body"):
+        for child in list(body):
+            if (
+                child.tag == "freejoint"
+                and child.attrib.get("name") == "mobile_base_freejoint"
+            ):
+                body.remove(child)
+    return root
+
+
 def _set_offscreen_framebuffer(
     root: ET.Element,
     offscreen_size: tuple[int, int],

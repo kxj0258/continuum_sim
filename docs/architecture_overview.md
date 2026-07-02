@@ -193,7 +193,8 @@ Cartesian task
   -> J_b = J_q S_b
   -> base + bending weighted solve
   -> tendon rate = C_b bending rate
-  -> common-scale rate/displacement limiting
+  -> measured-length anti-windup target lead limit
+  -> constrained bending-rate projection for rate/displacement limits
   -> bending-target integration
   -> analytic or MuJoCo tendon-position target
 ```
@@ -203,6 +204,15 @@ compatibility residuals. `ControlLayout` owns base-plus-bending optimization
 slices and separate physical-tendon slices. `RobotSystemCommand` remains the
 runtime boundary; an arm command is compatible by default and raw tendon control
 requires the explicit `raw_tendon_debug` mode.
+
+Compatible target integration keeps tendon targets close to measured tendon
+lengths before integrating the next rate command. The default target lead is
+0.5 mm, matching the initial `kp=40000 N/m` and `forcerange=±20 N` linear
+tracking band. When a tendon target is at a displacement boundary, the
+integrator no longer applies one arm-wide scale that can freeze all bending
+motion. It projects the requested six-dimensional bending rate onto the
+available tendon-rate and next-target displacement constraints, so remaining
+feasible compatible bending directions can continue moving along the boundary.
 
 Measured tendon state is projected before PCC kinematics and always reconstructs
 zero axial strain. The discarded component is diagnostic model/physics residual,

@@ -11,8 +11,9 @@ scenario:
   scene: {}
   task:
     type: tracking
-    waypoint_tolerance_m: 0.005
-    target_advance_mode: tolerance
+    waypoint_tolerance_m: 0.003
+    target_advance_mode: tolerance #tolerance
+    advance_steps: 15
     loop: false
     trajectory:
       type: square
@@ -28,7 +29,7 @@ scenario:
   runtime:
     controller_dt_s: 0.02
     n_substeps: 20
-    max_steps: 1000
+    max_steps: 3000
   hooks:
     recorder: true
     tendon_debug: true

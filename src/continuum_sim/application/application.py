@@ -45,7 +45,10 @@ from continuum_sim.scenes.engine_query import EnginePrimitiveSceneQuery
 from continuum_sim.scenes.engine_scene import load_engine_scene_config
 from continuum_sim.scenes.scene_config import load_navigation_scene_config
 from continuum_sim.scenes.structured_query import StructuredSceneQuery
-from continuum_sim.scenes.scene_builder import inject_structured_scene
+from continuum_sim.scenes.scene_builder import (
+    inject_structured_scene,
+    lock_mobile_base_freejoint,
+)
 from continuum_sim.tasks.engine_cleaning_path import build_engine_cleaning_plan
 from continuum_sim.tasks.navigation_mission import resolve_navigation_waypoints
 from continuum_sim.tasks.trajectory_generation import generate_trajectory_waypoints
@@ -249,6 +252,8 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
         )
     if structured_scene is not None:
         inject_structured_scene(root, structured_scene)
+    if assembly.base.control_mode == "fixed":
+        lock_mobile_base_freejoint(root)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     ET.indent(tree)
     tree.write(output_path, encoding="utf-8", xml_declaration=False)

@@ -44,7 +44,6 @@
   <worldbody>
     <body name="mobile_base" pos="0 0 0" quat="1 0 0 0">
       <inertial pos="0 0 0" mass="1" diaginertia="0.001 0.001 0.001" />
-      <freejoint name="mobile_base_freejoint" />
       <site name="mobile_base_frame" type="sphere" pos="0 0 0" size="0.002" rgba="0.2 0.6 1 0.8" group="2" />
       <site name="dual_arm_mount" type="sphere" pos="0 0 0" quat="1 0 0 0" size="0.002" rgba="0.95 0.55 0.12 0.85" group="2" />
       <body name="dual_mobile_base" pos="0 0 0" quat="1 0 0 0">
@@ -904,24 +903,24 @@
     </spatial>
   </tendon>
   <actuator>
-    <position name="act_executor_tendon_1" tendon="executor_tendon_1" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
-    <position name="act_executor_tendon_2" tendon="executor_tendon_2" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
-    <position name="act_executor_tendon_3" tendon="executor_tendon_3" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
-    <position name="act_executor_tendon_4" tendon="executor_tendon_4" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
-    <position name="act_executor_tendon_5" tendon="executor_tendon_5" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
-    <position name="act_executor_tendon_6" tendon="executor_tendon_6" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
-    <position name="act_executor_tendon_7" tendon="executor_tendon_7" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
-    <position name="act_executor_tendon_8" tendon="executor_tendon_8" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
-    <position name="act_executor_tendon_9" tendon="executor_tendon_9" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
-    <position name="act_observer_tendon_1" tendon="observer_tendon_1" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
-    <position name="act_observer_tendon_2" tendon="observer_tendon_2" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
-    <position name="act_observer_tendon_3" tendon="observer_tendon_3" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
-    <position name="act_observer_tendon_4" tendon="observer_tendon_4" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
-    <position name="act_observer_tendon_5" tendon="observer_tendon_5" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
-    <position name="act_observer_tendon_6" tendon="observer_tendon_6" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
-    <position name="act_observer_tendon_7" tendon="observer_tendon_7" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
-    <position name="act_observer_tendon_8" tendon="observer_tendon_8" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
-    <position name="act_observer_tendon_9" tendon="observer_tendon_9" kp="500000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_executor_tendon_1" tendon="executor_tendon_1" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_executor_tendon_2" tendon="executor_tendon_2" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_executor_tendon_3" tendon="executor_tendon_3" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_executor_tendon_4" tendon="executor_tendon_4" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_executor_tendon_5" tendon="executor_tendon_5" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_executor_tendon_6" tendon="executor_tendon_6" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_executor_tendon_7" tendon="executor_tendon_7" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_executor_tendon_8" tendon="executor_tendon_8" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_executor_tendon_9" tendon="executor_tendon_9" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_1" tendon="observer_tendon_1" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_2" tendon="observer_tendon_2" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_3" tendon="observer_tendon_3" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_4" tendon="observer_tendon_4" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_5" tendon="observer_tendon_5" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_6" tendon="observer_tendon_6" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_7" tendon="observer_tendon_7" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_8" tendon="observer_tendon_8" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
+    <position name="act_observer_tendon_9" tendon="observer_tendon_9" kp="40000" forcelimited="true" forcerange="-20 20" ctrllimited="false" />
   </actuator>
   <sensor>
     <tendonpos name="sensor_executor_tendon_1_length" tendon="executor_tendon_1" />

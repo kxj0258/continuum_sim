@@ -175,6 +175,20 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
             [state.base.twist_world for state in result.states], dtype=float
         ),
     }
+    mujoco_mobile_base_pose_rpy = _state_metadata_array(
+        result.states,
+        "mujoco_mobile_base_pose_rpy",
+        shape=(6,),
+    )
+    if mujoco_mobile_base_pose_rpy is not None:
+        arrays["mujoco_mobile_base_pose_rpy"] = mujoco_mobile_base_pose_rpy
+    mujoco_mobile_base_frame_pose = _state_metadata_array(
+        result.states,
+        "mujoco_mobile_base_frame_pose",
+        shape=(4, 4),
+    )
+    if mujoco_mobile_base_frame_pose is not None:
+        arrays["mujoco_mobile_base_frame_pose"] = mujoco_mobile_base_frame_pose
     for arm_name in sorted(result.states[-1].arms):
         prefix = f"arm_{arm_name}"
         arrays[f"{prefix}_tip_position_m"] = np.asarray(
@@ -244,6 +258,26 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
                     [report.condition_number for report in arm_reports]
                 )
     return arrays
+
+
+def _state_metadata_array(
+    states: list[object],
+    key: str,
+    *,
+    shape: tuple[int, ...],
+) -> np.ndarray | None:
+    if not states or key not in states[0].metadata:
+        return None
+    fallback = np.full(shape, np.nan, dtype=float)
+    values = []
+    for state in states:
+        raw = state.metadata.get(key)
+        if raw is None:
+            values.append(fallback.copy())
+            continue
+        array = np.asarray(raw, dtype=float)
+        values.append(array.copy() if array.shape == shape else fallback.copy())
+    return np.asarray(values, dtype=float)
 
 
 def _metrics(arrays: dict[str, np.ndarray]) -> dict[str, float]:

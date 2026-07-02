@@ -169,6 +169,18 @@ class MujocoBackend:
             poses[index] = self._site_pose(site_id)
         return poses
 
+    def get_site_pose(self, name: str) -> np.ndarray | None:
+        """Return a named MuJoCo site pose, or ``None`` when the site is absent."""
+
+        site_id = self._mujoco.mj_name2id(
+            self.model,
+            self._mujoco.mjtObj.mjOBJ_SITE,
+            name,
+        )
+        if site_id < 0:
+            return None
+        return self._site_pose(int(site_id))
+
     def update_follower_poses(self) -> None:
         """Write runtime follower mocap poses from the current 6DOF qpos."""
 

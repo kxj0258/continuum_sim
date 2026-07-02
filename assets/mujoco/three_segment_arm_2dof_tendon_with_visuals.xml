@@ -11,7 +11,7 @@
     <joint damping="0.05" armature="0.0001" limited="true" range="-0.25 0.25" stiffness="0.02" springref="0" />
     <geom type="capsule" size="0.004" density="1100" rgba="0.2 0.45 0.85 1" group="0" />
     <site size="0.003" rgba="0.95 0.25 0.2 1" />
-    <position kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position kp="40000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
   </default>
   <worldbody>
     <body name="base" pos="0 0 0">
@@ -147,15 +147,15 @@
     </fixed>
   </tendon>
   <actuator>
-    <position name="act_tendon_1" tendon="tendon_1" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
-    <position name="act_tendon_2" tendon="tendon_2" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
-    <position name="act_tendon_3" tendon="tendon_3" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
-    <position name="act_tendon_4" tendon="tendon_4" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
-    <position name="act_tendon_5" tendon="tendon_5" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
-    <position name="act_tendon_6" tendon="tendon_6" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
-    <position name="act_tendon_7" tendon="tendon_7" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
-    <position name="act_tendon_8" tendon="tendon_8" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
-    <position name="act_tendon_9" tendon="tendon_9" kp="500000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position name="act_tendon_1" tendon="tendon_1" kp="40000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position name="act_tendon_2" tendon="tendon_2" kp="40000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position name="act_tendon_3" tendon="tendon_3" kp="40000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position name="act_tendon_4" tendon="tendon_4" kp="40000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position name="act_tendon_5" tendon="tendon_5" kp="40000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position name="act_tendon_6" tendon="tendon_6" kp="40000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position name="act_tendon_7" tendon="tendon_7" kp="40000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position name="act_tendon_8" tendon="tendon_8" kp="40000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
+    <position name="act_tendon_9" tendon="tendon_9" kp="40000" ctrllimited="true" ctrlrange="-0.02 0.02" forcelimited="true" forcerange="-20 20" />
   </actuator>
   <sensor>
     <tendonpos name="sensor_tendon_1_length" tendon="tendon_1" />

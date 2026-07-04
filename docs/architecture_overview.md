@@ -207,8 +207,9 @@ requires the explicit `raw_tendon_debug` mode.
 
 Compatible target integration keeps tendon targets close to measured tendon
 lengths before integrating the next rate command. The default target lead is
-0.5 mm, matching the initial `kp=40000 N/m` and `forcerange=±20 N` linear
-tracking band. When a tendon target is at a displacement boundary, the
+0.5 mm. The single-arm baseline uses `kp=40000 N/m` and `forcerange=±20 N`
+(a 0.5 mm linear band), while the dual-arm model uses `forcerange=±30 N`
+(a 0.75 mm linear band). When a tendon target is at a displacement boundary, the
 integrator no longer applies one arm-wide scale that can freeze all bending
 motion. It projects the requested six-dimensional bending rate onto the
 available tendon-rate and next-target displacement constraints, so remaining

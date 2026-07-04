@@ -209,7 +209,7 @@ dual_robot:
         limits:
           min_length_delta: -0.020
           max_length_delta: 0.020
-          max_tension: 20.0
+          max_tension: 30.0
 
     observer:
       role: observer
@@ -402,7 +402,7 @@ dual_robot:
         limits:
           min_length_delta: -0.020
           max_length_delta: 0.020
-          max_tension: 20.0
+          max_tension: 30.0
 
 actuation:
   command_type: tendon_length_delta
@@ -410,4 +410,4 @@ actuation:
   limits:
     min_length_delta: -0.020
     max_length_delta: 0.020
-    max_tension: 20.0
+    max_tension: 30.0

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import os
 import sys
 from pathlib import Path
@@ -19,6 +20,15 @@ from continuum_sim.model.dual_arm_robot import DualArmRobotConfig
 from continuum_sim.model.hole_pattern import TendonHolePattern, load_tendon_hole_pattern
 from continuum_sim.model.multi_arm import ArmConfig, load_multi_arm_config
 from continuum_sim.model.physical_tendon import PhysicalTendonPath
+from continuum_sim.scenes.scene_builder import inject_mobile_base_wrapper
+
+
+@dataclass(frozen=True)
+class DualArmModelBuildResult:
+    """Paths written by one reproducible dual-arm model build."""
+
+    base_xml_path: Path
+    mobile_base_xml_path: Path | None
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,21 +45,30 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Override the generated dual-arm XML output path.",
     )
+    parser.add_argument(
+        "--mobile-base-output",
+        type=Path,
+        default=None,
+        help="Override the generated mobile-base-wrapped XML output path.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     try:
-        output_path = build_mujoco_dual_arm_model(
+        result = build_mujoco_dual_arm_model(
             config_path=args.config,
             output_path=args.output,
+            mobile_base_output_path=args.mobile_base_output,
         )
     except (FileNotFoundError, ValueError) as exc:
         print(f"Failed to generate dual-arm MuJoCo XML: {exc}", file=sys.stderr)
         return 1
 
-    print(f"dual_arm_tendon_xml_path: {output_path}")
+    print(f"dual_arm_tendon_xml_path: {result.base_xml_path}")
+    if result.mobile_base_xml_path is not None:
+        print(f"dual_arm_mobile_base_xml_path: {result.mobile_base_xml_path}")
     return 0
 
 
@@ -57,7 +76,8 @@ def build_mujoco_dual_arm_model(
     *,
     config_path: Path,
     output_path: Path | None = None,
-) -> Path:
+    mobile_base_output_path: Path | None = None,
+) -> DualArmModelBuildResult:
     config = load_mujoco_config(
         config_path,
         require_xml=False,
@@ -93,7 +113,26 @@ def build_mujoco_dual_arm_model(
         target_path=target_path,
     )
     _write_xml(root, target_path)
-    return target_path
+    mobile_target = _mobile_base_output_path(
+        config,
+        target_path,
+        output_overridden=output_path is not None,
+        override=mobile_base_output_path,
+    )
+    if mobile_target is not None:
+        if config.mobile_base_config_path is None:
+            raise ValueError(
+                "mobile_base_config_path is required to generate mobile-base XML."
+            )
+        inject_mobile_base_wrapper(
+            target_path,
+            mobile_target,
+            config.mobile_base_config_path,
+        )
+    return DualArmModelBuildResult(
+        base_xml_path=target_path,
+        mobile_base_xml_path=mobile_target,
+    )
 
 
 def _build_root(
@@ -209,6 +248,7 @@ def _append_worldbody(
     hole_pattern: TendonHolePattern,
 ) -> None:
     worldbody = ElementTree.SubElement(root, "worldbody")
+    _append_world_frame_sites(worldbody, config)
     base_body = ElementTree.SubElement(
         worldbody,
         "body",
@@ -237,6 +277,45 @@ def _append_worldbody(
             arm=arm,
             mesh_manifest=mesh_manifest,
             hole_pattern=hole_pattern,
+        )
+
+
+def _append_world_frame_sites(
+    worldbody: ElementTree.Element,
+    config,
+) -> None:
+    frame = config.visuals.world_frame
+    if not frame.enabled:
+        return
+    ElementTree.SubElement(
+        worldbody,
+        "site",
+        {
+            "name": "world_origin",
+            "type": "sphere",
+            "pos": "0 0 0",
+            "size": _format_float(frame.origin_radius_m),
+            "rgba": _format_vec(frame.origin_rgba),
+            "group": str(frame.geom_group),
+        },
+    )
+    axes = (
+        ("x", (frame.axis_length_m, 0.0, 0.0), frame.x_rgba),
+        ("y", (0.0, frame.axis_length_m, 0.0), frame.y_rgba),
+        ("z", (0.0, 0.0, frame.axis_length_m), frame.z_rgba),
+    )
+    for axis, endpoint, rgba in axes:
+        ElementTree.SubElement(
+            worldbody,
+            "site",
+            {
+                "name": f"world_{axis}_axis",
+                "type": "cylinder",
+                "fromto": _format_vec((0.0, 0.0, 0.0, *endpoint)),
+                "size": _format_float(frame.axis_radius_m),
+                "rgba": _format_vec(rgba),
+                "group": str(frame.geom_group),
+            },
         )
 
 
@@ -647,9 +726,27 @@ def _actuator_attrs_for_tendon(config, actuator, tendon_name: str) -> dict[str, 
         "kp": _format_float(actuator.kp),
         "forcelimited": _format_bool(actuator.forcelimited),
         "forcerange": _format_vec(actuator.forcerange_n),
-        "ctrllimited": "false",
+        "ctrllimited": _format_bool(actuator.ctrllimited),
     }
     return attrs
+
+
+def _mobile_base_output_path(
+    config,
+    base_xml_path: Path,
+    *,
+    output_overridden: bool,
+    override: Path | None,
+) -> Path | None:
+    if override is not None:
+        return override.resolve()
+    if config.mobile_base_config_path is None:
+        return None
+    if not output_overridden and config.mobile_base_xml_path is not None:
+        return config.mobile_base_xml_path.resolve()
+    return base_xml_path.with_name(
+        f"{base_xml_path.stem}_mobile_base{base_xml_path.suffix}"
+    )
 
 
 def _append_sensors(

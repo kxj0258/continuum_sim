@@ -11,7 +11,7 @@ scenario:
   scene: {}
   task:
     type: tracking
-    waypoint_tolerance_m: 0.0015
+    waypoint_tolerance_m: 0.003
     target_advance_mode: tolerance
     loop: false
     tracking_control:
@@ -19,7 +19,7 @@ scenario:
       executor_position_gain: 4.0
       observer_position_gain: 5.0
       feedforward_speed_mps: 0.003
-      max_target_speed_mps: 0.030
+      max_target_speed_mps: 0.020
       executor_tracking_weight: 100.0
       observer_tracking_weight: 40.0
       executor_collision_avoidance_weight: 80.0
@@ -33,7 +33,7 @@ scenario:
       decouple_arm_singularity: true
     trajectory:
       type: square
-      samples: 120
+      samples: 80
       radius_m: 0.018
       placement:
         center_mode: straight_tip_xy

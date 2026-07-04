@@ -241,6 +241,38 @@ def test_mujoco_segment_2dof_config_loads_without_importing_optional_backend() -
     )
 
 
+def test_dual_mujoco_config_matches_committed_mobile_base_model() -> None:
+    config = load_mujoco_config(
+        PROJECT_ROOT / "configs" / "mujoco_dual.yaml",
+        require_visual_meshes=False,
+    )
+
+    assert config.mobile_base_xml_path == (
+        PROJECT_ROOT
+        / "assets"
+        / "mujoco"
+        / "dual_three_segment_arm_tendon_with_visuals_mobile_base.xml"
+    )
+    assert config.model.follower_collision is False
+    assert config.tendon_model.limited is False
+    assert config.actuators.tendon_position.ctrllimited is False
+    assert config.actuators.tendon_position.forcerange_n == pytest.approx(
+        (-30.0, 30.0)
+    )
+    assert config.visuals.world_frame.enabled is True
+    assert config.visuals.world_frame.axis_length_m == pytest.approx(0.10)
+    assert config.visuals.world_frame.axis_radius_m == pytest.approx(0.0015)
+    robot = load_yaml(PROJECT_ROOT / "configs" / "robots" / "dual_arm_3seg.yaml")
+    assert (
+        robot["dual_robot"]["arms"]["executor"]["actuation"]["limits"]["max_tension"]
+        == 30.0
+    )
+    assert (
+        robot["dual_robot"]["arms"]["observer"]["actuation"]["limits"]["max_tension"]
+        == 30.0
+    )
+
+
 def test_mujoco_config_rejects_unknown_model_type(tmp_path: Path) -> None:
     raw = load_yaml(PROJECT_ROOT / "configs" / "mujoco.yaml")
     raw["robot_config_path"] = str(PROJECT_ROOT / "configs" / "robot_3seg.yaml")

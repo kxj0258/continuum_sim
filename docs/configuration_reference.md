@@ -175,7 +175,10 @@ observer configs use `0.0005` m.
 | `joints.hinge.*`                  | scalar       | hinge damping、armature、limit、range、stiffness 和 springref。 |
 | `tendon_model.*`                  | scalar       | tendon model 类型、数量、限幅、damping、stiffness 和 coefficient source。 |
 | `actuators.tendon_position.*`     | scalar       | tendon position gain、命令范围和力范围。         |
-| `actuators.tendon_position.kp`    | float, N/m   | Tendon position gain. Current configs use `40000.0`, giving a 0.5 mm unsaturated tracking band with `forcerange_n: [-20.0, 20.0]`. |
+| `actuators.tendon_position.kp`    | float, N/m   | Tendon position gain. Dual-arm config uses `40000.0` with `forcerange_n: [-30.0, 30.0]`. |
+| `actuators.tendon_position.ctrllimited` | bool | Spatial-tendon MJCF uses `false` because MuJoCo receives absolute tendon lengths; `ctrlrange_m` remains the software-side relative displacement range. |
+| `mobile_base_xml_path`            | path         | Optional committed output for the mobile-base-wrapped model generated after `tendon_xml_path`. |
+| `visuals.world_frame.*`           | mapping      | Optional world-origin and RGB-axis MJCF site dimensions, colors, and geom group. |
 | `actuators.joint_position.*`      | scalar       | joint position gain、命令范围和力矩范围。        |
 | `sensors.*`                       | bool         | tendon length、velocity 和 actuator force sensor 开关。 |
 | `smoke_tests.*`                   | scalar       | MuJoCo smoke 路径使用的轻量数值检查参数。        |

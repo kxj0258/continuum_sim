@@ -111,6 +111,21 @@ class MujocoSiteNames:
 
 
 @dataclass(frozen=True)
+class MujocoWorldFrameVisualConfig:
+    """Optional MJCF world-origin and RGB-axis marker sites."""
+
+    enabled: bool
+    origin_radius_m: float
+    axis_length_m: float
+    axis_radius_m: float
+    origin_rgba: tuple[float, float, float, float]
+    x_rgba: tuple[float, float, float, float]
+    y_rgba: tuple[float, float, float, float]
+    z_rgba: tuple[float, float, float, float]
+    geom_group: int
+
+
+@dataclass(frozen=True)
 class MujocoVisualConfig:
     """Optional segmented visual mesh settings for the MuJoCo model."""
 
@@ -125,6 +140,7 @@ class MujocoVisualConfig:
     visual_geom_group: int
     collision_geom_group: int
     expected_meshes: tuple[str, ...]
+    world_frame: MujocoWorldFrameVisualConfig
 
 
 @dataclass(frozen=True)
@@ -275,6 +291,7 @@ class MujocoConfig:
     path: Path
     robot_config_path: Path
     mobile_base_config_path: Path | None
+    mobile_base_xml_path: Path | None
     multi_arm_config_path: Path | None
     dual_arm_mesh_config_path: Path | None
     dual_arm_hole_pattern_config_path: Path | None
@@ -332,6 +349,11 @@ def load_mujoco_config(
     physical_tendon_count = _load_robot_physical_tendon_count(robot_config_path)
     robot_config_is_dual = _is_dual_arm_robot_config(robot_config_path)
     mobile_base_config_path = _optional_config_path(config_path, raw.get("mobile_base_config_path"))
+    mobile_base_xml_path = (
+        None
+        if raw.get("mobile_base_xml_path") in (None, "")
+        else _resolve_path(config_path, raw["mobile_base_xml_path"])
+    )
     multi_arm_config_path = _optional_config_path(config_path, raw.get("multi_arm_config_path"))
     dual_arm_mesh_config_path = _optional_config_path(
         config_path,
@@ -394,6 +416,7 @@ def load_mujoco_config(
         path=config_path,
         robot_config_path=robot_config_path,
         mobile_base_config_path=mobile_base_config_path,
+        mobile_base_xml_path=mobile_base_xml_path,
         multi_arm_config_path=multi_arm_config_path,
         dual_arm_mesh_config_path=dual_arm_mesh_config_path,
         dual_arm_hole_pattern_config_path=dual_arm_hole_pattern_config_path,
@@ -512,6 +535,42 @@ def _load_mujoco_visual_config(
         "visuals.expected_meshes",
         allow_empty=False,
     )
+    world_frame_values = _optional_section(values, "world_frame")
+    world_frame = MujocoWorldFrameVisualConfig(
+        enabled=_bool(world_frame_values, "enabled", default=False),
+        origin_radius_m=_positive_float_value(
+            world_frame_values.get("origin_radius_m", 0.004),
+            "visuals.world_frame.origin_radius_m",
+        ),
+        axis_length_m=_positive_float_value(
+            world_frame_values.get("axis_length_m", 0.10),
+            "visuals.world_frame.axis_length_m",
+        ),
+        axis_radius_m=_positive_float_value(
+            world_frame_values.get("axis_radius_m", 0.0015),
+            "visuals.world_frame.axis_radius_m",
+        ),
+        origin_rgba=_rgba_tuple(
+            world_frame_values.get("origin_rgba", (1.0, 1.0, 1.0, 1.0)),
+            "visuals.world_frame.origin_rgba",
+        ),
+        x_rgba=_rgba_tuple(
+            world_frame_values.get("x_rgba", (1.0, 0.0, 0.0, 1.0)),
+            "visuals.world_frame.x_rgba",
+        ),
+        y_rgba=_rgba_tuple(
+            world_frame_values.get("y_rgba", (0.0, 1.0, 0.0, 1.0)),
+            "visuals.world_frame.y_rgba",
+        ),
+        z_rgba=_rgba_tuple(
+            world_frame_values.get("z_rgba", (0.0, 0.0, 1.0, 1.0)),
+            "visuals.world_frame.z_rgba",
+        ),
+        geom_group=_geom_group(
+            world_frame_values.get("geom_group", 2),
+            "visuals.world_frame.geom_group",
+        ),
+    )
 
     visual_config = MujocoVisualConfig(
         enabled=enabled,
@@ -525,6 +584,7 @@ def _load_mujoco_visual_config(
         visual_geom_group=visual_geom_group,
         collision_geom_group=collision_geom_group,
         expected_meshes=expected_meshes,
+        world_frame=world_frame,
     )
     if enabled and require_meshes:
         _require_mujoco_visual_meshes(visual_config)

@@ -135,7 +135,18 @@ python scripts/build_mujoco_dual_arm_model.py --config configs/mujoco_dual.yaml
 
 ```text
 assets/mujoco/dual_three_segment_arm_tendon_with_visuals.xml
+assets/mujoco/dual_three_segment_arm_tendon_with_visuals_mobile_base.xml
 ```
+
+生成器先写入基础双臂模型，再根据
+`configs/robots/dual_mobile_base_pose.yaml` 包装 mobile base。默认输出路径分别由
+`tendon_xml_path` 和 `mobile_base_xml_path` 决定；临时生成时可以同时使用
+`--output` 和 `--mobile-base-output` 覆盖。
+
+两臂 tendon position actuator 当前统一使用 `kp=40000 N/m` 和
+`forcerange=[-30, 30] N`。由于 MuJoCo actuator 接收的是
+`neutral_tendon_length + relative_delta` 绝对长度，MJCF 的
+`ctrllimited` 必须保持 `false`；`ctrlrange_m` 仍作为软件侧相对位移限幅。
 
 每根 tendon 会写入独立颜色和更细的可视化宽度。`configs/mujoco_dual.yaml` 中的 overlay 半径现在为 `0.0002m`。
 

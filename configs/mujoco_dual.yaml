@@ -6,6 +6,7 @@ multi_arm_config_path: robots/dual_continuum.yaml
 dual_arm_mesh_config_path: robots/dual_arm_meshes.yaml
 dual_arm_hole_pattern_config_path: robots/dual_arm_hole_pattern.yaml
 mobile_base_config_path: robots/dual_mobile_base_pose.yaml
+mobile_base_xml_path: ../assets/mujoco/dual_three_segment_arm_tendon_with_visuals_mobile_base.xml
 xml_path: ../assets/mujoco/dual_three_segment_arm_tendon_with_visuals.xml
 tendon_xml_path: ../assets/mujoco/dual_three_segment_arm_tendon_with_visuals.xml
 generated_xml_path: ../assets/mujoco/dual_three_segment_arm_tendon_with_visuals.xml
@@ -16,7 +17,7 @@ control_mode: tendon_position
 model:
   type: dual_distributed_links
   follower_samples_per_segment: 4
-  follower_collision: true
+  follower_collision: false
   follower_visuals: true
   contact_force_projection: false
   apply_projected_qfrc: false
@@ -31,6 +32,16 @@ visuals:
   collision_mode: capsule
   visual_geom_group: 1
   collision_geom_group: 0
+  world_frame:
+    enabled: true
+    origin_radius_m: 0.004
+    axis_length_m: 0.10
+    axis_radius_m: 0.0015
+    origin_rgba: [1.0, 1.0, 1.0, 1.0]
+    x_rgba: [1.0, 0.0, 0.0, 1.0]
+    y_rgba: [0.0, 1.0, 0.0, 1.0]
+    z_rgba: [0.0, 0.0, 1.0, 1.0]
+    geom_group: 2
   expected_meshes:
     - shared_base/dual_base_visual.stl
     - executor/base_visual.stl
@@ -111,7 +122,7 @@ tendon_model:
   enabled: true
   type: spatial
   count: 18
-  limited: true
+  limited: false
   length_range_m: [-0.020, 0.020]
   damping: 0.0
   stiffness: 0.0
@@ -120,10 +131,12 @@ tendon_model:
 actuators:
   tendon_position:
     kp: 40000.0
-    ctrllimited: true
+    # MuJoCo receives absolute tendon lengths, so relative command clipping
+    # remains in software through ctrlrange_m instead of MJCF ctrl limits.
+    ctrllimited: false
     ctrlrange_m: [-0.020, 0.020]
     forcelimited: true
-    forcerange_n: [-20.0, 20.0]
+    forcerange_n: [-30.0, 30.0]
   joint_position:
     kp: 2.0
     ctrllimited: true

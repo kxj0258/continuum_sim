@@ -11,13 +11,29 @@ scenario:
   scene: {}
   task:
     type: tracking
-    waypoint_tolerance_m: 0.003
-    target_advance_mode: tolerance #tolerance
-    advance_steps: 15
+    waypoint_tolerance_m: 0.0015
+    target_advance_mode: tolerance
     loop: false
+    tracking_control:
+      approach_samples: 20
+      executor_position_gain: 4.0
+      observer_position_gain: 5.0
+      feedforward_speed_mps: 0.003
+      max_target_speed_mps: 0.030
+      executor_tracking_weight: 100.0
+      observer_tracking_weight: 40.0
+      executor_collision_avoidance_weight: 80.0
+      base_regularization_weight: 1.0
+      tendon_regularization_weight: 0.2
+      rank_tolerance: 1.0e-9
+      minimum_singular_value: 1.0e-5
+      nominal_damping: 1.0e-4
+      maximum_damping: 5.0e-2
+      minimum_velocity_scale: 0.05
+      decouple_arm_singularity: true
     trajectory:
       type: square
-      samples: 60
+      samples: 120
       radius_m: 0.018
       placement:
         center_mode: straight_tip_xy
@@ -29,7 +45,7 @@ scenario:
   runtime:
     controller_dt_s: 0.02
     n_substeps: 20
-    max_steps: 3000
+    max_steps: 5000
   hooks:
     recorder: true
     tendon_debug: true

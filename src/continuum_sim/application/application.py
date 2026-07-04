@@ -18,6 +18,9 @@ from continuum_sim.control.scenario_controllers import (
     WipingController,
     ZeroSystemController,
 )
+from continuum_sim.control.coordinated_tracking import CoordinatedTrackingConfig
+from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
+from continuum_sim.kinematics.whole_body import SingularityConfig
 from continuum_sim.model.robot_assembly import load_robot_assembly_config
 from continuum_sim.runtime.hooks import (
     ControllerCompletionHook,
@@ -51,7 +54,10 @@ from continuum_sim.scenes.scene_builder import (
 )
 from continuum_sim.tasks.engine_cleaning_path import build_engine_cleaning_plan
 from continuum_sim.tasks.navigation_mission import resolve_navigation_waypoints
-from continuum_sim.tasks.trajectory_generation import generate_trajectory_waypoints
+from continuum_sim.tasks.trajectory_generation import (
+    generate_trajectory_waypoints,
+    prepend_tracking_approach,
+)
 from continuum_sim.tasks.wiping_path import build_wiping_plan
 
 
@@ -138,6 +144,7 @@ class SimulationApplication:
                 max_contact_force_n=config.task.max_contact_force_n,
             )
         else:
+            tracking = config.task.tracking_control
             controller = WaypointTrackingController(
                 assembly,
                 task_plan["waypoints_world"],
@@ -149,6 +156,29 @@ class SimulationApplication:
                 advance_time_s=config.task.advance_time_s,
                 advance_steps=config.task.advance_steps,
                 scene_query=scene_query,
+                approach_mask=task_plan["approach_mask"],
+                source_waypoint_index=task_plan["source_waypoint_index"],
+                executor_position_gain=tracking.executor_position_gain,
+                observer_position_gain=tracking.observer_position_gain,
+                feedforward_speed_mps=tracking.feedforward_speed_mps,
+                max_target_speed_mps=tracking.max_target_speed_mps,
+                solver_config=WholeBodyControllerConfig(
+                    executor_tracking_weight=tracking.executor_tracking_weight,
+                    observer_tracking_weight=tracking.observer_tracking_weight,
+                    executor_collision_avoidance_weight=(
+                        tracking.executor_collision_avoidance_weight
+                    ),
+                    base_regularization_weight=tracking.base_regularization_weight,
+                    tendon_regularization_weight=tracking.tendon_regularization_weight,
+                    singularity=SingularityConfig(
+                        rank_tolerance=tracking.rank_tolerance,
+                        minimum_singular_value=tracking.minimum_singular_value,
+                        nominal_damping=tracking.nominal_damping,
+                        maximum_damping=tracking.maximum_damping,
+                        minimum_velocity_scale=tracking.minimum_velocity_scale,
+                    ),
+                    decouple_arm_singularity=tracking.decouple_arm_singularity,
+                ),
             )
         hooks: list[object] = []
         hooks_by_name: dict[str, object] = {}
@@ -304,6 +334,18 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
         phases = task.waypoint_phases
         target_force = task.target_force_n
         normal = task.surface_normal_world
+    if task.type == "tracking":
+        tracking_plan = prepend_tracking_approach(
+            waypoints,
+            assembly,
+            samples=task.tracking_control.approach_samples,
+        )
+        waypoints = tracking_plan.waypoints_world
+        approach_mask = tracking_plan.approach_mask
+        source_waypoint_index = tracking_plan.source_waypoint_index
+    else:
+        approach_mask = np.zeros(waypoints.shape[0], dtype=bool)
+        source_waypoint_index = np.arange(waypoints.shape[0], dtype=int)
     if phases and len(phases) != waypoints.shape[0]:
         raise ValueError("scenario.task.waypoint_phases must match waypoint count.")
     if target_force.size == 0:
@@ -319,4 +361,6 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
         "phases": phases,
         "target_force_n": target_force,
         "surface_normal_world": normal,
+        "approach_mask": approach_mask,
+        "source_waypoint_index": source_waypoint_index,
     }

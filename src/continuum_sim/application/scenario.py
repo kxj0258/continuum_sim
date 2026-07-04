@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +40,70 @@ class ScenarioSceneConfig:
 
 
 @dataclass(frozen=True)
+class ScenarioTrackingControlConfig:
+    """Scenario-native trajectory-tracking controller parameters."""
+
+    approach_samples: int = 0
+    executor_position_gain: float = 4.0
+    observer_position_gain: float = 5.0
+    feedforward_speed_mps: float = 0.0
+    max_target_speed_mps: float | None = None
+    executor_tracking_weight: float = 100.0
+    observer_tracking_weight: float = 40.0
+    executor_collision_avoidance_weight: float = 80.0
+    base_regularization_weight: float = 1.0
+    tendon_regularization_weight: float = 0.2
+    rank_tolerance: float = 1.0e-9
+    minimum_singular_value: float = 1.0e-5
+    nominal_damping: float = 1.0e-4
+    maximum_damping: float = 5.0e-2
+    minimum_velocity_scale: float = 0.05
+    decouple_arm_singularity: bool = False
+
+    def __post_init__(self) -> None:
+        if self.approach_samples == 1 or self.approach_samples < 0:
+            raise ValueError("tracking_control.approach_samples must be 0 or at least 2.")
+        positive = {
+            "executor_position_gain": self.executor_position_gain,
+            "observer_position_gain": self.observer_position_gain,
+            "executor_tracking_weight": self.executor_tracking_weight,
+            "observer_tracking_weight": self.observer_tracking_weight,
+            "executor_collision_avoidance_weight": self.executor_collision_avoidance_weight,
+            "base_regularization_weight": self.base_regularization_weight,
+            "tendon_regularization_weight": self.tendon_regularization_weight,
+            "rank_tolerance": self.rank_tolerance,
+            "minimum_singular_value": self.minimum_singular_value,
+            "nominal_damping": self.nominal_damping,
+            "maximum_damping": self.maximum_damping,
+        }
+        for name, value in positive.items():
+            if not np.isfinite(value) or value <= 0.0:
+                raise ValueError(f"tracking_control.{name} must be positive and finite.")
+        if not np.isfinite(self.feedforward_speed_mps) or self.feedforward_speed_mps < 0.0:
+            raise ValueError(
+                "tracking_control.feedforward_speed_mps must be non-negative and finite."
+            )
+        if (
+            self.max_target_speed_mps is not None
+            and (
+                not np.isfinite(self.max_target_speed_mps)
+                or self.max_target_speed_mps <= 0.0
+            )
+        ):
+            raise ValueError(
+                "tracking_control.max_target_speed_mps must be positive and finite."
+            )
+        if self.maximum_damping < self.nominal_damping:
+            raise ValueError(
+                "tracking_control.maximum_damping must be at least nominal_damping."
+            )
+        if not 0.0 < self.minimum_velocity_scale <= 1.0:
+            raise ValueError(
+                "tracking_control.minimum_velocity_scale must be in (0, 1]."
+            )
+
+
+@dataclass(frozen=True)
 class ScenarioTaskConfig:
     type: str
     waypoints_world: np.ndarray
@@ -68,6 +132,9 @@ class ScenarioTaskConfig:
     force_proxy_stiffness_n_m: float
     max_contact_force_n: float | None
     contact_loss_tolerance_steps: int
+    tracking_control: ScenarioTrackingControlConfig = field(
+        default_factory=ScenarioTrackingControlConfig
+    )
 
 
 @dataclass(frozen=True)
@@ -203,6 +270,10 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     feedback_mode = str(task_values.get("feedback_mode", "mujoco_actual"))
     if feedback_mode not in MUJOCO_FEEDBACK_MODES:
         raise ValueError(f"scenario.task.feedback_mode must be one of {MUJOCO_FEEDBACK_MODES}.")
+    tracking_control_values = _mapping(
+        task_values.get("tracking_control", {}),
+        "scenario.task.tracking_control",
+    )
     viewer = str(hook_values.get("viewer", "none"))
     if viewer not in ("none", "matplotlib", "mujoco"):
         raise ValueError("scenario.hooks.viewer must be none, matplotlib, or mujoco.")
@@ -282,6 +353,59 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             max_contact_force_n=_optional_float(task_values.get("max_contact_force_n")),
             contact_loss_tolerance_steps=int(
                 task_values.get("contact_loss_tolerance_steps", 20)
+            ),
+            tracking_control=ScenarioTrackingControlConfig(
+                approach_samples=int(
+                    tracking_control_values.get("approach_samples", 0)
+                ),
+                executor_position_gain=float(
+                    tracking_control_values.get("executor_position_gain", 4.0)
+                ),
+                observer_position_gain=float(
+                    tracking_control_values.get("observer_position_gain", 5.0)
+                ),
+                feedforward_speed_mps=float(
+                    tracking_control_values.get("feedforward_speed_mps", 0.0)
+                ),
+                max_target_speed_mps=_optional_float(
+                    tracking_control_values.get("max_target_speed_mps")
+                ),
+                executor_tracking_weight=float(
+                    tracking_control_values.get("executor_tracking_weight", 100.0)
+                ),
+                observer_tracking_weight=float(
+                    tracking_control_values.get("observer_tracking_weight", 40.0)
+                ),
+                executor_collision_avoidance_weight=float(
+                    tracking_control_values.get(
+                        "executor_collision_avoidance_weight",
+                        80.0,
+                    )
+                ),
+                base_regularization_weight=float(
+                    tracking_control_values.get("base_regularization_weight", 1.0)
+                ),
+                tendon_regularization_weight=float(
+                    tracking_control_values.get("tendon_regularization_weight", 0.2)
+                ),
+                rank_tolerance=float(
+                    tracking_control_values.get("rank_tolerance", 1.0e-9)
+                ),
+                minimum_singular_value=float(
+                    tracking_control_values.get("minimum_singular_value", 1.0e-5)
+                ),
+                nominal_damping=float(
+                    tracking_control_values.get("nominal_damping", 1.0e-4)
+                ),
+                maximum_damping=float(
+                    tracking_control_values.get("maximum_damping", 5.0e-2)
+                ),
+                minimum_velocity_scale=float(
+                    tracking_control_values.get("minimum_velocity_scale", 0.05)
+                ),
+                decouple_arm_singularity=bool(
+                    tracking_control_values.get("decouple_arm_singularity", False)
+                ),
             ),
         ),
         runtime=ScenarioRuntimeConfig(

@@ -12,7 +12,12 @@ from continuum_sim.tasks.engine_cleaning_path import (
     build_engine_cleaning_plan,
 )
 from continuum_sim.tasks.navigation_mission import NavigationMissionSpec, resolve_navigation_waypoints
-from continuum_sim.tasks.trajectory_generation import TrajectorySpec, generate_trajectory_waypoints
+from continuum_sim.tasks.trajectory_generation import (
+    TrajectorySpec,
+    generate_trajectory_waypoints,
+    prepend_tracking_approach,
+)
+from continuum_sim.application.scenario import load_scenario_config
 from continuum_sim.tasks.wiping_path import WipingPathSpec, build_wiping_plan
 
 
@@ -33,6 +38,33 @@ def test_scenario_trajectory_generation_supports_square_from_assembly() -> None:
     assert waypoints.shape == (16, 3)
     assert np.all(np.isfinite(waypoints))
     assert float(np.max(waypoints[:, 0]) - np.min(waypoints[:, 0])) > 0.03
+
+
+def test_tracking_approach_starts_at_straight_tip_and_preserves_path() -> None:
+    assembly = load_robot_assembly_config("configs/robots/assemblies/single_spatial.yaml")
+    requested = np.array(
+        [
+            [0.02, -0.01, 0.12],
+            [0.02, 0.01, 0.12],
+        ],
+        dtype=float,
+    )
+
+    result = prepend_tracking_approach(requested, assembly, samples=5)
+
+    assert result.waypoints_world.shape == (7, 3)
+    assert_allclose(result.waypoints_world[-2:], requested)
+    assert_allclose(result.waypoints_world[0], [0.0, 0.01, 0.14])
+    assert result.approach_mask.tolist() == [True] * 5 + [False, False]
+    assert result.source_waypoint_index.tolist() == [-1] * 5 + [0, 1]
+
+
+def test_tracking_control_config_loads_scenario_overrides() -> None:
+    config = load_scenario_config("configs/scenarios/dual_mujoco_tracking.yaml")
+
+    assert config.task.tracking_control.approach_samples == 20
+    assert config.task.tracking_control.feedforward_speed_mps > 0.0
+    assert config.task.tracking_control.decouple_arm_singularity is True
 
 
 def test_waypoint_scheduler_supports_time_and_tolerance_modes() -> None:

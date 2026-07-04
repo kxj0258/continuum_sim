@@ -26,6 +26,15 @@ TRAJECTORY_TYPES = (
 
 
 @dataclass(frozen=True)
+class TrackingWaypointPlan:
+    """Tracking waypoints plus provenance for optional approach samples."""
+
+    waypoints_world: np.ndarray
+    approach_mask: np.ndarray
+    source_waypoint_index: np.ndarray
+
+
+@dataclass(frozen=True)
 class TrajectorySpec:
     """Configurable waypoint generator for scenario tracking tasks."""
 
@@ -157,6 +166,43 @@ def generate_trajectory_waypoints(
             spec.samples,
         )
     raise ValueError(f"Unsupported trajectory type {spec.type!r}.")
+
+
+def prepend_tracking_approach(
+    waypoints_world: np.ndarray,
+    assembly: RobotAssemblyConfig,
+    *,
+    samples: int,
+) -> TrackingWaypointPlan:
+    """Prepend a quintic straight-tip approach without duplicating the first path point."""
+
+    waypoints = np.asarray(waypoints_world, dtype=float)
+    if waypoints.ndim != 2 or waypoints.shape[1] != 3 or waypoints.shape[0] == 0:
+        raise ValueError("waypoints_world must have shape (N, 3) with N > 0.")
+    if samples < 0 or samples == 1:
+        raise ValueError("samples must be 0 or at least 2.")
+    if samples == 0:
+        return TrackingWaypointPlan(
+            waypoints_world=waypoints.copy(),
+            approach_mask=np.zeros(waypoints.shape[0], dtype=bool),
+            source_waypoint_index=np.arange(waypoints.shape[0], dtype=int),
+        )
+    start = _straight_executor_tip_world(assembly)
+    progress = np.linspace(0.0, 1.0, samples, endpoint=False)
+    blend = progress**3 * (10.0 - 15.0 * progress + 6.0 * progress**2)
+    approach = start[None, :] + blend[:, None] * (waypoints[0] - start)[None, :]
+    return TrackingWaypointPlan(
+        waypoints_world=np.vstack((approach, waypoints)),
+        approach_mask=np.concatenate(
+            (np.ones(samples, dtype=bool), np.zeros(waypoints.shape[0], dtype=bool))
+        ),
+        source_waypoint_index=np.concatenate(
+            (
+                np.full(samples, -1, dtype=int),
+                np.arange(waypoints.shape[0], dtype=int),
+            )
+        ),
+    )
 
 
 def _straight_executor_tip_world(assembly: RobotAssemblyConfig) -> np.ndarray:

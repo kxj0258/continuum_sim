@@ -210,6 +210,22 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
     if recorder is not None and recorder.target_position_m:
         arrays["target_position_m"] = np.asarray(recorder.target_position_m)
         arrays["tracking_error_m"] = np.asarray(recorder.tracking_error_m)
+        arrays["achieved_waypoint_error_m"] = np.asarray(
+            getattr(recorder, "achieved_waypoint_error_m", ()),
+            dtype=float,
+        )
+        arrays["waypoint_advanced"] = np.asarray(
+            getattr(recorder, "waypoint_advanced", ()),
+            dtype=bool,
+        )
+        arrays["tracking_complete"] = np.asarray(
+            getattr(recorder, "tracking_complete", ()),
+            dtype=bool,
+        )
+        arrays["tracking_approach"] = np.asarray(
+            getattr(recorder, "tracking_approach", ()),
+            dtype=bool,
+        )
         arrays["waypoint_index"] = np.asarray(recorder.waypoint_index, dtype=int)
         arrays["min_clearance_m"] = np.asarray(recorder.min_clearance_m)
         arrays["contact_distance_m"] = np.asarray(recorder.contact_distance_m)
@@ -218,6 +234,20 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
         arrays["estimated_force_n"] = np.asarray(recorder.estimated_force_n)
         arrays["force_error_n"] = np.asarray(recorder.force_error_n)
         arrays["task_phase"] = np.asarray(recorder.task_phase, dtype=str)
+        for arm_name in sorted(result.states[-1].arms):
+            prefix = f"arm_{arm_name}"
+            for key, attribute in (
+                ("saturation_scale", "arm_saturation_scale"),
+                ("tendon_target_error_norm_m", "arm_tendon_target_error_norm_m"),
+                ("tendon_target_error_max_m", "arm_tendon_target_error_max_m"),
+                ("peak_actuator_force_n", "arm_peak_actuator_force_n"),
+            ):
+                by_arm = getattr(recorder, attribute, {})
+                if arm_name in by_arm:
+                    arrays[f"{prefix}_{key}"] = np.asarray(
+                        by_arm[arm_name],
+                        dtype=float,
+                    )
     replay = application.hooks_by_name.get("mujoco_replay")
     if replay is not None:
         arrays["qpos"] = np.asarray(replay.qpos)
@@ -246,6 +276,23 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
             [command.metadata.get("residual_norm", np.nan) for command in result.commands]
         )
         for arm_name in sorted(result.states[-1].arms):
+            control_reports = [
+                command.metadata.get("arm_singularities", {}).get(arm_name)
+                for command in result.commands
+            ]
+            if all(report is not None for report in control_reports):
+                arrays[f"arm_{arm_name}_control_min_singular_value"] = np.asarray(
+                    [report.minimum_singular_value for report in control_reports]
+                )
+                arrays[f"arm_{arm_name}_control_condition_number"] = np.asarray(
+                    [report.condition_number for report in control_reports]
+                )
+                arrays[f"arm_{arm_name}_control_damping"] = np.asarray(
+                    [report.damping for report in control_reports]
+                )
+                arrays[f"arm_{arm_name}_control_velocity_scale"] = np.asarray(
+                    [report.velocity_scale for report in control_reports]
+                )
             arm_reports = [
                 command.metadata.get("tendon_mapping_singularity", {}).get(arm_name)
                 for command in result.commands
@@ -293,6 +340,24 @@ def _metrics(arrays: dict[str, np.ndarray]) -> dict[str, float]:
         "max_tracking_error_m": float(np.max(finite)),
         "rms_tracking_error_m": float(np.sqrt(np.mean(finite**2))),
     }
+    achieved = arrays.get("achieved_waypoint_error_m")
+    if achieved is not None:
+        achieved_finite = achieved[np.isfinite(achieved)]
+        if achieved_finite.size:
+            metrics.update(
+                final_achieved_waypoint_error_m=float(achieved_finite[-1]),
+                mean_achieved_waypoint_error_m=float(np.mean(achieved_finite)),
+                max_achieved_waypoint_error_m=float(np.max(achieved_finite)),
+            )
+    approach = arrays.get("tracking_approach")
+    if (
+        approach is not None
+        and approach.shape == error.shape
+        and np.any(~approach.astype(bool) & np.isfinite(error))
+    ):
+        path_error = error[~approach.astype(bool) & np.isfinite(error)]
+        metrics["mean_path_tracking_error_m"] = float(np.mean(path_error))
+        metrics["max_path_tracking_error_m"] = float(np.max(path_error))
     clearance = arrays.get("min_clearance_m")
     if clearance is not None and np.any(np.isfinite(clearance)):
         metrics["minimum_clearance_m"] = float(np.nanmin(clearance))

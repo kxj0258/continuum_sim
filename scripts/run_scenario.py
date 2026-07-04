@@ -37,6 +37,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"final_error_m: {errors[-1]:.6e}")
             print(f"mean_error_m: {np.mean(errors):.6e}")
             print(f"max_error_m: {np.max(errors):.6e}")
+        achieved = np.asarray(
+            getattr(recorder, "achieved_waypoint_error_m", ()),
+            dtype=float,
+        )
+        achieved = achieved[np.isfinite(achieved)]
+        if achieved.size:
+            print(f"final_achieved_error_m: {achieved[-1]:.6e}")
+            print(f"mean_achieved_error_m: {np.mean(achieved):.6e}")
+            print(f"max_achieved_error_m: {np.max(achieved):.6e}")
     for name, hook in application.hooks_by_name.items():
         samples = getattr(hook, "samples", None)
         if samples is not None:

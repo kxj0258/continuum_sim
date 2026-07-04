@@ -1,5 +1,52 @@
 # continuum_sim
 
+## Scenario tracking optimization
+
+Scenario-native tracking supports a configurable smooth approach, Cartesian
+path feedforward, target-speed limiting, and fixed-base per-arm singularity
+protection:
+
+```yaml
+task:
+  type: tracking
+  waypoint_tolerance_m: 0.0015
+  tracking_control:
+    approach_samples: 20
+    executor_position_gain: 4.0
+    observer_position_gain: 5.0
+    feedforward_speed_mps: 0.003
+    max_target_speed_mps: 0.030
+    executor_tracking_weight: 100.0
+    observer_tracking_weight: 40.0
+    executor_collision_avoidance_weight: 80.0
+    base_regularization_weight: 1.0
+    tendon_regularization_weight: 0.2
+    rank_tolerance: 1.0e-9
+    minimum_singular_value: 1.0e-5
+    nominal_damping: 1.0e-4
+    maximum_damping: 5.0e-2
+    minimum_velocity_scale: 0.05
+    decouple_arm_singularity: true
+```
+
+`tracking_error_m` remains the error to the currently commanded target.
+`achieved_waypoint_error_m` is finite only when a waypoint is reached, so it
+is the preferred accuracy metric. `tracking_approach`, `waypoint_advanced`,
+and `tracking_complete` distinguish approach samples and target transitions.
+
+Each arm also exports control singularity values, saturation scale, tendon
+target-error norm/maximum, and peak actuator force. Tune tendon speed,
+`target_lead_m`, MuJoCo actuator force, or `kp` only after these diagnostics
+show the corresponding limitation.
+
+Recommended manual checks:
+
+```powershell
+pytest tests/test_tracking_optimization.py tests/test_scenario_migrated_task_features.py tests/test_scenario_artifacts.py
+python scripts/run_scenario.py configs/scenarios/single_mujoco_tracking.yaml
+python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml
+```
+
 ## Bending-space 相容控制
 
 正常控制任务统一在每臂 6 维 bending-space 中求解：

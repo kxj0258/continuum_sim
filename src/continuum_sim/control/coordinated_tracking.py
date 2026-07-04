@@ -30,6 +30,9 @@ class CoordinatedTrackingTarget:
     """World-frame executor target and observer tracking policy."""
 
     executor_position_world: np.ndarray
+    executor_velocity_world: np.ndarray = field(
+        default_factory=lambda: np.zeros(3, dtype=float)
+    )
     observer_roi_position_world: np.ndarray | None = None
     observer_executor_offset_world: np.ndarray = field(
         default_factory=lambda: np.array([0.0, -0.04, 0.02], dtype=float)
@@ -41,6 +44,11 @@ class CoordinatedTrackingTarget:
             self,
             "executor_position_world",
             _vector3(self.executor_position_world, "executor_position_world"),
+        )
+        object.__setattr__(
+            self,
+            "executor_velocity_world",
+            _vector3(self.executor_velocity_world, "executor_velocity_world"),
         )
         object.__setattr__(
             self,
@@ -74,6 +82,7 @@ class CoordinatedTrackingConfig:
 
     executor_position_gain: float = 4.0
     observer_position_gain: float = 5.0
+    max_target_speed_mps: float | None = None
     inter_arm_min_distance_m: float = 0.010
     inter_arm_influence_distance_m: float = 0.05
     inter_arm_avoidance_gain: float = 4.0
@@ -123,7 +132,7 @@ class CoordinatedTrackingController:
             WholeBodyTask(
                 name="executor_tracking",
                 jacobian=jacobians[executor_name],
-                target_velocity=self.config.executor_position_gain * executor_error,
+                target_velocity=self._executor_target_velocity(executor_error),
                 weight=self.solver.weight_for("executor_tracking"),
             )
         )
@@ -191,12 +200,27 @@ class CoordinatedTrackingController:
                 arm.name: self._measured_compatibility(state, arm.name)
                 for arm in self.assembly.enabled_arms
             },
+            "executor_target_velocity_world": self._executor_target_velocity(
+                executor_error
+            ),
+            "arm_singularities": result.arm_singularities,
         }
         return RobotSystemCommand(
             base_twist_world=result.command.base_twist_world,
             arms=result.command.arms,
             metadata=self.last_diagnostics,
         )
+
+    def _executor_target_velocity(self, executor_error: np.ndarray) -> np.ndarray:
+        velocity = (
+            self.config.executor_position_gain * executor_error
+            + self.target.executor_velocity_world
+        )
+        limit = self.config.max_target_speed_mps
+        norm = float(np.linalg.norm(velocity))
+        if limit is not None and norm > limit:
+            velocity = velocity * (limit / norm)
+        return velocity
 
     def _arm_system_jacobian(
         self,

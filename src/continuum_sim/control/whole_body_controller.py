@@ -48,6 +48,7 @@ class WholeBodyControllerConfig:
     base_regularization_weight: float = 1.0
     tendon_regularization_weight: float = 0.2
     singularity: SingularityConfig = SingularityConfig()
+    decouple_arm_singularity: bool = False
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,17 @@ class WholeBodySolveResult:
     singularity: SingularityReport
     residual_norm: float
     arm_diagnostics: dict[str, dict[str, object]]
+    arm_singularities: dict[str, SingularityReport]
+
+
+@dataclass(frozen=True)
+class SingularityProtection:
+    """Per-variable damping/scaling plus global and per-arm reports."""
+
+    damping: np.ndarray
+    velocity_scale: np.ndarray
+    global_report: SingularityReport
+    arm_reports: dict[str, SingularityReport]
 
 
 class WholeBodyController:
@@ -101,6 +113,16 @@ class WholeBodyController:
                     )
                     for arm in self.assembly.enabled_arms
                 },
+                arm_singularities={
+                    name: analyze_singularity(
+                        np.zeros(
+                            (0, arm_slice.stop - arm_slice.start),
+                            dtype=float,
+                        ),
+                        self.config.singularity,
+                    )
+                    for name, arm_slice in self.layout.arms.items()
+                },
             )
         for task in tasks:
             if task.jacobian.shape[1] != self.layout.size:
@@ -118,14 +140,14 @@ class WholeBodyController:
         augmented_target = np.concatenate(
             (weighted_target, np.zeros(regularization.shape[0], dtype=float))
         )
-        singularity = analyze_singularity(weighted_jacobian, self.config.singularity)
-        damping = singularity.damping
+        protection = self._singularity_protection(weighted_jacobian)
+        singularity = protection.global_report
         lhs = (
             augmented_jacobian.T @ augmented_jacobian
-            + damping**2 * np.eye(self.layout.size, dtype=float)
+            + np.diag(protection.damping**2)
         )
         rhs = augmented_jacobian.T @ augmented_target
-        velocity = np.linalg.solve(lhs, rhs) * singularity.velocity_scale
+        velocity = np.linalg.solve(lhs, rhs) * protection.velocity_scale
         velocity, arm_scales = self._apply_limits(velocity)
         command = self.layout.unflatten(velocity)
         residual = weighted_jacobian @ velocity - weighted_target
@@ -138,6 +160,47 @@ class WholeBodyController:
                 name: self._arm_diagnostics(name, velocity[arm_slice], arm_scales[name])
                 for name, arm_slice in self.layout.arms.items()
             },
+            arm_singularities=protection.arm_reports,
+        )
+
+    def _singularity_protection(
+        self,
+        weighted_jacobian: np.ndarray,
+    ) -> SingularityProtection:
+        global_report = analyze_singularity(
+            weighted_jacobian,
+            self.config.singularity,
+        )
+        damping = np.full(
+            self.layout.size,
+            global_report.damping,
+            dtype=float,
+        )
+        velocity_scale = np.full(
+            self.layout.size,
+            global_report.velocity_scale,
+            dtype=float,
+        )
+        arm_reports = {
+            name: analyze_singularity(
+                weighted_jacobian[:, arm_slice],
+                self.config.singularity,
+            )
+            for name, arm_slice in self.layout.arms.items()
+        }
+        if (
+            self.config.decouple_arm_singularity
+            and self.assembly.base.control_mode == "fixed"
+        ):
+            for name, arm_slice in self.layout.arms.items():
+                report = arm_reports[name]
+                damping[arm_slice] = report.damping
+                velocity_scale[arm_slice] = report.velocity_scale
+        return SingularityProtection(
+            damping=damping,
+            velocity_scale=velocity_scale,
+            global_report=global_report,
+            arm_reports=arm_reports,
         )
 
     def weight_for(self, objective: str) -> float:

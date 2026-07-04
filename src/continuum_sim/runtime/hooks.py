@@ -22,6 +22,14 @@ class StateRecorderHook:
     target_position_m: list[np.ndarray] = field(default_factory=list)
     waypoint_index: list[int] = field(default_factory=list)
     tracking_error_m: list[float] = field(default_factory=list)
+    achieved_waypoint_error_m: list[float] = field(default_factory=list)
+    waypoint_advanced: list[bool] = field(default_factory=list)
+    tracking_complete: list[bool] = field(default_factory=list)
+    tracking_approach: list[bool] = field(default_factory=list)
+    arm_saturation_scale: dict[str, list[float]] = field(default_factory=dict)
+    arm_tendon_target_error_norm_m: dict[str, list[float]] = field(default_factory=dict)
+    arm_tendon_target_error_max_m: dict[str, list[float]] = field(default_factory=dict)
+    arm_peak_actuator_force_n: dict[str, list[float]] = field(default_factory=dict)
     min_clearance_m: list[float] = field(default_factory=list)
     contact_distance_m: list[float] = field(default_factory=list)
     target_force_n: list[float] = field(default_factory=list)
@@ -37,6 +45,14 @@ class StateRecorderHook:
         self.target_position_m.clear()
         self.waypoint_index.clear()
         self.tracking_error_m.clear()
+        self.achieved_waypoint_error_m.clear()
+        self.waypoint_advanced.clear()
+        self.tracking_complete.clear()
+        self.tracking_approach.clear()
+        self.arm_saturation_scale = {name: [] for name in state.arms}
+        self.arm_tendon_target_error_norm_m = {name: [] for name in state.arms}
+        self.arm_tendon_target_error_max_m = {name: [] for name in state.arms}
+        self.arm_peak_actuator_force_n = {name: [] for name in state.arms}
         self.min_clearance_m.clear()
         self.contact_distance_m.clear()
         self.target_force_n.clear()
@@ -53,12 +69,40 @@ class StateRecorderHook:
         step_index: int,
     ) -> None:
         self._append(state)
+        saturation = state.metadata.get("saturation", {})
+        for name, arm in state.arms.items():
+            arm_saturation = saturation.get(name, {})
+            self.arm_saturation_scale[name].append(
+                float(arm_saturation.get("common_scale", np.nan))
+            )
+            target_error = arm.tendon_target_m - arm.tendon_displacement_m
+            self.arm_tendon_target_error_norm_m[name].append(
+                float(np.linalg.norm(target_error))
+            )
+            self.arm_tendon_target_error_max_m[name].append(
+                float(np.max(np.abs(target_error)))
+            )
+            self.arm_peak_actuator_force_n[name].append(
+                float(np.max(np.abs(arm.actuator_force_n)))
+            )
         target = command.metadata.get("executor_target_world")
         if target is not None:
             self.target_position_m.append(np.asarray(target, dtype=float).copy())
             self.waypoint_index.append(int(command.metadata.get("waypoint_index", 0)))
             self.tracking_error_m.append(
                 float(command.metadata.get("executor_error_m", np.nan))
+            )
+            self.achieved_waypoint_error_m.append(
+                float(command.metadata.get("achieved_waypoint_error_m", np.nan))
+            )
+            self.waypoint_advanced.append(
+                bool(command.metadata.get("waypoint_advanced", False))
+            )
+            self.tracking_complete.append(
+                bool(command.metadata.get("tracking_complete", False))
+            )
+            self.tracking_approach.append(
+                bool(command.metadata.get("tracking_approach", False))
             )
             self.min_clearance_m.append(
                 float(command.metadata.get("min_clearance_m", np.nan))

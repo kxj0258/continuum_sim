@@ -6,9 +6,11 @@ import numpy as np
 
 from continuum_sim.control.waypoint_scheduler import WaypointScheduler
 from continuum_sim.control.coordinated_tracking import (
+    CoordinatedTrackingConfig,
     CoordinatedTrackingController,
     CoordinatedTrackingTarget,
 )
+from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
 from continuum_sim.scenes.engine_query import EngineSceneQueryProtocol
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
@@ -44,6 +46,13 @@ class WaypointTrackingController:
         advance_time_s: float | None = None,
         advance_steps: int | None = None,
         scene_query: EngineSceneQueryProtocol | None = None,
+        approach_mask: np.ndarray | None = None,
+        source_waypoint_index: np.ndarray | None = None,
+        executor_position_gain: float = 4.0,
+        observer_position_gain: float = 5.0,
+        feedforward_speed_mps: float = 0.0,
+        max_target_speed_mps: float | None = None,
+        solver_config: WholeBodyControllerConfig = WholeBodyControllerConfig(),
     ) -> None:
         waypoints = np.asarray(waypoints_world, dtype=float)
         if waypoints.ndim != 2 or waypoints.shape[1] != 3 or waypoints.shape[0] == 0:
@@ -61,6 +70,23 @@ class WaypointTrackingController:
         if self.observer_roi_world is not None and self.observer_roi_world.shape != (3,):
             raise ValueError("observer_roi_world must have shape (3,).")
         self.loop = loop
+        self.approach_mask = _waypoint_vector(
+            approach_mask,
+            waypoints.shape[0],
+            default=False,
+            dtype=bool,
+            name="approach_mask",
+        )
+        self.source_waypoint_index = _waypoint_vector(
+            source_waypoint_index,
+            waypoints.shape[0],
+            default=None,
+            dtype=int,
+            name="source_waypoint_index",
+        )
+        self.feedforward_speed_mps = float(feedforward_speed_mps)
+        if not np.isfinite(self.feedforward_speed_mps) or self.feedforward_speed_mps < 0.0:
+            raise ValueError("feedforward_speed_mps must be non-negative and finite.")
         self.scheduler = WaypointScheduler(
             waypoint_count=waypoints.shape[0],
             mode=target_advance_mode,
@@ -74,6 +100,12 @@ class WaypointTrackingController:
         self._controller = CoordinatedTrackingController(
             assembly,
             self._target(),
+            config=CoordinatedTrackingConfig(
+                executor_position_gain=executor_position_gain,
+                observer_position_gain=observer_position_gain,
+                max_target_speed_mps=max_target_speed_mps,
+            ),
+            solver_config=solver_config,
             scene_query=scene_query,
         )
 
@@ -91,38 +123,78 @@ class WaypointTrackingController:
 
     def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
         position = state.arms[self._executor_name].tip_pose_world.position
-        error = self.waypoints_world[self.active_index] - position
-        self.scheduler.update(error_norm_m=float(np.linalg.norm(error)))
+        achieved_index = self.active_index
+        achieved_error = float(
+            np.linalg.norm(self.waypoints_world[achieved_index] - position)
+        )
+        self.scheduler.update(error_norm_m=achieved_error)
+        waypoint_advanced = self.done or self.active_index != achieved_index
+        target = self._target()
+        self._controller.set_target(target)
+        command = self._controller.compute_command(state)
+        controller_metadata = command.metadata
         if self.done:
-            return RobotSystemCommand.zeros(
+            command = RobotSystemCommand.zeros(
                 {
                     arm.name: arm.spatial_arm.tendon_count
                     for arm in self.assembly.enabled_arms
                 }
             )
-        target = self._target()
-        self._controller.set_target(target)
-        command = self._controller.compute_command(state)
+        command_error = float(
+            np.linalg.norm(target.executor_position_world - position)
+        )
         return RobotSystemCommand(
             base_twist_world=command.base_twist_world,
             arms=command.arms,
             metadata={
-                **command.metadata,
+                **controller_metadata,
                 "task_type": "tracking",
                 "waypoint_index": self.active_index,
+                "source_waypoint_index": int(
+                    self.source_waypoint_index[self.active_index]
+                ),
                 "target_advance_mode": self.scheduler.mode,
                 "executor_target_world": target.executor_position_world.copy(),
-                "executor_error_m": float(np.linalg.norm(
-                    target.executor_position_world - position
-                )),
+                "executor_error_m": command_error,
+                "executor_feedforward_velocity_world": (
+                    target.executor_velocity_world.copy()
+                ),
+                "achieved_waypoint_index": (
+                    achieved_index if waypoint_advanced else -1
+                ),
+                "achieved_waypoint_error_m": (
+                    achieved_error if waypoint_advanced else np.nan
+                ),
+                "waypoint_advanced": waypoint_advanced,
+                "tracking_complete": self.done,
+                "tracking_approach": bool(
+                    self.approach_mask[self.active_index]
+                ),
             },
         )
 
     def _target(self) -> CoordinatedTrackingTarget:
         return CoordinatedTrackingTarget(
             executor_position_world=self.waypoints_world[self.active_index],
+            executor_velocity_world=self._feedforward_velocity(),
             observer_roi_position_world=self.observer_roi_world,
         )
+
+    def _feedforward_velocity(self) -> np.ndarray:
+        if (
+            self.done
+            or self.feedforward_speed_mps <= 0.0
+            or self.active_index >= self.waypoints_world.shape[0] - 1
+        ):
+            return np.zeros(3, dtype=float)
+        delta = (
+            self.waypoints_world[self.active_index + 1]
+            - self.waypoints_world[self.active_index]
+        )
+        distance = float(np.linalg.norm(delta))
+        if distance <= np.finfo(float).eps:
+            return np.zeros(3, dtype=float)
+        return self.feedforward_speed_mps * delta / distance
 
 
 class NavigationController:
@@ -333,3 +405,21 @@ def _single_role_name(assembly: RobotAssemblyConfig, role: str) -> str:
     if len(names) != 1:
         raise ValueError(f"Assembly must contain exactly one enabled {role!r} arm.")
     return names[0]
+
+
+def _waypoint_vector(
+    values: np.ndarray | None,
+    size: int,
+    *,
+    default: bool | None,
+    dtype,
+    name: str,
+) -> np.ndarray:
+    if values is None:
+        if default is None:
+            return np.arange(size, dtype=dtype)
+        return np.full(size, default, dtype=dtype)
+    result = np.asarray(values, dtype=dtype)
+    if result.shape != (size,):
+        raise ValueError(f"{name} must have shape ({size},).")
+    return result.copy()

@@ -90,6 +90,14 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
     recorder = SimpleNamespace(
         target_position_m=[np.array([0.01, 0.0, 0.10], dtype=float)],
         tracking_error_m=[0.0],
+        achieved_waypoint_error_m=[0.0005],
+        waypoint_advanced=[True],
+        tracking_complete=[True],
+        tracking_approach=[False],
+        arm_saturation_scale={"executor": [0.75]},
+        arm_tendon_target_error_norm_m={"executor": [0.0004]},
+        arm_tendon_target_error_max_m={"executor": [0.0003]},
+        arm_peak_actuator_force_n={"executor": [3.0]},
         waypoint_index=[0],
         min_clearance_m=[np.nan],
         contact_distance_m=[np.nan],
@@ -116,6 +124,10 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
     metadata = json.loads(paths.metadata_json.read_text(encoding="utf-8"))
     assert metadata["video"] is None
     assert metadata["errors"] == ["video: RuntimeError: gif encoder unavailable"]
+    assert metadata["metrics"]["final_achieved_waypoint_error_m"] == 0.0005
+    with np.load(paths.result_npz) as arrays:
+        assert arrays["arm_executor_saturation_scale"].tolist() == [0.75]
+        assert arrays["arm_executor_peak_actuator_force_n"].tolist() == [3.0]
 
 
 def _state(time_s: float, tip_position: list[float]) -> RobotSystemState:

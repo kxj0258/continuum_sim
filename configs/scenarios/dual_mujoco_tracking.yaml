@@ -15,11 +15,11 @@ scenario:
     observer_roi_world: [0.010, 0.000, 0.135]
     loop: false
     tracking_control:
-      approach_samples: 20
-      executor_position_gain: 4.0
-      observer_position_gain: 5.0
-      feedforward_speed_mps: 0.003
-      max_target_speed_mps: 0.020
+      approach_samples: 40
+      executor_position_gain: 3.0
+      observer_position_gain: 3.0
+      feedforward_speed_mps: 0.0
+      max_target_speed_mps: 0.030
       executor_tracking_weight: 100.0
       observer_tracking_weight: 40.0
       executor_collision_avoidance_weight: 80.0

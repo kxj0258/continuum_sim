@@ -37,7 +37,7 @@
     <mesh name="observer_segment_3_link_4_visual_mesh" file="../../assets/meshes/dual_arm/observer/segment_3_link_4_visual.stl" scale="0.001 0.001 0.001" />
   </asset>
   <default>
-    <joint damping="0.05" armature="0.0001" limited="true" range="-0.25 0.25" stiffness="0.02" springref="0" />
+    <joint damping="0.2" armature="0.0001" limited="true" range="-0.25 0.25" stiffness="0.02" springref="0" />
     <geom type="capsule" size="0.004" density="1100" rgba="0.2 0.45 0.85 1" group="0" />
     <site size="0.003" rgba="0.95 0.25 0.2 1" />
   </default>

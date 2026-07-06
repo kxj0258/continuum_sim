@@ -45,7 +45,7 @@ scene:
   work_surfaces:
     - id: board_surface
       primitive_id: board_surface_geom
-      center_m: [0.0375, 0.0, 0.095]
+      center_m: [0.0475, 0.0, 0.095]
       normal: [-1.0, 0.0, 0.0]
       tangent_u: [0.0, 1.0, 0.0]
       width_m: 0.060
@@ -54,6 +54,6 @@ scene:
   wipe_patches:
     - id: center_patch
       surface_id: board_surface
-      center_m: [0.0375, 0.0, 0.095]
+      center_m: [0.0475, 0.0, 0.095]
       width_m: 0.040
       height_m: 0.025

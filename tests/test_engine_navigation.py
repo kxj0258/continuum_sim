@@ -32,6 +32,13 @@ def test_engine_navigation_scenario_loads_named_engine_plan() -> None:
     assert config.task.engine_navigation is not None
     assert config.task.engine_navigation.entry_region == "entry_port"
     assert config.task.engine_navigation.insertion_path == "nozzle_axis_entry"
+    assert config.task.engine_navigation.local_path_axial_retraction_m == pytest.approx(
+        0.015
+    )
+    assert [
+        path.path_type
+        for path in config.task.engine_navigation.intermediate_local_paths
+    ] == ["transverse_circle", "transverse_figure_eight"]
 
 
 def test_engine_navigation_plan_resolves_annotations_without_mesh_scale() -> None:
@@ -52,6 +59,7 @@ def test_engine_navigation_plan_resolves_annotations_without_mesh_scale() -> Non
                 "type": "transverse_square",
                 "radius_m": 0.01,
                 "samples": 40,
+                "axial_retraction_m": 0.01,
             },
         }
     )
@@ -68,6 +76,11 @@ def test_engine_navigation_plan_resolves_annotations_without_mesh_scale() -> Non
         plan.pre_entry_tip_world,
         expected_entry - 0.05 * plan.insertion_direction_world,
     )
+    expected_local_center = (
+        plan.insertion_tip_waypoints_world[-1]
+        - 0.01 * plan.insertion_direction_world
+    )
+    np.testing.assert_allclose(plan.observer_roi_world, expected_local_center)
 
 
 def test_engine_navigation_plan_maps_straight_tip_to_each_base_target() -> None:
@@ -104,6 +117,43 @@ def test_engine_navigation_plan_maps_straight_tip_to_each_base_target() -> None:
         )
 
 
+def test_engine_navigation_plan_resolves_three_retracted_local_paths() -> None:
+    config = load_scenario_config(SCENARIO)
+    scene = load_engine_scene_config(ENGINE_SCENE)
+    assembly = load_robot_assembly_config(MOBILE_ASSEMBLY)
+    assert config.task.engine_navigation is not None
+
+    plan = resolve_engine_navigation_plan(
+        config.task.engine_navigation,
+        scene,
+        assembly,
+    )
+
+    assert [path.path_type for path in plan.local_path_plans] == [
+        "transverse_circle",
+        "transverse_figure_eight",
+        "transverse_square",
+    ]
+    assert [path.insertion_index for path in plan.local_path_plans] == sorted(
+        path.insertion_index for path in plan.local_path_plans
+    )
+    assert [path.waypoints_world.shape[0] for path in plan.local_path_plans] == [
+        40,
+        60,
+        40,
+    ]
+    for path in plan.local_path_plans:
+        expected_center = (
+            path.insertion_target_world
+            - 0.015 * plan.insertion_direction_world
+        )
+        np.testing.assert_allclose(path.center_world, expected_center)
+        np.testing.assert_allclose(
+            path.waypoints_world[0],
+            path.waypoints_world[-1],
+        )
+
+
 def test_engine_navigation_plan_rejects_unknown_path() -> None:
     scene = load_engine_scene_config(ENGINE_SCENE)
     assembly = load_robot_assembly_config(MOBILE_ASSEMBLY)
@@ -116,3 +166,16 @@ def test_engine_navigation_plan_rejects_unknown_path() -> None:
 
     with pytest.raises(ValueError, match="missing_path"):
         resolve_engine_navigation_plan(spec, scene, assembly)
+
+
+def test_engine_navigation_rejects_negative_axial_retraction() -> None:
+    with pytest.raises(ValueError, match="axial_retraction_m"):
+        EngineNavigationSpec.from_mapping(
+            {
+                "entry_region": "entry_port",
+                "insertion_path": "nozzle_axis_entry",
+                "local_path": {
+                    "axial_retraction_m": -0.001,
+                },
+            }
+        )

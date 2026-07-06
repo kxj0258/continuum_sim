@@ -103,6 +103,39 @@ viewer:
     tendon_path_radius: 0.0002
     tendon_path_stride: 1
     tendon_path_arms: both
+    engine_navigation:
+      enabled: true
+      planned_paths: true
+      insertion_waypoints: true
+      observer_roi: true
+      current_target: true
+      base_history: true
+      executor_history: true
+      target_history: true
+      path_stride: 1
+      waypoint_stride: 1
+      pre_entry_target_radius: 0.006
+      pre_entry_target_rgba: [0.15, 1.0, 0.25, 0.90]
+      base_path_radius: 0.0015
+      base_path_rgba: [0.20, 0.80, 1.0, 0.65]
+      insertion_path_radius: 0.0015
+      insertion_path_rgba: [0.20, 1.0, 0.35, 0.75]
+      insertion_waypoint_radius: 0.003
+      insertion_waypoint_rgba: [0.40, 1.0, 0.50, 0.90]
+      executor_path_radius: 0.0012
+      executor_path_rgba: [0.85, 0.20, 1.0, 0.75]
+      observer_roi_radius: 0.005
+      observer_roi_rgba: [1.0, 0.85, 0.0, 0.85]
+      base_target_radius: 0.007
+      base_target_rgba: [0.05, 0.65, 1.0, 1.0]
+      executor_target_radius: 0.005
+      executor_target_rgba: [1.0, 0.10, 0.05, 1.0]
+      base_history_radius: 0.0015
+      base_history_rgba: [0.05, 0.55, 1.0, 0.60]
+      executor_history_radius: 0.0012
+      executor_history_rgba: [0.95, 0.20, 0.80, 0.65]
+      target_history_radius: 0.001
+      target_history_rgba: [1.0, 0.45, 0.05, 0.55]
 solver:
   timestep: 0.001
   integrator: implicitfast
@@ -112,7 +145,7 @@ gravity:
   vector_m_s2: [0.0, 0.0, -9.81]
 joints:
   hinge:
-    damping: 0.10
+    damping: 0.20
     armature: 0.0001
     limited: true
     range_rad: [-0.25, 0.25]

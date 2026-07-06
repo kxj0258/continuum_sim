@@ -12,6 +12,98 @@ import numpy as np
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
 
 
+_ENGINE_NAVIGATION_METADATA_KEYS = (
+    "engine_navigation_pre_entry_target_m",
+    "engine_navigation_base_path_m",
+    "engine_navigation_insertion_path_m",
+    "engine_navigation_executor_path_m",
+    "engine_navigation_executor_paths_m",
+    "engine_navigation_observer_roi_m",
+    "engine_navigation_active_target_m",
+    "engine_navigation_active_target_kind",
+)
+
+
+@dataclass
+class _TrackingOverlayState:
+    """Shared, bounded tracking data for live and recorded MuJoCo overlays."""
+
+    tip_trail: list[np.ndarray] = field(default_factory=list)
+    target_trail: list[np.ndarray] = field(default_factory=list)
+    target_trail_kinds: list[str] = field(default_factory=list)
+    base_trail: list[np.ndarray] = field(default_factory=list)
+    navigation_metadata: dict[str, object] = field(default_factory=dict)
+
+    def clear(self) -> None:
+        self.tip_trail.clear()
+        self.target_trail.clear()
+        self.target_trail_kinds.clear()
+        self.base_trail.clear()
+        self.navigation_metadata.clear()
+
+    def capture(
+        self,
+        state: RobotSystemState,
+        command: RobotSystemCommand,
+        *,
+        max_points: int,
+    ) -> None:
+        is_engine_navigation = (
+            command.metadata.get("task_type") == "engine_navigation"
+        )
+        target_key = (
+            "engine_navigation_active_target_m"
+            if is_engine_navigation
+            else "executor_target_world"
+        )
+        target = _metadata_point(command.metadata, target_key)
+        target_kind = str(
+            command.metadata.get(
+                "engine_navigation_active_target_kind",
+                "executor",
+            )
+        )
+        if target is not None and (
+            not self.target_trail
+            or target_kind != self.target_trail_kinds[-1]
+            or not np.array_equal(target, self.target_trail[-1])
+        ):
+            self.target_trail.append(target)
+            self.target_trail_kinds.append(target_kind)
+        executor = next(
+            (arm for arm in state.arms.values() if arm.role == "executor"),
+            None,
+        )
+        if executor is not None:
+            self.tip_trail.append(executor.tip_pose_world.position.copy())
+        if is_engine_navigation:
+            self.base_trail.append(state.base.pose.position.copy())
+            self.navigation_metadata = {
+                key: _copy_overlay_metadata_value(command.metadata[key])
+                for key in _ENGINE_NAVIGATION_METADATA_KEYS
+                if key in command.metadata
+            }
+        else:
+            self.navigation_metadata.clear()
+            self.base_trail.clear()
+        self._trim(max_points)
+
+    def _trim(self, max_points: int) -> None:
+        for trail in (self.tip_trail, self.target_trail, self.base_trail):
+            if len(trail) > max_points:
+                del trail[:-max_points]
+        if len(self.target_trail_kinds) > max_points:
+            del self.target_trail_kinds[:-max_points]
+
+
+def _copy_overlay_metadata_value(value: object) -> object:
+    if isinstance(value, np.ndarray):
+        return value.copy()
+    if isinstance(value, list | tuple):
+        return tuple(_copy_overlay_metadata_value(item) for item in value)
+    return value
+
+
 @dataclass
 class StateRecorderHook:
     """Record compact named state samples independently from backend details."""
@@ -249,8 +341,7 @@ class MujocoLiveVideoRecorderHook:
         self._renderer = None
         self._writer = None
         self._camera = None
-        self._tip_trail: list[np.ndarray] = []
-        self._target_trail: list[np.ndarray] = []
+        self._overlay_state = _TrackingOverlayState()
 
     def on_reset(self, state: RobotSystemState) -> None:
         del state
@@ -261,8 +352,7 @@ class MujocoLiveVideoRecorderHook:
         self._renderer = None
         self._writer = None
         self._camera = None
-        self._tip_trail.clear()
-        self._target_trail.clear()
+        self._overlay_state.clear()
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             import imageio.v2 as imageio
@@ -292,15 +382,11 @@ class MujocoLiveVideoRecorderHook:
     ) -> None:
         if self._renderer is None or self._writer is None or self._mujoco is None:
             return
-        target = command.metadata.get("executor_target_world")
-        if target is not None:
-            self._target_trail.append(np.asarray(target, dtype=float).copy())
-        executor = next(
-            (arm for arm in state.arms.values() if arm.role == "executor"),
-            None,
+        self._overlay_state.capture(
+            state,
+            command,
+            max_points=self.backend.config.viewer.overlays.trail_max_points,
         )
-        if executor is not None:
-            self._tip_trail.append(executor.tip_pose_world.position.copy())
         if step_index % self.stride != 0:
             return
         try:
@@ -311,8 +397,7 @@ class MujocoLiveVideoRecorderHook:
                 self._renderer.scene,
                 self._mujoco,
                 self.backend.config.viewer.overlays,
-                self._target_trail,
-                self._tip_trail,
+                self._overlay_state,
                 state=state,
                 reset_scene=False,
             )
@@ -567,16 +652,14 @@ class MujocoViewerHook:
         self._start_wall_s = 0.0
         self._start_sim_s = 0.0
         self._mujoco = None
-        self._tip_trail: list[np.ndarray] = []
-        self._target_trail: list[np.ndarray] = []
+        self._overlay_state = _TrackingOverlayState()
 
     def on_reset(self, state: RobotSystemState) -> None:
         import mujoco
         import mujoco.viewer
 
         self._mujoco = mujoco
-        self._tip_trail.clear()
-        self._target_trail.clear()
+        self._overlay_state.clear()
         self._viewer = mujoco.viewer.launch_passive(
             self.backend.physics.model,
             self.backend.physics.data,
@@ -594,21 +677,16 @@ class MujocoViewerHook:
     ) -> None:
         del step_index
         if self._viewer is not None:
-            target = command.metadata.get("executor_target_world")
-            if target is not None:
-                self._target_trail.append(np.asarray(target, dtype=float).copy())
-            executor = next(
-                (arm for arm in state.arms.values() if arm.role == "executor"),
-                None,
+            self._overlay_state.capture(
+                state,
+                command,
+                max_points=self.backend.config.viewer.overlays.trail_max_points,
             )
-            if executor is not None:
-                self._tip_trail.append(executor.tip_pose_world.position.copy())
             _draw_mujoco_tracking_overlay(
                 self._viewer,
                 self._mujoco,
                 self.backend.config.viewer.overlays,
-                self._target_trail,
-                self._tip_trail,
+                self._overlay_state,
                 state=state,
             )
             self._viewer.sync()
@@ -671,8 +749,7 @@ def _draw_mujoco_tracking_overlay(
     viewer,
     mujoco,
     config,
-    target_trail: list[np.ndarray],
-    tip_trail: list[np.ndarray],
+    overlay_state: _TrackingOverlayState,
     state: RobotSystemState | None = None,
 ) -> None:
     scene = getattr(viewer, "user_scn", None)
@@ -682,8 +759,7 @@ def _draw_mujoco_tracking_overlay(
         scene,
         mujoco,
         config,
-        target_trail,
-        tip_trail,
+        overlay_state,
         state=state,
         reset_scene=True,
     )
@@ -693,40 +769,271 @@ def _draw_tracking_overlay_scene(
     scene,
     mujoco,
     config,
-    target_trail: list[np.ndarray],
-    tip_trail: list[np.ndarray],
+    overlay_state: _TrackingOverlayState,
     *,
     state: RobotSystemState | None = None,
     reset_scene: bool,
 ) -> None:
     if reset_scene:
         scene.ngeom = 0
-    if config.target_marker and target_trail:
+    navigation_config = config.engine_navigation
+    navigation_enabled = bool(
+        navigation_config.enabled and overlay_state.navigation_metadata
+    )
+    if navigation_enabled:
+        _draw_engine_navigation_overlay_scene(
+            scene,
+            mujoco,
+            navigation_config,
+            config,
+            overlay_state,
+        )
+    elif config.target_marker and overlay_state.target_trail:
         _add_overlay_sphere(
             scene,
             mujoco,
-            target_trail[-1],
+            overlay_state.target_trail[-1],
             config.target_marker_radius,
             config.target_marker_rgba,
         )
-    if config.tip_trail:
+    if not navigation_enabled and config.tip_trail:
         _add_overlay_trail(
             scene,
             mujoco,
-            tip_trail[-config.trail_max_points :: config.trail_stride],
+            overlay_state.tip_trail[:: config.trail_stride],
             config.tip_trail_radius,
             config.tip_trail_rgba,
         )
-    if config.target_trail:
+    if not navigation_enabled and config.target_trail:
         _add_overlay_trail(
             scene,
             mujoco,
-            target_trail[-config.trail_max_points :: config.trail_stride],
+            overlay_state.target_trail[:: config.trail_stride],
             config.target_trail_radius,
             config.target_trail_rgba,
         )
     if state is not None and config.segment_endpoints:
         _draw_segment_endpoint_overlay_scene(scene, mujoco, state, config)
+
+
+def _draw_engine_navigation_overlay_scene(
+    scene,
+    mujoco,
+    config,
+    shared_config,
+    overlay_state: _TrackingOverlayState,
+) -> None:
+    metadata = overlay_state.navigation_metadata
+    active_target = _metadata_point(
+        metadata,
+        "engine_navigation_active_target_m",
+    )
+    if config.current_target and active_target is not None:
+        target_kind = metadata.get(
+            "engine_navigation_active_target_kind",
+            "executor",
+        )
+        if target_kind == "base":
+            radius = config.base_target_radius
+            rgba = config.base_target_rgba
+        else:
+            radius = config.executor_target_radius
+            rgba = config.executor_target_rgba
+        _add_overlay_sphere(scene, mujoco, active_target, radius, rgba)
+
+    pre_entry = _metadata_point(
+        metadata,
+        "engine_navigation_pre_entry_target_m",
+    )
+    if config.planned_paths and pre_entry is not None:
+        _add_overlay_sphere(
+            scene,
+            mujoco,
+            pre_entry,
+            config.pre_entry_target_radius,
+            config.pre_entry_target_rgba,
+        )
+
+    observer_roi = _metadata_point(
+        metadata,
+        "engine_navigation_observer_roi_m",
+    )
+    if config.observer_roi and observer_roi is not None:
+        _add_overlay_sphere(
+            scene,
+            mujoco,
+            observer_roi,
+            config.observer_roi_radius,
+            config.observer_roi_rgba,
+        )
+
+    insertion_path = _metadata_path(
+        metadata,
+        "engine_navigation_insertion_path_m",
+    )
+    if config.insertion_waypoints and insertion_path is not None:
+        for point in _sample_overlay_points(
+            insertion_path,
+            config.waypoint_stride,
+        ):
+            _add_overlay_sphere(
+                scene,
+                mujoco,
+                point,
+                config.insertion_waypoint_radius,
+                config.insertion_waypoint_rgba,
+            )
+
+    if config.planned_paths:
+        paths = (
+            (
+                "engine_navigation_base_path_m",
+                config.base_path_radius,
+                config.base_path_rgba,
+            ),
+            (
+                "engine_navigation_insertion_path_m",
+                config.insertion_path_radius,
+                config.insertion_path_rgba,
+            ),
+        )
+        for key, radius, rgba in paths:
+            points = _metadata_path(metadata, key)
+            if points is not None:
+                _add_overlay_trail(
+                    scene,
+                    mujoco,
+                    _sample_overlay_points(points, config.path_stride),
+                    radius,
+                    rgba,
+                )
+        executor_paths = _metadata_paths(
+            metadata,
+            "engine_navigation_executor_paths_m",
+        )
+        if not executor_paths:
+            fallback = _metadata_path(
+                metadata,
+                "engine_navigation_executor_path_m",
+            )
+            executor_paths = () if fallback is None else (fallback,)
+        for points in executor_paths:
+            _add_overlay_trail(
+                scene,
+                mujoco,
+                _sample_overlay_points(points, config.path_stride),
+                config.executor_path_radius,
+                config.executor_path_rgba,
+            )
+
+    history_slice = slice(None, None, shared_config.trail_stride)
+    if config.base_history:
+        _add_overlay_trail(
+            scene,
+            mujoco,
+            overlay_state.base_trail[history_slice],
+            config.base_history_radius,
+            config.base_history_rgba,
+        )
+    if config.executor_history:
+        _add_overlay_trail(
+            scene,
+            mujoco,
+            overlay_state.tip_trail[history_slice],
+            config.executor_history_radius,
+            config.executor_history_rgba,
+        )
+    if config.target_history:
+        for target_segment in _split_target_history(
+            overlay_state.target_trail,
+            overlay_state.target_trail_kinds,
+            shared_config.trail_stride,
+        ):
+            _add_overlay_trail(
+                scene,
+                mujoco,
+                target_segment,
+                config.target_history_radius,
+                config.target_history_rgba,
+            )
+
+
+def _metadata_point(
+    metadata: dict[str, object],
+    key: str,
+) -> np.ndarray | None:
+    value = metadata.get(key)
+    if value is None:
+        return None
+    try:
+        point = np.asarray(value, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if point.shape != (3,) or not np.all(np.isfinite(point)):
+        return None
+    return point.copy()
+
+
+def _metadata_path(
+    metadata: dict[str, object],
+    key: str,
+) -> np.ndarray | None:
+    value = metadata.get(key)
+    if value is None:
+        return None
+    try:
+        points = np.asarray(value, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if (
+        points.ndim != 2
+        or points.shape[1:] != (3,)
+        or len(points) == 0
+        or not np.all(np.isfinite(points))
+    ):
+        return None
+    return points.copy()
+
+
+def _metadata_paths(
+    metadata: dict[str, object],
+    key: str,
+) -> tuple[np.ndarray, ...]:
+    value = metadata.get(key)
+    if not isinstance(value, list | tuple):
+        return ()
+    result: list[np.ndarray] = []
+    for item in value:
+        path = _metadata_path({"path": item}, "path")
+        if path is not None:
+            result.append(path)
+    return tuple(result)
+
+
+def _sample_overlay_points(points: np.ndarray, stride: int) -> np.ndarray:
+    sampled = points[::stride]
+    if (len(points) - 1) % stride != 0:
+        sampled = np.vstack((sampled, points[-1]))
+    return sampled
+
+
+def _split_target_history(
+    points: list[np.ndarray],
+    kinds: list[str],
+    stride: int,
+) -> list[list[np.ndarray]]:
+    segments: list[list[np.ndarray]] = []
+    previous_kind: str | None = None
+    for point, kind in zip(points, kinds, strict=True):
+        if not segments or kind != previous_kind:
+            segments.append([point])
+        else:
+            segments[-1].append(point)
+        previous_kind = kind
+    return [
+        list(_sample_overlay_points(np.asarray(segment), stride))
+        for segment in segments
+    ]
 
 
 def _draw_segment_endpoint_overlay_scene(

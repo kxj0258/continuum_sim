@@ -24,10 +24,25 @@ scenario:
       base_position_gain: 1.5
       base_orientation_gain: 2.0
       phase_timeout_steps: 5000
+      intermediate_local_paths:
+        - name: one_third_circle
+          at_fraction: 0.3333333333
+          type: transverse_circle
+          radius_m: 0.010
+          samples: 40
+          axial_retraction_m: 0.015
+        - name: two_thirds_figure_eight
+          at_fraction: 0.6666666667
+          type: transverse_figure_eight
+          radius_m: 0.010
+          samples: 60
+          axial_retraction_m: 0.015
       local_path:
+        name: endpoint_square
         type: transverse_square
         radius_m: 0.010
         samples: 40
+        axial_retraction_m: 0.015
   runtime:
     controller_dt_s: 0.02
     n_substeps: 20

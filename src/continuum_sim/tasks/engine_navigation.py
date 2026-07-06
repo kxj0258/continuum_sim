@@ -15,7 +15,23 @@ from continuum_sim.scenes.engine_scene import (
 )
 
 
-LOCAL_PATH_TYPES = ("transverse_square",)
+LOCAL_PATH_TYPES = (
+    "transverse_square",
+    "transverse_circle",
+    "transverse_figure_eight",
+)
+
+
+@dataclass(frozen=True)
+class EngineNavigationLocalPathSpec:
+    """One executor path event placed along the insertion route."""
+
+    name: str
+    at_fraction: float
+    path_type: str
+    radius_m: float
+    samples: int
+    axial_retraction_m: float
 
 
 @dataclass(frozen=True)
@@ -33,6 +49,9 @@ class EngineNavigationSpec:
     local_path_type: str = "transverse_square"
     local_path_radius_m: float = 0.01
     local_path_samples: int = 40
+    local_path_axial_retraction_m: float = 0.01
+    local_path_name: str = "endpoint_square"
+    intermediate_local_paths: tuple[EngineNavigationLocalPathSpec, ...] = ()
     phase_timeout_steps: int = 5000
 
     @classmethod
@@ -44,6 +63,9 @@ class EngineNavigationSpec:
         local_path = values.get("local_path", {})
         if not isinstance(local_path, dict):
             raise ValueError("task.engine_navigation.local_path must be a mapping.")
+        intermediate_local_paths = _load_intermediate_local_paths(
+            values.get("intermediate_local_paths", ())
+        )
         spec = cls(
             entry_region=str(_required(values, "entry_region")),
             insertion_path=str(_required(values, "insertion_path")),
@@ -62,6 +84,11 @@ class EngineNavigationSpec:
             local_path_type=str(local_path.get("type", "transverse_square")),
             local_path_radius_m=float(local_path.get("radius_m", 0.01)),
             local_path_samples=int(local_path.get("samples", 40)),
+            local_path_axial_retraction_m=float(
+                local_path.get("axial_retraction_m", 0.01)
+            ),
+            local_path_name=str(local_path.get("name", "endpoint_square")),
+            intermediate_local_paths=intermediate_local_paths,
             phase_timeout_steps=int(values.get("phase_timeout_steps", 5000)),
         )
         spec._validate()
@@ -72,6 +99,8 @@ class EngineNavigationSpec:
             raise ValueError("engine_navigation.entry_region must be non-empty.")
         if not self.insertion_path:
             raise ValueError("engine_navigation.insertion_path must be non-empty.")
+        if not self.local_path_name:
+            raise ValueError("engine_navigation.local_path.name must be non-empty.")
         positive = {
             "pre_entry_standoff_m": self.pre_entry_standoff_m,
             "insertion_waypoint_spacing_m": self.insertion_waypoint_spacing_m,
@@ -90,6 +119,28 @@ class EngineNavigationSpec:
             )
         if self.local_path_samples < 4:
             raise ValueError("engine_navigation.local_path.samples must be at least 4.")
+        if (
+            not np.isfinite(self.local_path_axial_retraction_m)
+            or self.local_path_axial_retraction_m < 0.0
+        ):
+            raise ValueError(
+                "engine_navigation.local_path.axial_retraction_m must be "
+                "finite and non-negative."
+            )
+        fractions = [path.at_fraction for path in self.intermediate_local_paths]
+        if fractions != sorted(fractions) or len(fractions) != len(set(fractions)):
+            raise ValueError(
+                "engine_navigation.intermediate_local_paths fractions must be "
+                "unique and in ascending order."
+            )
+        names = [
+            *(path.name for path in self.intermediate_local_paths),
+            self.local_path_name,
+        ]
+        if len(names) != len(set(names)):
+            raise ValueError(
+                "engine_navigation local path names must be unique."
+            )
         if self.phase_timeout_steps <= 0:
             raise ValueError("engine_navigation.phase_timeout_steps must be positive.")
 
@@ -105,6 +156,21 @@ class EngineNavigationPlan:
     insertion_base_poses: tuple[Pose6D, ...]
     executor_waypoints_world: np.ndarray
     observer_roi_world: np.ndarray
+    local_path_plans: tuple["EngineNavigationLocalPathPlan", ...] = ()
+
+
+@dataclass(frozen=True)
+class EngineNavigationLocalPathPlan:
+    """Resolved world-frame executor event tied to one insertion waypoint."""
+
+    name: str
+    path_type: str
+    at_fraction: float
+    insertion_index: int
+    insertion_target_world: np.ndarray
+    center_world: np.ndarray
+    waypoints_world: np.ndarray
+    is_terminal: bool
 
 
 def resolve_engine_navigation_plan(
@@ -151,21 +217,123 @@ def resolve_engine_navigation_plan(
         )
         for point in insertion_waypoints
     )
-    executor_waypoints = _transverse_square(
-        center=insertion_waypoints[-1],
-        frame=tip_orientation,
-        radius_m=spec.local_path_radius_m,
-        samples=spec.local_path_samples,
+    path_specs = (
+        *spec.intermediate_local_paths,
+        EngineNavigationLocalPathSpec(
+            name=spec.local_path_name,
+            at_fraction=1.0,
+            path_type=spec.local_path_type,
+            radius_m=spec.local_path_radius_m,
+            samples=spec.local_path_samples,
+            axial_retraction_m=spec.local_path_axial_retraction_m,
+        ),
     )
+    local_path_plans = tuple(
+        _resolve_local_path_plan(
+            path_spec,
+            insertion_waypoints,
+            insertion_direction,
+            tip_orientation,
+        )
+        for path_spec in path_specs
+    )
+    insertion_indices = [path.insertion_index for path in local_path_plans]
+    if len(insertion_indices) != len(set(insertion_indices)):
+        raise ValueError(
+            "Engine navigation local paths resolve to duplicate insertion "
+            "waypoints; reduce insertion_waypoint_spacing_m or move fractions."
+        )
+    endpoint_path = local_path_plans[-1]
     return EngineNavigationPlan(
         pre_entry_tip_world=pre_entry_tip,
         insertion_direction_world=insertion_direction,
         insertion_tip_waypoints_world=insertion_waypoints,
         pre_entry_base_pose=pre_entry_base_pose,
         insertion_base_poses=insertion_base_poses,
-        executor_waypoints_world=executor_waypoints,
-        observer_roi_world=insertion_waypoints[-1].copy(),
+        executor_waypoints_world=endpoint_path.waypoints_world.copy(),
+        observer_roi_world=endpoint_path.center_world.copy(),
+        local_path_plans=local_path_plans,
     )
+
+
+def _load_intermediate_local_paths(
+    raw_value: object,
+) -> tuple[EngineNavigationLocalPathSpec, ...]:
+    if not isinstance(raw_value, list | tuple):
+        raise ValueError(
+            "task.engine_navigation.intermediate_local_paths must be a list."
+        )
+    result: list[EngineNavigationLocalPathSpec] = []
+    for index, values in enumerate(raw_value):
+        if not isinstance(values, dict):
+            raise ValueError(
+                "Each engine_navigation intermediate local path must be a mapping."
+            )
+        prefix = f"engine_navigation.intermediate_local_paths[{index}]"
+        spec = EngineNavigationLocalPathSpec(
+            name=str(_required(values, "name")),
+            at_fraction=float(_required(values, "at_fraction")),
+            path_type=str(_required(values, "type")),
+            radius_m=float(values.get("radius_m", 0.01)),
+            samples=int(values.get("samples", 40)),
+            axial_retraction_m=float(values.get("axial_retraction_m", 0.01)),
+        )
+        if not spec.name:
+            raise ValueError(f"{prefix}.name must be non-empty.")
+        if not np.isfinite(spec.at_fraction) or not 0.0 < spec.at_fraction < 1.0:
+            raise ValueError(f"{prefix}.at_fraction must be between zero and one.")
+        if spec.path_type not in LOCAL_PATH_TYPES:
+            raise ValueError(f"{prefix}.type must be one of {LOCAL_PATH_TYPES}.")
+        if not np.isfinite(spec.radius_m) or spec.radius_m <= 0.0:
+            raise ValueError(f"{prefix}.radius_m must be positive and finite.")
+        if spec.samples < 4:
+            raise ValueError(f"{prefix}.samples must be at least 4.")
+        if (
+            not np.isfinite(spec.axial_retraction_m)
+            or spec.axial_retraction_m < 0.0
+        ):
+            raise ValueError(
+                f"{prefix}.axial_retraction_m must be finite and non-negative."
+            )
+        result.append(spec)
+    return tuple(result)
+
+
+def _resolve_local_path_plan(
+    spec: EngineNavigationLocalPathSpec,
+    insertion_waypoints: np.ndarray,
+    insertion_direction: np.ndarray,
+    frame: Pose6D,
+) -> EngineNavigationLocalPathPlan:
+    insertion_index = _fraction_waypoint_index(
+        insertion_waypoints,
+        spec.at_fraction,
+    )
+    insertion_target = insertion_waypoints[insertion_index].copy()
+    center = insertion_target - spec.axial_retraction_m * insertion_direction
+    return EngineNavigationLocalPathPlan(
+        name=spec.name,
+        path_type=spec.path_type,
+        at_fraction=spec.at_fraction,
+        insertion_index=insertion_index,
+        insertion_target_world=insertion_target,
+        center_world=center.copy(),
+        waypoints_world=_transverse_local_path(
+            path_type=spec.path_type,
+            center=center,
+            frame=frame,
+            radius_m=spec.radius_m,
+            samples=spec.samples,
+        ),
+        is_terminal=bool(np.isclose(spec.at_fraction, 1.0)),
+    )
+
+
+def _fraction_waypoint_index(points: np.ndarray, fraction: float) -> int:
+    segment_lengths = np.linalg.norm(np.diff(points, axis=0), axis=1)
+    cumulative = np.concatenate(([0.0], np.cumsum(segment_lengths)))
+    target_distance = float(fraction) * float(cumulative[-1])
+    return int(np.argmin(np.abs(cumulative - target_distance)))
 
 
 def _named_region(scene: EngineSceneConfig, name: str) -> EngineRegionConfig:
@@ -258,18 +426,50 @@ def _orientation_along_z(direction: np.ndarray) -> Pose6D:
     return Pose6D.from_matrix(transform)
 
 
-def _transverse_square(
+def _transverse_local_path(
     *,
+    path_type: str,
     center: np.ndarray,
     frame: Pose6D,
     radius_m: float,
     samples: int,
 ) -> np.ndarray:
+    if path_type == "transverse_square":
+        planar = _closed_square(radius_m, samples)
+    else:
+        angle = np.linspace(
+            0.0,
+            2.0 * np.pi,
+            samples,
+            endpoint=True,
+        )
+        if path_type == "transverse_circle":
+            planar = radius_m * np.column_stack(
+                (np.cos(angle), np.sin(angle))
+            )
+        elif path_type == "transverse_figure_eight":
+            planar = radius_m * np.column_stack(
+                (np.sin(angle), np.sin(2.0 * angle))
+            )
+        else:
+            raise ValueError(f"Unsupported local path type {path_type!r}.")
+    rotation = frame.as_matrix()[:3, :3]
+    return (
+        np.asarray(center, dtype=float)[None, :]
+        + planar[:, :1] * rotation[:, 0][None, :]
+        + planar[:, 1:] * rotation[:, 1][None, :]
+    )
+
+
+def _closed_square(radius_m: float, samples: int) -> np.ndarray:
     half_side = radius_m
     perimeter = 8.0 * half_side
-    distances = np.linspace(0.0, perimeter, samples, endpoint=False)
+    distances = np.linspace(0.0, perimeter, samples, endpoint=True)
     planar = np.empty((samples, 2), dtype=float)
     for index, distance in enumerate(distances):
+        if index == samples - 1:
+            planar[index] = (-half_side, -half_side)
+            continue
         side = int(distance // (2.0 * half_side))
         offset = distance - side * 2.0 * half_side
         if side == 0:
@@ -280,12 +480,7 @@ def _transverse_square(
             planar[index] = (half_side - offset, half_side)
         else:
             planar[index] = (-half_side, half_side - offset)
-    rotation = frame.as_matrix()[:3, :3]
-    return (
-        np.asarray(center, dtype=float)[None, :]
-        + planar[:, :1] * rotation[:, 0][None, :]
-        + planar[:, 1:] * rotation[:, 1][None, :]
-    )
+    return planar
 
 
 def _unit(values: np.ndarray, name: str) -> np.ndarray:

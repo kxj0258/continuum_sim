@@ -14,6 +14,7 @@ from continuum_sim.system.types import (
     RobotSystemState,
 )
 from continuum_sim.tasks.engine_navigation import (
+    EngineNavigationLocalPathPlan,
     EngineNavigationPlan,
     EngineNavigationSpec,
 )
@@ -70,6 +71,37 @@ def test_staged_controller_holds_arms_during_base_motion() -> None:
         np.allclose(arm.tendon_rate_mps, 0.0)
         for arm in command.arms.values()
     )
+    assert command.metadata["engine_navigation_active_target_kind"] == "base"
+    np.testing.assert_allclose(
+        command.metadata["engine_navigation_active_target_m"],
+        target.position,
+    )
+    np.testing.assert_allclose(
+        command.metadata["engine_navigation_pre_entry_target_m"],
+        plan.pre_entry_tip_world,
+    )
+    np.testing.assert_allclose(
+        command.metadata["engine_navigation_base_path_m"],
+        np.asarray(
+            [
+                np.zeros(3),
+                plan.pre_entry_base_pose.position,
+                *(pose.position for pose in plan.insertion_base_poses),
+            ]
+        ),
+    )
+    np.testing.assert_allclose(
+        command.metadata["engine_navigation_insertion_path_m"],
+        plan.insertion_tip_waypoints_world,
+    )
+    np.testing.assert_allclose(
+        command.metadata["engine_navigation_executor_path_m"],
+        plan.executor_waypoints_world,
+    )
+    np.testing.assert_allclose(
+        command.metadata["engine_navigation_observer_roi_m"],
+        plan.observer_roi_world,
+    )
 
 
 def test_staged_controller_holds_base_during_executor_navigation() -> None:
@@ -99,6 +131,97 @@ def test_staged_controller_holds_base_during_executor_navigation() -> None:
 
     assert controller.phase == "executor_navigation"
     np.testing.assert_allclose(command.base_twist_world, 0.0)
+    assert command.metadata["engine_navigation_active_target_kind"] == "executor"
+    np.testing.assert_allclose(
+        command.metadata["engine_navigation_active_target_m"],
+        command.metadata["executor_target_world"],
+    )
+
+
+def test_staged_controller_rejoins_before_resuming_base_insertion() -> None:
+    assembly = load_robot_assembly_config(
+        "configs/robots/assemblies/dual_spatial_mobile.yaml"
+    )
+    base_pose = Pose6D.identity()
+    straight_state = _state(assembly, base_pose)
+    straight_tip = straight_state.arms["executor"].tip_pose_world.position
+    local_target = straight_tip + np.array([0.001, 0.0, -0.001])
+    next_base_pose = Pose6D.from_rpy_rad(position=(0.01, 0.0, 0.0))
+    intermediate = EngineNavigationLocalPathPlan(
+        name="one_third_circle",
+        path_type="transverse_circle",
+        at_fraction=1.0 / 3.0,
+        insertion_index=0,
+        insertion_target_world=straight_tip,
+        center_world=local_target,
+        waypoints_world=local_target[None, :],
+        is_terminal=False,
+    )
+    terminal = EngineNavigationLocalPathPlan(
+        name="endpoint_square",
+        path_type="transverse_square",
+        at_fraction=1.0,
+        insertion_index=1,
+        insertion_target_world=straight_tip,
+        center_world=local_target,
+        waypoints_world=local_target[None, :],
+        is_terminal=True,
+    )
+    plan = EngineNavigationPlan(
+        pre_entry_tip_world=straight_tip,
+        insertion_direction_world=np.array([0.0, 0.0, 1.0]),
+        insertion_tip_waypoints_world=np.asarray([straight_tip, straight_tip]),
+        pre_entry_base_pose=base_pose,
+        insertion_base_poses=(base_pose, next_base_pose),
+        executor_waypoints_world=terminal.waypoints_world,
+        observer_roi_world=terminal.center_world,
+        local_path_plans=(intermediate, terminal),
+    )
+    controller = StagedEngineNavigationController(
+        assembly,
+        plan,
+        EngineNavigationSpec.from_mapping(
+            {
+                "entry_region": "entry_port",
+                "insertion_path": "nozzle_axis_entry",
+            }
+        ),
+        scene_query=None,
+        waypoint_tolerance_m=0.0001,
+        min_clearance_m=0.01,
+        terminate_on_clearance_violation=True,
+    )
+
+    controller.compute_command(straight_state)
+    path_command = controller.compute_command(straight_state)
+
+    assert controller.phase == "executor_navigation"
+    assert path_command.metadata["engine_navigation_local_path_name"] == (
+        "one_third_circle"
+    )
+    assert path_command.metadata["engine_navigation_executor_subphase"] == "path"
+    np.testing.assert_allclose(path_command.base_twist_world, 0.0)
+
+    local_state = _state(
+        assembly,
+        base_pose,
+        tip_position=local_target,
+    )
+    rejoin_command = controller.compute_command(local_state)
+
+    assert controller.phase == "executor_navigation"
+    assert rejoin_command.metadata["engine_navigation_executor_subphase"] == (
+        "rejoin"
+    )
+    np.testing.assert_allclose(
+        rejoin_command.metadata["executor_target_world"],
+        straight_tip,
+    )
+
+    controller.compute_command(straight_state)
+
+    assert controller.phase == "base_insertion"
+    assert controller.insertion_index == 1
 
 
 def _minimal_plan(target: Pose6D) -> EngineNavigationPlan:
@@ -119,7 +242,12 @@ def _minimal_plan(target: Pose6D) -> EngineNavigationPlan:
     )
 
 
-def _state(assembly, base_pose: Pose6D) -> RobotSystemState:
+def _state(
+    assembly,
+    base_pose: Pose6D,
+    *,
+    tip_position: np.ndarray | None = None,
+) -> RobotSystemState:
     arms = {}
     for arm in assembly.enabled_arms:
         tendon_count = arm.spatial_arm.tendon_count
@@ -135,7 +263,14 @@ def _state(assembly, base_pose: Pose6D) -> RobotSystemState:
         arms[arm.name] = ArmSystemState(
             name=arm.name,
             role=arm.role,
-            tip_pose_world=Pose6D(position=tip, quat=base_pose.quat),
+            tip_pose_world=Pose6D(
+                position=(
+                    tip
+                    if tip_position is None or arm.role != "executor"
+                    else tip_position
+                ),
+                quat=base_pose.quat,
+            ),
             segment_poses_world=np.repeat(
                 np.eye(4, dtype=float)[None, :, :],
                 3,

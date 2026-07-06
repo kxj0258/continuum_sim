@@ -140,6 +140,70 @@ python scripts/run_scenario.py configs/scenarios/dual_engine_navigation.yaml
 observer 跟随观测。第一版依赖 `engine_cleaning.yaml` 中已标定的路径和 primitive
 距离监控，不包含基于完整 collision mesh 的自动规划或在线重规划。
 
+运行时可视化由 `configs/mujoco_dual.yaml` 的
+`viewer.overlays.engine_navigation` 控制，并同时作用于 MuJoCo viewer 和
+`artifacts.video_mode: live_mujoco` 生成的动图。默认图例为：
+
+- 浅蓝线：移动底座规划轨迹；蓝色大球：当前底座目标；蓝色半透明线：底座实际历史轨迹。
+- 绿色线和圆点：工具尖端插入轨迹及离散路点；亮绿色球：预进入目标。
+- 紫色线：executor 局部探索规划轨迹；红色大球：当前 executor 目标。
+- 黄色球：observer 关注区域；紫红色线：executor 末端实际历史轨迹。
+- 橙色线：已经激活过的底座或 executor 目标历史。
+
+`enabled` 是总开关；`planned_paths`、`insertion_waypoints`、`observer_roi`、
+`current_target`、`base_history`、`executor_history` 和 `target_history`
+可以分别关闭。`*_radius` 调整粗细或球半径，`*_rgba` 调整颜色和透明度。
+`path_stride` 和 `waypoint_stride` 降低静态路径显示密度；外层
+`trail_max_points` 和 `trail_stride` 控制动态历史长度与采样密度。如果 overlay
+过密或影响 viewer 刷新速度，优先增大三个 stride，再减小
+`trail_max_points`。
+
+第三阶段的局部轨迹中心会从插入终点沿机械臂轴向向底座回缩，避免在接近完全
+伸直的位置执行横向轨迹。回缩距离在
+`configs/scenarios/dual_engine_navigation.yaml` 中配置：
+
+```yaml
+local_path:
+  type: transverse_square
+  radius_m: 0.010
+  samples: 40
+  axial_retraction_m: 0.015
+```
+
+其计算关系为
+`局部轨迹中心 = 插入终点 - axial_retraction_m × 插入方向`。增大该值会让
+executor 目标更靠近机械臂底座；设为 `0.0` 则恢复以插入终点为中心的旧行为。
+observer ROI 会同步使用回缩后的局部轨迹中心。
+
+插入过程中还可以配置中间局部轨迹。当前 engine navigation 使用以下顺序：
+
+1. 插入路径约 `1/3` 处暂停底盘，executor 执行圆形轨迹；
+2. executor 回到该位置未回缩的插入轴目标，底盘继续运动；
+3. 插入路径约 `2/3` 处暂停底盘，executor 执行八字形轨迹；
+4. executor 再次回到插入轴目标，底盘继续到终点；
+5. 终点执行原有方形轨迹并结束。
+
+```yaml
+intermediate_local_paths:
+  - name: one_third_circle
+    at_fraction: 0.3333333333
+    type: transverse_circle
+    radius_m: 0.010
+    samples: 40
+    axial_retraction_m: 0.015
+  - name: two_thirds_figure_eight
+    at_fraction: 0.6666666667
+    type: transverse_figure_eight
+    radius_m: 0.010
+    samples: 60
+    axial_retraction_m: 0.015
+```
+
+`at_fraction` 是沿完整插入路径累计长度的比例，不是世界坐标比例；运行时会
+选择距离该比例最近的重采样插入路点。每条轨迹的 `axial_retraction_m` 独立
+生效，计算方向均为机械臂局部 `-Z`。中间轨迹的名称和比例必须唯一，并按比例
+升序配置。
+
 Python API:
 
 ```python

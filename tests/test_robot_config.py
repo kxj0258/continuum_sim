@@ -212,6 +212,12 @@ def test_mujoco_config_loads_without_importing_optional_backend() -> None:
     assert config.viewer.overlays.tendon_paths is True
     assert config.viewer.overlays.tendon_path_radius == pytest.approx(0.0004)
     assert config.viewer.overlays.tendon_path_stride == 1
+    assert config.viewer.overlays.engine_navigation.enabled is False
+    assert config.viewer.overlays.engine_navigation.planned_paths is True
+    assert config.viewer.overlays.engine_navigation.path_stride == 1
+    assert config.viewer.overlays.engine_navigation.base_target_radius == pytest.approx(
+        0.007
+    )
 
 
 def test_mujoco_segment_2dof_config_loads_without_importing_optional_backend() -> None:
@@ -239,6 +245,25 @@ def test_mujoco_segment_2dof_config_loads_without_importing_optional_backend() -
         / "mujoco"
         / "three_segment_arm_2dof_tendon_with_visuals.xml"
     )
+
+
+def test_dual_mujoco_config_loads_engine_navigation_overlays() -> None:
+    config = load_mujoco_config(
+        PROJECT_ROOT / "configs" / "mujoco_dual.yaml",
+        require_xml=False,
+        require_visual_meshes=False,
+    )
+
+    navigation = config.viewer.overlays.engine_navigation
+    assert navigation.enabled is True
+    assert navigation.planned_paths is True
+    assert navigation.insertion_waypoints is True
+    assert navigation.current_target is True
+    assert navigation.base_history is True
+    assert navigation.executor_history is True
+    assert navigation.target_history is True
+    assert navigation.base_path_rgba == pytest.approx((0.2, 0.8, 1.0, 0.65))
+    assert navigation.executor_target_radius == pytest.approx(0.005)
 
 
 def test_dual_mujoco_config_matches_committed_mobile_base_model() -> None:

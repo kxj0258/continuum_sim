@@ -18,7 +18,7 @@ engine:
     collision_mesh_offset_m: [0.0, 0.0, 0.0]
   scale: 0.001
   pose:
-    position_m: [0.0, 0.0, 0.0]
+    position_m: [-0.5, -2.5, -1.75]
     frame_offset_m: [0.114155, 0.530382, 0.010]
     quat_wxyz: [1.0, 0.0, 0.0, 0.0]
 

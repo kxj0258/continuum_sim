@@ -19,13 +19,13 @@ intermediate_local_paths:
     type: transverse_circle
     radius_m: 0.010
     samples: 40
-    axial_retraction_m: 0.010
+    axial_retraction_m: 0.015
   - name: two_thirds_figure_eight
     at_fraction: 0.6666666667
     type: transverse_figure_eight
     radius_m: 0.010
     samples: 60
-    axial_retraction_m: 0.010
+    axial_retraction_m: 0.015
 ```
 
 Intermediate fractions must be strictly between zero and one, unique, and

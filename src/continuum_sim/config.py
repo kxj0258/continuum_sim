@@ -154,6 +154,44 @@ class MujocoViewerCameraConfig:
 
 
 @dataclass(frozen=True)
+class MujocoEngineNavigationOverlayConfig:
+    """Engine-navigation plan, target, and history overlay settings."""
+
+    enabled: bool
+    planned_paths: bool
+    insertion_waypoints: bool
+    observer_roi: bool
+    current_target: bool
+    base_history: bool
+    executor_history: bool
+    target_history: bool
+    path_stride: int
+    waypoint_stride: int
+    pre_entry_target_radius: float
+    pre_entry_target_rgba: tuple[float, float, float, float]
+    base_path_radius: float
+    base_path_rgba: tuple[float, float, float, float]
+    insertion_path_radius: float
+    insertion_path_rgba: tuple[float, float, float, float]
+    insertion_waypoint_radius: float
+    insertion_waypoint_rgba: tuple[float, float, float, float]
+    executor_path_radius: float
+    executor_path_rgba: tuple[float, float, float, float]
+    observer_roi_radius: float
+    observer_roi_rgba: tuple[float, float, float, float]
+    base_target_radius: float
+    base_target_rgba: tuple[float, float, float, float]
+    executor_target_radius: float
+    executor_target_rgba: tuple[float, float, float, float]
+    base_history_radius: float
+    base_history_rgba: tuple[float, float, float, float]
+    executor_history_radius: float
+    executor_history_rgba: tuple[float, float, float, float]
+    target_history_radius: float
+    target_history_rgba: tuple[float, float, float, float]
+
+
+@dataclass(frozen=True)
 class MujocoViewerOverlayConfig:
     """Trajectory viewer overlay marker and trail settings."""
 
@@ -176,6 +214,7 @@ class MujocoViewerOverlayConfig:
     tendon_path_radius: float
     tendon_path_stride: int
     tendon_path_arms: str
+    engine_navigation: MujocoEngineNavigationOverlayConfig
 
 
 @dataclass(frozen=True)
@@ -709,6 +748,120 @@ def _load_mujoco_viewer_overlay_config(
             values.get("tendon_path_arms", "default"),
             "viewer.overlays.tendon_path_arms",
             MUJOCO_TENDON_PATH_ARM_MODES,
+        ),
+        engine_navigation=_load_mujoco_engine_navigation_overlay_config(values),
+    )
+
+
+def _load_mujoco_engine_navigation_overlay_config(
+    overlay_values: dict[str, Any],
+) -> MujocoEngineNavigationOverlayConfig:
+    values = _optional_section(overlay_values, "engine_navigation")
+    prefix = "viewer.overlays.engine_navigation"
+    return MujocoEngineNavigationOverlayConfig(
+        enabled=_bool(values, "enabled", default=False),
+        planned_paths=_bool(values, "planned_paths", default=True),
+        insertion_waypoints=_bool(values, "insertion_waypoints", default=True),
+        observer_roi=_bool(values, "observer_roi", default=True),
+        current_target=_bool(values, "current_target", default=True),
+        base_history=_bool(values, "base_history", default=True),
+        executor_history=_bool(values, "executor_history", default=True),
+        target_history=_bool(values, "target_history", default=True),
+        path_stride=_positive_int_value(
+            values.get("path_stride", 1),
+            f"{prefix}.path_stride",
+        ),
+        waypoint_stride=_positive_int_value(
+            values.get("waypoint_stride", 1),
+            f"{prefix}.waypoint_stride",
+        ),
+        pre_entry_target_radius=_positive_float_value(
+            values.get("pre_entry_target_radius", 0.006),
+            f"{prefix}.pre_entry_target_radius",
+        ),
+        pre_entry_target_rgba=_rgba_tuple(
+            values.get("pre_entry_target_rgba", (0.15, 1.0, 0.25, 0.9)),
+            f"{prefix}.pre_entry_target_rgba",
+        ),
+        base_path_radius=_positive_float_value(
+            values.get("base_path_radius", 0.0015),
+            f"{prefix}.base_path_radius",
+        ),
+        base_path_rgba=_rgba_tuple(
+            values.get("base_path_rgba", (0.2, 0.8, 1.0, 0.65)),
+            f"{prefix}.base_path_rgba",
+        ),
+        insertion_path_radius=_positive_float_value(
+            values.get("insertion_path_radius", 0.0015),
+            f"{prefix}.insertion_path_radius",
+        ),
+        insertion_path_rgba=_rgba_tuple(
+            values.get("insertion_path_rgba", (0.2, 1.0, 0.35, 0.75)),
+            f"{prefix}.insertion_path_rgba",
+        ),
+        insertion_waypoint_radius=_positive_float_value(
+            values.get("insertion_waypoint_radius", 0.003),
+            f"{prefix}.insertion_waypoint_radius",
+        ),
+        insertion_waypoint_rgba=_rgba_tuple(
+            values.get("insertion_waypoint_rgba", (0.4, 1.0, 0.5, 0.9)),
+            f"{prefix}.insertion_waypoint_rgba",
+        ),
+        executor_path_radius=_positive_float_value(
+            values.get("executor_path_radius", 0.0012),
+            f"{prefix}.executor_path_radius",
+        ),
+        executor_path_rgba=_rgba_tuple(
+            values.get("executor_path_rgba", (0.85, 0.2, 1.0, 0.75)),
+            f"{prefix}.executor_path_rgba",
+        ),
+        observer_roi_radius=_positive_float_value(
+            values.get("observer_roi_radius", 0.005),
+            f"{prefix}.observer_roi_radius",
+        ),
+        observer_roi_rgba=_rgba_tuple(
+            values.get("observer_roi_rgba", (1.0, 0.85, 0.0, 0.85)),
+            f"{prefix}.observer_roi_rgba",
+        ),
+        base_target_radius=_positive_float_value(
+            values.get("base_target_radius", 0.007),
+            f"{prefix}.base_target_radius",
+        ),
+        base_target_rgba=_rgba_tuple(
+            values.get("base_target_rgba", (0.05, 0.65, 1.0, 1.0)),
+            f"{prefix}.base_target_rgba",
+        ),
+        executor_target_radius=_positive_float_value(
+            values.get("executor_target_radius", 0.005),
+            f"{prefix}.executor_target_radius",
+        ),
+        executor_target_rgba=_rgba_tuple(
+            values.get("executor_target_rgba", (1.0, 0.1, 0.05, 1.0)),
+            f"{prefix}.executor_target_rgba",
+        ),
+        base_history_radius=_positive_float_value(
+            values.get("base_history_radius", 0.0015),
+            f"{prefix}.base_history_radius",
+        ),
+        base_history_rgba=_rgba_tuple(
+            values.get("base_history_rgba", (0.05, 0.55, 1.0, 0.6)),
+            f"{prefix}.base_history_rgba",
+        ),
+        executor_history_radius=_positive_float_value(
+            values.get("executor_history_radius", 0.0012),
+            f"{prefix}.executor_history_radius",
+        ),
+        executor_history_rgba=_rgba_tuple(
+            values.get("executor_history_rgba", (0.95, 0.2, 0.8, 0.65)),
+            f"{prefix}.executor_history_rgba",
+        ),
+        target_history_radius=_positive_float_value(
+            values.get("target_history_radius", 0.001),
+            f"{prefix}.target_history_radius",
+        ),
+        target_history_rgba=_rgba_tuple(
+            values.get("target_history_rgba", (1.0, 0.45, 0.05, 0.55)),
+            f"{prefix}.target_history_rgba",
         ),
     )
 

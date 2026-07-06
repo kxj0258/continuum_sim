@@ -223,9 +223,7 @@ class StagedEngineNavigationController:
             self._executor_subphase = ""
             self._active_local_path_index = -1
             self._set_phase("base_insertion")
-            if self.insertion_index < len(self.plan.insertion_base_poses) - 1:
-                self.insertion_index += 1
-            return self._base_command(state, clearance)
+            return self._base_hold_command(state, clearance)
         return self._executor_result(
             state,
             tracked,
@@ -255,6 +253,34 @@ class StagedEngineNavigationController:
             base_twist_world=np.zeros(6, dtype=float),
             arms=tracked.arms,
             metadata=metadata,
+        )
+
+    def _base_hold_command(
+        self,
+        state: RobotSystemState,
+        clearance: float,
+    ) -> RobotSystemCommand:
+        target = self.plan.insertion_base_poses[self.insertion_index]
+        twist, position_error, orientation_error = (
+            self._pose_controller.compute_twist(
+                state.base.pose,
+                target,
+                max_linear_speed=self.assembly.base.max_linear_speed_mps,
+                max_angular_speed=self.assembly.base.max_angular_speed_rad_s,
+            )
+        )
+        command = RobotSystemCommand.zeros(self._tendon_counts)
+        return RobotSystemCommand(
+            base_twist_world=twist,
+            arms=command.arms,
+            metadata=self._metadata(
+                target_position=target.position,
+                active_target=target.position,
+                active_target_kind="base",
+                position_error=position_error,
+                orientation_error=orientation_error,
+                clearance=clearance,
+            ),
         )
 
     def _pending_local_path_index(self) -> int | None:
@@ -307,6 +333,12 @@ class StagedEngineNavigationController:
                 tracking.waypoint_tolerance_m
                 if use_local_tracking
                 and tracking.advance_mode == "tolerance"
+                and tracking.waypoint_tolerance_m is not None
+                else tracking.rejoin_tolerance_m
+                if not use_local_tracking
+                and tracking.rejoin_tolerance_m is not None
+                else tracking.waypoint_tolerance_m
+                if not use_local_tracking
                 and tracking.waypoint_tolerance_m is not None
                 else self._waypoint_tolerance_m
             ),

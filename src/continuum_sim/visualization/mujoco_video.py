@@ -136,6 +136,15 @@ def save_mujoco_replay_video(
                     _restore_state(model, data, qpos[index], qvel[index])
                     _restore_mocap_state(data, mocap_pos, mocap_quat, index)
                     mujoco.mj_forward(model, data)
+                    _update_follow_camera(
+                        mujoco,
+                        model,
+                        data,
+                        render_camera,
+                        camera,
+                        result,
+                        index,
+                    )
                     renderer.update_scene(data, camera=render_camera)
                     frame = renderer.render().copy()
                 except Exception as exc:  # noqa: BLE001 - include frame context in artifact error.
@@ -176,6 +185,81 @@ def _mujoco_render_camera(mujoco, camera: object | None):
     render_camera.azimuth = float(getattr(camera, "azimuth"))
     render_camera.elevation = float(getattr(camera, "elevation"))
     return render_camera
+
+
+def _update_follow_camera(
+    mujoco,
+    model,
+    data,
+    render_camera: object | None,
+    camera: object | None,
+    result: object,
+    index: int,
+) -> None:
+    if render_camera in (None, -1) or camera is None:
+        return
+    target = _follow_camera_target(mujoco, model, data, camera, result, index)
+    if target is not None:
+        render_camera.lookat[:] = target
+
+
+def _follow_camera_target(
+    mujoco,
+    model,
+    data,
+    camera: object,
+    result: object,
+    index: int,
+) -> np.ndarray | None:
+    follow = str(getattr(camera, "follow", "none"))
+    if follow == "base":
+        return _base_follow_target(mujoco, model, data, result, index)
+    if follow == "executor_tip":
+        return _history_point(result, "tip_position", index)
+    return None
+
+
+def _base_follow_target(
+    mujoco,
+    model,
+    data,
+    result: object,
+    index: int,
+) -> np.ndarray | None:
+    target = _history_point(result, "base_position_m", index)
+    if target is not None:
+        return target
+    target = _history_point(result, "mujoco_mobile_base_frame_pose", index)
+    if target is not None:
+        return target
+    joint_id = mujoco.mj_name2id(
+        model,
+        mujoco.mjtObj.mjOBJ_JOINT,
+        "mobile_base_freejoint",
+    )
+    if joint_id >= 0:
+        qpos_addr = int(model.jnt_qposadr[int(joint_id)])
+        return np.asarray(data.qpos[qpos_addr : qpos_addr + 3], dtype=float).copy()
+    for site_name in ("mobile_base_frame", "executor_base_site", "base_site"):
+        site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, site_name)
+        if site_id >= 0:
+            return np.asarray(data.site_xpos[int(site_id)], dtype=float).copy()
+    return None
+
+
+def _history_point(result: object, name: str, index: int) -> np.ndarray | None:
+    if not hasattr(result, name):
+        return None
+    values = np.asarray(getattr(result, name), dtype=float)
+    if values.ndim == 2 and values.shape[1] == 3 and values.shape[0] > 0:
+        point = values[min(index, values.shape[0] - 1)]
+    elif values.ndim == 3 and values.shape[1:] == (4, 4) and values.shape[0] > 0:
+        point = values[min(index, values.shape[0] - 1), :3, 3]
+    else:
+        return None
+    if not np.all(np.isfinite(point)):
+        return None
+    return np.asarray(point, dtype=float).copy()
 
 
 def _model_offscreen_size(model) -> tuple[int, int]:

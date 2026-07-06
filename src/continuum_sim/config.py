@@ -63,6 +63,7 @@ MUJOCO_TENDON_PATH_ARM_MODES: tuple[str, ...] = (
 MUJOCO_CONTROL_MODES: tuple[str, ...] = ("position_joint", "tendon_position")
 MUJOCO_TENDON_TYPES: tuple[str, ...] = ("spatial",)
 MUJOCO_TENDON_COEFFICIENT_SOURCES: tuple[str, ...] = ("robot_physical_tendons",)
+MUJOCO_CAMERA_FOLLOW_MODES: tuple[str, ...] = ("none", "base", "executor_tip")
 MUJOCO_MODEL_TYPES: tuple[str, ...] = (
     "distributed_links",
     "segment_2dof_followers",
@@ -151,6 +152,7 @@ class MujocoViewerCameraConfig:
     distance: float
     azimuth: float
     elevation: float
+    follow: str
 
 
 @dataclass(frozen=True)
@@ -679,6 +681,11 @@ def _load_mujoco_viewer_camera_config(
         ),
         azimuth=float(values.get("azimuth", 135.0)),
         elevation=float(values.get("elevation", -25.0)),
+        follow=_choice_value(
+            values.get("follow", "none"),
+            "viewer.camera.follow",
+            MUJOCO_CAMERA_FOLLOW_MODES,
+        ),
     )
 
 

@@ -159,29 +159,35 @@ class MujocoSystemDebugViewer:
         self.reset_button = Button(
             self.panel.fig.add_axes((0.06, 0.07, 0.10, 0.04)),
             "Reset",
+            **_disable_widget_blit(Button),
         )
         self.zero_button = Button(
             self.panel.fig.add_axes((0.18, 0.07, 0.10, 0.04)),
             "Zero",
+            **_disable_widget_blit(Button),
         )
         self.step_button = Button(
             self.panel.fig.add_axes((0.30, 0.07, 0.10, 0.04)),
             "Step",
+            **_disable_widget_blit(Button),
         )
         self.run_button = Button(
             self.panel.fig.add_axes((0.42, 0.07, 0.10, 0.04)),
             "Run",
+            **_disable_widget_blit(Button),
         )
         self.named_targets = available_named_targets(self.arm_names)
         self.radio = RadioButtons(
             self.panel.fig.add_axes((0.68, 0.07, 0.29, 0.19)),
             self.named_targets,
             active=0,
+            **_disable_widget_blit(RadioButtons),
         )
         self.mode_radio = RadioButtons(
             self.panel.fig.add_axes((0.54, 0.07, 0.12, 0.10)),
             ("compatible", "raw tendon"),
             active=0,
+            **_disable_widget_blit(RadioButtons),
         )
         self.timer = self.panel.fig.canvas.new_timer(
             interval=max(1, round(1000.0 * self.control_dt_s))
@@ -218,6 +224,7 @@ class MujocoSystemDebugViewer:
                 valmax=1000.0 * float(maximum),
                 valinit=0.0,
                 valfmt="% .3f",
+                **_disable_widget_blit(slider_type),
             )
             slider.valtext.set_visible(False)
             input_axis = self.panel.fig.add_axes(
@@ -228,7 +235,9 @@ class MujocoSystemDebugViewer:
                 "",
                 initial="0.000",
                 textalignment="center",
+                **_disable_widget_blit(text_box_type),
             )
+            _disconnect_textbox_resize(target_input)
             sliders.append(slider)
             target_inputs.append(target_input)
         return sliders, target_inputs
@@ -462,6 +471,32 @@ class MujocoSystemDebugViewer:
 
 def _format_target_mm(value_mm: float) -> str:
     return f"{float(value_mm):.3f}"
+
+
+def _disable_widget_blit(widget_type) -> dict[str, bool]:
+    """Disable Matplotlib widget blitting when the installed version supports it."""
+
+    import inspect
+
+    if "useblit" not in inspect.signature(widget_type).parameters:
+        return {}
+    return {"useblit": False}
+
+
+def _disconnect_textbox_resize(text_box) -> None:
+    """Drop the Matplotlib TextBox resize hook that breaks on ResizeEvent."""
+
+    canvas = getattr(text_box, "canvas", None)
+    callbacks = getattr(canvas, "callbacks", None)
+    callback_map = getattr(callbacks, "callbacks", {}) if callbacks is not None else {}
+    resize_callbacks = callback_map.get("resize_event", {})
+    for cid in tuple(getattr(text_box, "_cids", ())):
+        reference = resize_callbacks.get(cid)
+        callback = reference() if callable(reference) else None
+        if getattr(callback, "__name__", "") != "_resize":
+            continue
+        canvas.mpl_disconnect(cid)
+        text_box._cids.remove(cid)
 
 
 __all__ = [

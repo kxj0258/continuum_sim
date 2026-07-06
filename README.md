@@ -1,55 +1,55 @@
 # continuum_sim
 
-## Scenario tracking optimization
+`continuum_sim` 是一个面向空间连续体机械臂的仿真与控制项目。当前主入口是
+scenario YAML，通过同一套应用层组合机器人装配、任务、控制器、后端、hooks
+和运行产物。
 
-Scenario-native tracking supports a configurable smooth approach, Cartesian
-path feedforward, target-speed limiting, and fixed-base per-arm singularity
-protection:
-
-```yaml
-task:
-  type: tracking
-  waypoint_tolerance_m: 0.0015
-  tracking_control:
-    approach_samples: 20
-    executor_position_gain: 4.0
-    observer_position_gain: 5.0
-    feedforward_speed_mps: 0.003
-    max_target_speed_mps: 0.030
-    executor_tracking_weight: 100.0
-    observer_tracking_weight: 40.0
-    executor_collision_avoidance_weight: 80.0
-    base_regularization_weight: 1.0
-    tendon_regularization_weight: 0.2
-    rank_tolerance: 1.0e-9
-    minimum_singular_value: 1.0e-5
-    nominal_damping: 1.0e-4
-    maximum_damping: 5.0e-2
-    minimum_velocity_scale: 0.05
-    decouple_arm_singularity: true
-```
-
-`tracking_error_m` remains the error to the currently commanded target.
-`achieved_waypoint_error_m` is finite only when a waypoint is reached, so it
-is the preferred accuracy metric. `tracking_approach`, `waypoint_advanced`,
-and `tracking_complete` distinguish approach samples and target transitions.
-
-Each arm also exports control singularity values, saturation scale, tendon
-target-error norm/maximum, and peak actuator force. Tune tendon speed,
-`target_lead_m`, MuJoCo actuator force, or `kp` only after these diagnostics
-show the corresponding limitation.
-
-Recommended manual checks:
+推荐入口：
 
 ```powershell
-pytest tests/test_tracking_optimization.py tests/test_scenario_migrated_task_features.py tests/test_scenario_artifacts.py
-python scripts/run_scenario.py configs/scenarios/single_mujoco_tracking.yaml
-python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml
+python scripts/run_scenario.py configs/scenarios/<scenario>.yaml
 ```
 
-## Bending-space 相容控制
+Python 中也可以直接使用：
 
-正常控制任务统一在每臂 6 维 bending-space 中求解：
+```python
+from continuum_sim.application import SimulationApplication
+
+application = SimulationApplication.from_yaml(
+    "configs/scenarios/dual_engine_navigation.yaml"
+)
+result = application.run()
+print(len(result.states))
+print(application.last_artifacts.run_dir)
+```
+
+## 快速运行
+
+```powershell
+# smoke
+python scripts/run_scenario.py configs/scenarios/single_analytic_smoke.yaml
+python scripts/run_scenario.py configs/scenarios/single_mujoco_smoke.yaml
+
+# tracking
+python scripts/run_scenario.py configs/scenarios/single_analytic_tracking.yaml
+python scripts/run_scenario.py configs/scenarios/dual_analytic_tracking.yaml
+python scripts/run_scenario.py configs/scenarios/single_mujoco_tracking.yaml
+python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml
+
+# navigation / wiping / engine
+python scripts/run_scenario.py configs/scenarios/single_mujoco_navigation.yaml
+python scripts/run_scenario.py configs/scenarios/dual_mujoco_navigation.yaml
+python scripts/run_scenario.py configs/scenarios/single_mujoco_wiping.yaml
+python scripts/run_scenario.py configs/scenarios/dual_mujoco_wiping.yaml
+python scripts/run_scenario.py configs/scenarios/single_engine_cleaning.yaml
+python scripts/run_scenario.py configs/scenarios/dual_engine_navigation.yaml
+```
+
+带 `viewer: mujoco` 或 `viewer: matplotlib` 的场景会打开可视化窗口，可能需要手动关闭。
+
+## 核心控制约定
+
+正常任务统一在每臂 6 维 bending-space 中求解：
 
 ```text
 b = [kx_1, ky_1, kx_2, ky_2, kx_3, ky_3]
@@ -57,204 +57,133 @@ q = S_b b
 delta_l = C_b b,  C_b = C_q S_b
 ```
 
-每段轴向应变固定为零，和 MuJoCo
-`tendon_model.include_axial_strain: false` 一致。`tracking`、`navigation`、
-`wiping`、`engine_cleaning`、双臂 observer 协同和避障任务均先求
+每段轴向应变固定为零，并与 MuJoCo 配置
+`tendon_model.include_axial_strain: false` 保持一致。`tracking`、
+`navigation`、`wiping`、`engine_cleaning`、双臂 observer 协同和避障任务均先求
 `b_dot`，再由 `C_b` 一次性生成 9 根 tendon 的相容速度。
 
-限速和目标位移限幅使用每臂统一缩放系数，不再逐根裁剪，因此不会破坏
-tendon 比例。MuJoCo 实际绳长仍可能因弹性、动力学滞后和求解误差产生小量
-不相容残差；控制器使用其 bending-space 投影作为状态，并在 metadata 中记录
-原始 residual。
+限速和目标位移限幅使用每臂统一缩放系数，不逐根 tendon 裁剪，避免破坏 tendon
+比例。MuJoCo 实际绳长仍可能因为弹性、动力学滞后和求解误差产生小量残差；相关
+残差会进入 metadata 和 tendon debug 产物。
 
-系统 tendon debug 默认使用 `compatible` 模式：逐根输入会投影到可实现的
-bending 子空间。只有显式选择 `raw tendon` 才会保留独立 tendon 命令；该模式
-专用于检查 routing、方向和 actuator force，不应作为任务控制策略。
+## Scenario 配置
 
-建议手动验证：
+推荐配置位于 `configs/scenarios/*.yaml`。旧的 `configs/tasks/*.yaml` 和
+`runtime/mujoco_*_runtime.py` 主要保留作兼容与参考。
 
-```powershell
-conda activate continuum_sim
-pytest tests/test_bending_space.py tests/test_differential_ik.py tests/test_navigation_controller.py tests/test_hybrid_force_position.py tests/test_adaptive_impedance.py
-pytest tests/test_system_tendon_debug.py tests/test_mujoco_system_debug_viewer.py
-pytest tests/test_scenario_migrated_task_features.py tests/test_scenario_mujoco_composition.py
-python -m compileall src scripts
-```
+### Tracking
 
-本次实现过程未自动执行上述命令。
-
-### Tracking 速度与双臂距离
-
-whole-body 求解器在 bending-space 中正则化 compatible tendon effort
-`||C_b b_dot||²`，避免用 tendon-space 的旧权重直接压制曲率速度。奇异性保护
-根据可控子空间中的最小非零奇异值调节速度；结构性不可控方向仍会报告
-`full_rank: false`，但不会自动把所有可控运动压到 5%。
-
-双臂默认最小中心线距离为 `10 mm`。固定 mount/root 采样点不参与碰撞任务；
-只有可运动中心线低于该距离且具有非零相对 Jacobian 时，observer avoidance
-才会覆盖 observer tracking。该数值是当前仿真模型设置，并非经过硬件安全认证
-的真实安全间距。
-
-面向空间连续体机械臂的组合式仿真项目。当前主入口统一为：
-
-```powershell
-python scripts/run_scenario.py configs/scenarios/<scenario>.yaml
-```
-
-Python 代码中使用 `continuum_sim.application.SimulationApplication` 调用同一套 scenario 架构。
-
-## 快速运行
-
-在项目根目录执行。带 `viewer: mujoco` 或 `viewer: matplotlib` 的场景会打开可视化窗口，可能需要手动关闭窗口。
-
-```powershell
-# 最小 smoke
-python scripts/run_scenario.py configs/scenarios/single_analytic_smoke.yaml
-python scripts/run_scenario.py configs/scenarios/single_mujoco_smoke.yaml
-
-# tracking: 支持手写 waypoints_world 或 task.trajectory 自动生成
-python scripts/run_scenario.py configs/scenarios/single_analytic_tracking.yaml
-python scripts/run_scenario.py configs/scenarios/dual_analytic_tracking.yaml
-python scripts/run_scenario.py configs/scenarios/single_mujoco_tracking.yaml
-python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml
-
-# navigation: 支持 scene inspection target id mission
-python scripts/run_scenario.py configs/scenarios/single_analytic_navigation.yaml
-python scripts/run_scenario.py configs/scenarios/single_mujoco_navigation.yaml
-python scripts/run_scenario.py configs/scenarios/dual_mujoco_navigation.yaml
-
-# wiping: 支持 structured scene raster wiping_path
-python scripts/run_scenario.py configs/scenarios/single_analytic_wiping.yaml
-python scripts/run_scenario.py configs/scenarios/single_mujoco_wiping.yaml
-python scripts/run_scenario.py configs/scenarios/dual_mujoco_wiping.yaml
-
-# engine scene / engine cleaning
-python scripts/run_scenario.py configs/scenarios/single_engine_tracking.yaml
-python scripts/run_scenario.py configs/scenarios/dual_engine_tracking.yaml
-python scripts/run_scenario.py configs/scenarios/single_engine_cleaning.yaml
-python scripts/run_scenario.py configs/scenarios/dual_engine_navigation.yaml
-```
-
-`dual_engine_navigation.yaml` 分三个阶段运行：移动底座对准发动机入口、底座沿
-`nozzle_axis_entry` 显式路径插入、底座保持后由 executor 执行局部横向导航且
-observer 跟随观测。第一版依赖 `engine_cleaning.yaml` 中已标定的路径和 primitive
-距离监控，不包含基于完整 collision mesh 的自动规划或在线重规划。
-
-运行时可视化由 `configs/mujoco_dual.yaml` 的
-`viewer.overlays.engine_navigation` 控制，并同时作用于 MuJoCo viewer 和
-`artifacts.video_mode: live_mujoco` 生成的动图。默认图例为：
-
-- 浅蓝线：移动底座规划轨迹；蓝色大球：当前底座目标；蓝色半透明线：底座实际历史轨迹。
-- 绿色线和圆点：工具尖端插入轨迹及离散路点；亮绿色球：预进入目标。
-- 紫色线：executor 局部探索规划轨迹；红色大球：当前 executor 目标。
-- 黄色球：observer 关注区域；紫红色线：executor 末端实际历史轨迹。
-- 橙色线：已经激活过的底座或 executor 目标历史。
-
-`enabled` 是总开关；`planned_paths`、`insertion_waypoints`、`observer_roi`、
-`current_target`、`base_history`、`executor_history` 和 `target_history`
-可以分别关闭。`*_radius` 调整粗细或球半径，`*_rgba` 调整颜色和透明度。
-`path_stride` 和 `waypoint_stride` 降低静态路径显示密度；外层
-`trail_max_points` 和 `trail_stride` 控制动态历史长度与采样密度。如果 overlay
-过密或影响 viewer 刷新速度，优先增大三个 stride，再减小
-`trail_max_points`。
-
-第三阶段的局部轨迹中心会从插入终点沿机械臂轴向向底座回缩，避免在接近完全
-伸直的位置执行横向轨迹。回缩距离在
-`configs/scenarios/dual_engine_navigation.yaml` 中配置：
+tracking 支持手写 `waypoints_world`，也支持自动生成轨迹：
 
 ```yaml
-local_path:
-  type: transverse_square
-  radius_m: 0.010
-  samples: 40
-  axial_retraction_m: 0.015
+task:
+  type: tracking
+  trajectory:
+    type: ellipse  # circle, figure-eight, ellipse, line, square, lissajous, helix, dmp
+    samples: 80
+    radius_m: 0.018
+    placement:
+      center_mode: straight_tip_xy
+      z_mode: straight_tip_minus_radius
+      plane: xy
+    shape:
+      radius_x_m: 0.020
+      radius_y_m: 0.012
 ```
 
-其计算关系为
-`局部轨迹中心 = 插入终点 - axial_retraction_m × 插入方向`。增大该值会让
-executor 目标更靠近机械臂底座；设为 `0.0` 则恢复以插入终点为中心的旧行为。
-observer ROI 会同步使用回缩后的局部轨迹中心。
+目标推进方式：
 
-插入过程中还可以配置中间局部轨迹。当前 engine navigation 使用以下顺序：
+```yaml
+task:
+  target_advance_mode: tolerance  # tolerance 或 time
+  waypoint_tolerance_m: 0.002
+  advance_steps: 40
+  advance_time_s: 0.8
+```
 
-1. 插入路径约 `1/3` 处暂停底盘，executor 执行圆形轨迹；
-2. executor 回到该位置未回缩的插入轴目标，底盘继续运动；
-3. 插入路径约 `2/3` 处暂停底盘，executor 执行八字形轨迹；
-4. executor 再次回到插入轴目标，底盘继续到终点；
-5. 终点执行原有方形轨迹并结束。
+`tracking_error_m` 表示当前命令目标误差；`achieved_waypoint_error_m` 只在目标点
+达成时有效，更适合作为实际到点精度指标。
+
+### Engine Navigation
+
+`configs/scenarios/dual_engine_navigation.yaml` 是当前发动机插入导航主场景。它包含：
+
+1. 移动底座对准发动机入口。
+2. 底座沿 `nozzle_axis_entry` 插入路径推进。
+3. 在中间插入点暂停底座，executor 执行局部横向轨迹，observer 跟随 ROI。
+4. executor 回到进入局部轨迹时的原插入轴目标，底座目标先保持该点，再继续推进。
+5. 终点执行局部轨迹并结束。
+
+局部路径示例：
 
 ```yaml
 intermediate_local_paths:
   - name: one_third_circle
     at_fraction: 0.3333333333
     type: transverse_circle
-    radius_m: 0.010
-    samples: 40
-    axial_retraction_m: 0.015
-  - name: two_thirds_figure_eight
-    at_fraction: 0.6666666667
-    type: transverse_figure_eight
-    radius_m: 0.010
+    radius_m: 0.075
     samples: 60
-    axial_retraction_m: 0.015
+    axial_retraction_m: 0.045
+  - name: two_thirds_ellipse
+    at_fraction: 0.6666666667
+    type: ellipse
+    radius_m: 0.075
+    shape:
+      radius_x_m: 0.075
+      radius_y_m: 0.045
+    samples: 75
+    axial_retraction_m: 0.045
 ```
 
-`at_fraction` 是沿完整插入路径累计长度的比例，不是世界坐标比例；运行时会
-选择距离该比例最近的重采样插入路点。每条轨迹的 `axial_retraction_m` 独立
-生效，计算方向均为机械臂局部 `-Z`。中间轨迹的名称和比例必须唯一，并按比例
-升序配置。
+支持的局部路径类型：
 
-Engine navigation 运行目录的 `plots` 文件夹中，各图含义如下：
+```text
+circle / transverse_circle
+ellipse / transverse_ellipse
+line / transverse_line
+square / transverse_square
+figure-eight / figure_eight / transverse_figure_eight
+lissajous / transverse_lissajous
+```
 
-- `trajectory.png`：世界坐标中的 executor 目标与实际末端轨迹，用于观察整个
-  导航过程的全局位置关系；目标与实际位置按同一控制步对齐。
-- `engine_navigation_base_path.png`：移动底盘规划目标与实际底盘轨迹，用于分析
-  接近和插入阶段的底盘位姿跟踪。
-- `engine_navigation_local_path_<name>.png`：每个圆形、八字形或方形任务单独
-  输出。左图以回缩中心为原点显示局部横截面目标/实际轨迹，单位为毫米；右图
-  显示对应控制步执行后的三维误差及 mean、RMS、max。`rejoin` 回正过程不会
-  混入该图。
-- `tracking_error.png`：所有包含 executor 目标的控制步误差时间序列，适合定位
-  阶段切换和瞬态峰值，但不用于判断局部轨迹形状。
-- `arm_executor_tendon_displacement_m.png` 和
-  `arm_observer_tendon_displacement_m.png`：两条机械臂各 tendon 的位移变化，
-  用于检查饱和、偏置和振荡。
-- `min_clearance_m.png`：机械臂到场景 primitive 的最小间距；仅在存在有限距离
-  数据时生成。
-- `whole_body_singularity.png`：全身雅可比条件数的对数图；仅在控制器提供该
-  诊断时生成，尖峰表示接近奇异状态。
+`shape` 可提供：
 
-`videos/simulation.gif` 是 MuJoCo 全局动态回放，适合观察阶段顺序和碰撞关系；
-厘米级局部跟踪质量应优先查看独立的
-`engine_navigation_local_path_<name>.png`。
+```text
+radius_x_m, radius_y_m       # ellipse / figure-eight / lissajous
+length_m                     # line
+side_length_m                # square
+lissajous_frequency_x
+lissajous_frequency_y
+lissajous_phase_deg
+```
 
-局部轨迹的目标点推进方式在 `engine_navigation.local_tracking` 中选择：
+局部轨迹中心计算为：
+
+```text
+center = insertion_target - axial_retraction_m * insertion_direction
+```
+
+增大 `axial_retraction_m` 会让局部轨迹更靠近机械臂基座；设为 `0.0` 则以插入目标点为中心。
+
+局部路径目标推进：
 
 ```yaml
 local_tracking:
-  advance_mode: tolerance  # tolerance、time 或 steps
-  waypoint_tolerance_m: 0.003
-  advance_time_s:
-  advance_steps:
-  max_steps_per_waypoint: 150
+  advance_mode: tolerance  # tolerance, time 或 steps
+  waypoint_tolerance_m: 0.005
+  rejoin_tolerance_m: 0.005
+  advance_time_s: 0.20
+  advance_steps: 10
+  max_steps_per_waypoint: 25
   transition_samples: 20
 ```
 
-- `tolerance` 使用本节的 `waypoint_tolerance_m`；未设置时回退到外层
-  `task.waypoint_tolerance_m`，末端进入容差后切换目标。
-- `max_steps_per_waypoint` 仅在 `tolerance` 模式生效；单个目标达到该控制步数
-  仍未进入容差时强制切换，留空表示不限制。控制步数乘以 `controller_dt_s`
-  即为单点最长等待时间。
-- `time` 只读取 `advance_time_s`，`steps` 只读取 `advance_steps`；两个字段可以
-  同时保留在 YAML 中，未被当前模式选中的字段会被忽略。例如
-  `advance_time_s: 0.10` 在 `controller_dt_s: 0.02` 时等价于每 5 步换点。
-- 每条局部轨迹前自动生成从对应插入路径点到局部轨迹首点的三次 Hermite
-  过渡曲线：起点切向沿机械臂局部 `-Z` 回缩方向，终点切向匹配局部轨迹。
-  `transition_samples` 控制过渡曲线离散点数，增大可获得更密集的目标点。
-- 圆形、八字形和终点方形使用该模式；中间轨迹后的 `rejoin` 始终使用
-  tolerance，确保主臂真正回到插入轴后底盘才继续运动。
+`rejoin_tolerance_m` 只控制中间局部轨迹结束后回到插入轴目标的判定。未设置时优先复用
+`local_tracking.waypoint_tolerance_m`，再回退到外层 `task.waypoint_tolerance_m`。
 
-observer 以双臂避碰为主的参数位于 `engine_navigation.observer_control`：
+### Observer 避碰
+
+observer 相关参数位于 `engine_navigation.observer_control`：
 
 ```yaml
 observer_control:
@@ -273,193 +202,12 @@ observer_control:
   stop_all_on_critical_distance: false
 ```
 
-距离均为双臂中心线距离，并满足
-`critical < safe < influence`：影响区内 observer 停止普通观测跟踪并主动撤离；
-进入 critical 区后 observer 使用最大避让速度。默认的
-`stop_all_on_critical_distance: false` 保证避碰、观测跟踪及 observer 的奇异性
-保护只改变 observer 驱动，executor 目标速度、换点调度和任务终止状态不受影响。
-固定底盘阶段还会按双臂分别计算奇异性保护，避免 observer 的退化状态缩放
-executor 命令。避碰退出使用 `influence + release_margin`，减少临界距离附近
-反复切换。
+距离满足 `critical < safe < influence`。默认 `stop_all_on_critical_distance: false`，避碰只改变
+observer 驱动，不直接停止 executor 目标推进。
 
-Python API:
+## MuJoCo 录屏与可视化
 
-```python
-from continuum_sim.application import SimulationApplication
-
-application = SimulationApplication.from_yaml(
-    "configs/scenarios/dual_mujoco_tracking.yaml"
-)
-result = application.run()
-print(len(result.states))
-print(application.last_artifacts.run_dir)
-```
-
-## 新版 Scenario 能力
-
-`configs/scenarios/*.yaml` 是推荐配置入口。旧 `configs/tasks/*.yaml` 和旧 `runtime/mujoco_*_runtime.py` 仍保留给历史测试和参考，但不再作为主运行路径。
-
-### Tracking 轨迹生成
-
-`task` 支持两种目标来源，二选一：
-
-```yaml
-task:
-  type: tracking
-  waypoints_world:
-    - [0.0, 0.0, 0.14]
-    - [0.01, 0.0, 0.14]
-```
-
-或：
-
-```yaml
-task:
-  type: tracking
-  trajectory:
-    type: square        # circle, figure-eight, ellipse, line, square, lissajous, helix, dmp
-    samples: 80
-    radius_m: 0.018
-    placement:
-      center_mode: straight_tip_xy
-      z_mode: straight_tip_minus_radius
-      plane: xy
-      yaw_deg: 15.0
-    shape:
-      side_length_m: 0.04
-```
-
-目标点更新策略：
-
-```yaml
-task:
-  target_advance_mode: tolerance  # tolerance 或 time
-  waypoint_tolerance_m: 0.002
-```
-
-按时间/步数更新：
-
-```yaml
-task:
-  target_advance_mode: time
-  advance_steps: 40
-  # 或 advance_time_s: 0.8
-```
-
-### Navigation Mission
-
-navigation 可以继续手写 `waypoints_world`，也可以从 structured scene 的 inspection target id 生成：
-
-```yaml
-scene:
-  structured_config_path: ../scenes/rocket_nozzle_entry.yaml
-task:
-  type: navigation
-  mission:
-    waypoint_ids:
-      - entry_wall_30deg
-      - rib_gap_center
-      - throat_wall_210deg
-```
-
-### Wiping Path 与高级控制字段
-
-wiping 可以用 structured scene 中的 work surface / patch 自动生成 raster path：
-
-```yaml
-scene:
-  structured_config_path: ../scenes/wiping_board.yaml
-task:
-  type: wiping
-  wiping_control_type: dynamic_adaptive_impedance
-  feedback_mode: mujoco_actual
-  target_normal_force_n: 1.5
-  normal_force_gain: 0.075
-  force_proxy_stiffness_n_m: 600.0
-  target_contact_distance_m: -0.0025
-  wiping_path:
-    surface_id: board_surface
-    patch_id: center_patch
-    line_count: 5
-    samples_per_line: 30
-    approach_offset_m: 0.005
-    contact_offset_m: -0.0025
-```
-
-当前新版 scenario 控制器仍输出统一的 `RobotSystemCommand`，高级力控字段会进入 task metadata、记录和 artifacts；真实法向力闭环仍依赖后续 MuJoCo 接触/力反馈标定。
-
-### Engine Cleaning Path
-
-engine cleaning 现在作为 scenario task type 接入：
-
-```yaml
-scene:
-  engine_config_path: ../scenes/engine_cleaning.yaml
-task:
-  type: engine_cleaning
-  wiping_control_type: hybrid_force_position
-  engine_cleaning:
-    region_name: cleaning_patch
-    num_passes_u: 4
-    num_passes_v: 3
-    approach_distance_m: 0.015
-    retreat_distance_m: 0.020
-    target_force_n: 1.2
-    standoff_distance_m: 0.005
-```
-
-### Live Debug Panel
-
-富肌腱监控面板已经迁入 scenario hook 体系，不再依赖旧 runtime loop。开启后会按
-`executor:1`、`observer:1` 这样的命名显示每根肌腱：
-
-- 目标位移与 MuJoCo 当前位移，单位为 mm；
-- 目标误差，单位为 mm；
-- MuJoCo `actuator_force`，单位为 N；
-- 当前时间以及速率/位移饱和数量。
-
-这里的长度是相对于 reset 中性长度的变化量，与 direct tendon-rate 控制器的目标
-定义一致。单臂和双臂场景会根据 assembly 自动生成 9 根或 18 根肌腱标签。
-
-```yaml
-hooks:
-  show_live_tendon_panel: true
-  live_tendon_panel_stride: 5
-  show_live_force_panel: true
-  live_force_panel_stride: 5
-  live_force_panel_history_points: 300
-```
-
-交互式 MuJoCo 场景默认打开肌腱面板；批处理时可将
-`show_live_tendon_panel` 改为 `false`。关闭肌腱面板不会终止场景任务。
-
-### 独立 MuJoCo 肌腱调试
-
-新的调试入口直接读取 scenario YAML，因此使用的 assembly、生成 XML、单/双臂
-布局和普通任务完全一致：
-
-```powershell
-# 双臂调试：MuJoCo 3D viewer + 肌腱控制/监控面板
-python scripts/debug_mujoco.py configs/scenarios/dual_mujoco_tracking.yaml
-
-# 单臂调试
-python scripts/debug_mujoco.py configs/scenarios/single_mujoco_tracking.yaml
-
-# 只打开 Matplotlib 控制/监控面板
-python scripts/debug_mujoco.py configs/scenarios/dual_mujoco_tracking.yaml --panel-only
-```
-
-调试器为每根肌腱提供同步的目标位移滑块和数值输入框，二者统一使用 mm。拖动
-滑块会刷新输入框；在输入框按 Enter 会更新并裁剪对应滑块，但不会自动推进
-仿真，仍需使用 Step 或 Run。Reset、Zero 和预设命令也会同步刷新两种控件。
-
-界面还提供单根肌腱、第一段三根肌腱和全部肌腱的预设命令。UI 在边界处把 mm
-转换为 m，再生成受 assembly `max_tendon_rate_mps` 限制的
-`RobotSystemCommand`，不会改变后端的 SI 单位或绕开新的系统控制边界。
-
-## 运行产物
-
-非 idle 场景默认保存到：
+运行产物默认写入：
 
 ```text
 output/runs/<scenario>_<timestamp>/
@@ -468,105 +216,94 @@ output/runs/<scenario>_<timestamp>/
   configs/
   model/
   plots/
-  videos/
+  videos/simulation.gif
 ```
 
-常见 `result.npz` 字段：
-
-```text
-time_s
-base_position_m
-base_quat_wxyz
-arm_executor_tip_position_m
-arm_executor_tendon_displacement_m
-arm_executor_command_rate_mps
-target_position_m
-tracking_error_m
-waypoint_index
-min_clearance_m
-contact_distance_m
-contact_error_m
-target_force_n
-task_phase
-qpos / qvel
-```
-
-GIF 导出失败不会丢弃 NPZ、metadata 和 plots；错误会写入 `metadata.json.errors`。
-
-MuJoCo 场景视频支持两种模式：
+MuJoCo GIF 有两种模式：
 
 ```yaml
 artifacts:
   save_gif: true
-  video_mode: replay       # 默认：仿真结束后用 qpos/qvel 离屏重放
-  # video_mode: live_mujoco # 运行过程中实时采集 MuJoCo 场景帧
+  video_mode: replay       # 仿真结束后用 qpos/qvel 离屏回放
+  # video_mode: live_mujoco # 仿真过程中实时采集 MuJoCo 画面
   video_fps: 10
   video_stride: 10
 ```
 
-`live_mujoco` 会在仿真循环中写入真实 MuJoCo 场景画面，并叠加与 viewer 一致的目标点、目标轨迹和 executor 实际轨迹；结束后把临时 GIF 移入本次 `output/runs/.../videos/`。如果本机 MuJoCo `Renderer` / OpenGL 上下文初始化失败，仿真和 NPZ、metadata、plots 仍会继续保存，视频错误会记录到 `metadata.json.errors` 和 `videos/video_error.txt`。
+相机来自 `configs/mujoco_dual.yaml` 的 `viewer.camera`。当前双臂默认使用基座跟随视角，
+并把距离调到 `0.50`，比原 `0.25` 视野更大，画面主体约缩小一半：
 
-### MuJoCo overlay 标记
-
-`configs/mujoco_dual.yaml` 的 `viewer.overlays.segment_endpoints` 用于在运行时叠加每个 segment 末端标记；默认 executor 为红色，observer 为黄色。该标记不修改 MuJoCo XML，也不影响 tendon 走线或控制逻辑；使用 `artifacts.video_mode: live_mujoco` 时会一并录入 `simulation.gif`。
-
-### Dual tracking 控制逻辑
-
-双臂 tracking 采用 executor-primary 控制：executor 主臂只执行目标轨迹追踪主任务；observer 从臂的避碰和观测任务只作用在 observer 自身 tendon 上，不能反向拉动 executor 或共享 base。observer 与 executor 距离进入避碰影响范围时，observer 优先执行双臂避碰；距离安全后再执行相对主臂/ROI 的观测任务。
-
-当 assembly 的 `base.control_mode: fixed` 时，控制布局会移除 base DOF，whole-body Jacobian 只包含各臂 tendon-rate 变量；此时控制器按纯肌腱驱动求解，而不是先求 base 速度再清零。
-
-## 架构概览
-
-```text
-ScenarioConfig
-  -> RobotAssemblyConfig
-  -> task builders: trajectory / mission / wiping_path / engine_cleaning
-  -> controller: tracking / navigation / wiping / engine_cleaning
-  -> backend: AnalyticSystemBackend / MujocoSystemBackend
-  -> SimulationLoop
-  -> hooks + ScenarioArtifactWriter
+```yaml
+viewer:
+  camera:
+    lookat: [0.025, 0.0, 0.095]
+    distance: 0.50
+    azimuth: 315.0
+    elevation: -25.0
+    follow: base  # none, base 或 executor_tip
 ```
 
-关键目录：
+`follow: base` 同时作用于 MuJoCo viewer、`live_mujoco` GIF 和 replay 导出的
+`simulation.gif`。如果录屏失败，仿真、NPZ、metadata 和 plots 仍会保存，错误写入
+`metadata.json.errors` 或 `videos/video_error.txt`。
 
-- `src/continuum_sim/application`: scenario 解析和组合根。
-- `src/continuum_sim/tasks`: 新版任务目标/路径生成，以及保留的旧 task loader。
-- `src/continuum_sim/control`: whole-body controller、scenario controllers、waypoint scheduler。
-- `src/continuum_sim/runtime`: backend-independent loop 和 hooks。
-- `src/continuum_sim/io`: scenario artifacts。
-- `configs/scenarios`: 推荐运行配置。
-- `configs/tasks`: 历史任务配置，保留作兼容参考。
+可视化叠加由 `viewer.overlays` 控制。engine navigation 默认显示底座规划路径、插入路径、
+局部 executor 路径、当前目标、observer ROI、底座历史和 executor 历史。
+
+## 调试工具
+
+独立 MuJoCo 肌腱调试入口：
+
+```powershell
+python scripts/debug_mujoco.py configs/scenarios/dual_mujoco_tracking.yaml
+python scripts/debug_mujoco.py configs/scenarios/single_mujoco_tracking.yaml
+python scripts/debug_mujoco.py configs/scenarios/dual_mujoco_tracking.yaml --panel-only
+```
+
+常用 hook：
+
+```yaml
+hooks:
+  recorder: true
+  tendon_debug: true
+  tendon_debug_stride: 5
+  show_live_tendon_panel: true
+  live_tendon_panel_stride: 5
+  show_live_force_panel: true
+  live_force_panel_stride: 5
+```
+
+## 关键目录
+
+```text
+src/continuum_sim/application   scenario 解析与应用组装
+src/continuum_sim/tasks         轨迹、mission、engine navigation 与清洗路径生成
+src/continuum_sim/control       tracking、navigation、wiping、engine navigation 控制器
+src/continuum_sim/runtime       backend-independent loop 与 hooks
+src/continuum_sim/io            NPZ、plots、GIF、metadata 产物
+configs/scenarios               推荐运行入口
+configs/mujoco_dual.yaml        双臂 MuJoCo、viewer、overlay、录屏相机配置
+```
 
 ## 手动验证建议
 
-本次不自动运行测试或仿真。建议你按需要手动执行：
+本项目默认不自动运行测试或仿真。修改后建议按需手动执行：
 
 ```powershell
-python -m compileall src scripts/run_scenario.py
-pytest tests/test_system_tendon_debug.py tests/test_mujoco_system_debug_viewer.py
-pytest tests/test_scenario_migrated_task_features.py
-pytest tests/test_scenario_import_boundaries.py tests/test_scenario_mujoco_composition.py tests/test_scenario_artifacts.py
-
-python scripts/run_scenario.py configs/scenarios/single_analytic_tracking.yaml
-python scripts/run_scenario.py configs/scenarios/single_mujoco_tracking.yaml
-python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml
-python scripts/debug_mujoco.py configs/scenarios/dual_mujoco_tracking.yaml
-python scripts/run_scenario.py configs/scenarios/single_mujoco_navigation.yaml
-python scripts/run_scenario.py configs/scenarios/single_mujoco_wiping.yaml
-python scripts/run_scenario.py configs/scenarios/single_engine_cleaning.yaml
+pytest tests/test_robot_config.py tests/test_mujoco_video_export.py tests/test_scenario_artifacts.py
+pytest tests/test_engine_navigation.py tests/test_staged_engine_navigation.py
+python scripts/run_scenario.py configs/scenarios/dual_engine_navigation.yaml
 ```
 
-重点人工检查：
+重点检查：
 
-- 自动生成轨迹是否符合预期形状和位置。
-- `target_advance_mode: tolerance/time` 是否按预期推进目标点。
-- wiping/engine cleaning 的 `task_phase`、`target_force_n`、`contact_distance_m` 是否写入产物。
-- live tendon/force panel 是否只在 hook 开关启用时出现。
-- MuJoCo 场景中的目标点、executor、observer 和 engine/structured scene 坐标是否合理。
+- `videos/simulation.gif` 是否跟随基座且视野足够大。
+- `engine_navigation_local_path_<name>.png` 中局部轨迹形状和误差是否符合预期。
+- `metadata.json.errors` 是否为空或只包含可接受的视频降级信息。
+- `result.npz` 中 `tracking_error_m`、`achieved_waypoint_error_m`、`base_position_m` 是否完整。
 
 ## 当前限制
 
-- 新版高级 wiping/engine cleaning 已迁入 scenario 架构，但真实接触力闭环仍依赖 MuJoCo 接触模型和力反馈标定。
-- `feedback_mode` 目前作为 scenario 任务语义和产物字段保留，控制主链仍是统一的 direct tendon-rate `RobotSystemCommand`。
-- 旧 `configs/tasks/*.yaml` 和旧 `runtime/mujoco_*_runtime.py` 不再是推荐主入口。
+- 高级 wiping / engine cleaning 已接入 scenario，但真实接触力闭环仍依赖 MuJoCo 接触模型和力反馈标定。
+- `configs/tasks/*.yaml` 与旧 `runtime/mujoco_*_runtime.py` 不再是推荐主入口。
+- 大半径椭圆、figure-eight 和 lissajous 局部轨迹可能需要降低速度、增大容差或增加样本数才能稳定跟踪。

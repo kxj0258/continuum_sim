@@ -38,15 +38,19 @@ def test_engine_navigation_scenario_loads_named_engine_plan() -> None:
     assert [
         path.path_type
         for path in config.task.engine_navigation.intermediate_local_paths
-    ] == ["transverse_circle", "transverse_figure_eight"]
+    ] == ["transverse_circle", "ellipse"]
     assert config.task.engine_navigation.local_tracking.advance_mode == "tolerance"
     assert (
         config.task.engine_navigation.local_tracking.waypoint_tolerance_m
-        == pytest.approx(0.003)
+        == pytest.approx(0.005)
+    )
+    assert (
+        config.task.engine_navigation.local_tracking.rejoin_tolerance_m
+        == pytest.approx(0.005)
     )
     assert (
         config.task.engine_navigation.local_tracking.max_steps_per_waypoint
-        == 150
+        == 25
     )
     assert config.task.engine_navigation.local_tracking.transition_samples == 20
     observer = config.task.engine_navigation.observer_control
@@ -147,16 +151,16 @@ def test_engine_navigation_plan_resolves_three_retracted_local_paths() -> None:
 
     assert [path.path_type for path in plan.local_path_plans] == [
         "transverse_circle",
-        "transverse_figure_eight",
+        "ellipse",
         "transverse_square",
     ]
     assert [path.insertion_index for path in plan.local_path_plans] == sorted(
         path.insertion_index for path in plan.local_path_plans
     )
     assert [path.waypoints_world.shape[0] for path in plan.local_path_plans] == [
-        40,
         60,
-        40,
+        75,
+        60,
     ]
     for path in plan.local_path_plans:
         expected_center = (
@@ -177,6 +181,70 @@ def test_engine_navigation_plan_resolves_three_retracted_local_paths() -> None:
             path.transition_waypoints_world[-1],
             path.waypoints_world[0],
         )
+
+
+def test_engine_navigation_plan_supports_extended_local_path_shapes() -> None:
+    scene = load_engine_scene_config(ENGINE_SCENE)
+    assembly = load_robot_assembly_config(MOBILE_ASSEMBLY)
+    spec = EngineNavigationSpec.from_mapping(
+        {
+            "entry_region": "entry_port",
+            "insertion_path": "nozzle_axis_entry",
+            "intermediate_local_paths": [
+                {
+                    "name": "ellipse_probe",
+                    "at_fraction": 0.25,
+                    "type": "ellipse",
+                    "radius_m": 0.01,
+                    "shape": {
+                        "radius_x_m": 0.012,
+                        "radius_y_m": 0.006,
+                    },
+                    "samples": 16,
+                },
+                {
+                    "name": "line_probe",
+                    "at_fraction": 0.50,
+                    "type": "line",
+                    "shape": {"length_m": 0.018},
+                    "samples": 9,
+                },
+                {
+                    "name": "lissajous_probe",
+                    "at_fraction": 0.75,
+                    "type": "lissajous",
+                    "radius_m": 0.008,
+                    "shape": {
+                        "lissajous_frequency_x": 1,
+                        "lissajous_frequency_y": 2,
+                        "lissajous_phase_deg": 45.0,
+                    },
+                    "samples": 18,
+                },
+            ],
+            "local_path": {
+                "name": "terminal_circle",
+                "type": "circle",
+                "radius_m": 0.01,
+                "samples": 12,
+            },
+        }
+    )
+
+    plan = resolve_engine_navigation_plan(spec, scene, assembly)
+
+    assert [path.path_type for path in plan.local_path_plans] == [
+        "ellipse",
+        "line",
+        "lissajous",
+        "circle",
+    ]
+    assert [path.waypoints_world.shape[0] for path in plan.local_path_plans] == [
+        16,
+        9,
+        18,
+        12,
+    ]
 
 
 def test_engine_navigation_plan_rejects_unknown_path() -> None:

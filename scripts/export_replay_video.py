@@ -30,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--camera-distance", type=float, default=None)
     parser.add_argument("--camera-azimuth", type=float, default=None)
     parser.add_argument("--camera-elevation", type=float, default=None)
+    parser.add_argument("--camera-follow", default="none")
     return parser.parse_args()
 
 
@@ -92,6 +93,7 @@ def _camera_from_args(args: argparse.Namespace) -> SimpleNamespace | None:
         distance=args.camera_distance,
         azimuth=args.camera_azimuth,
         elevation=args.camera_elevation,
+        follow=args.camera_follow,
     )
 
 

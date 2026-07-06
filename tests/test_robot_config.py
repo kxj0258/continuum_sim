@@ -192,6 +192,7 @@ def test_mujoco_config_loads_without_importing_optional_backend() -> None:
     assert config.viewer.camera.distance == pytest.approx(0.20)
     assert config.viewer.camera.azimuth == pytest.approx(315.0)
     assert config.viewer.camera.elevation == pytest.approx(-25.0)
+    assert config.viewer.camera.follow == "none"
     assert config.viewer.overlays.target_marker is True
     assert config.viewer.overlays.target_marker_radius == pytest.approx(0.004)
     assert config.viewer.overlays.target_marker_rgba == pytest.approx(
@@ -255,6 +256,8 @@ def test_dual_mujoco_config_loads_engine_navigation_overlays() -> None:
     )
 
     navigation = config.viewer.overlays.engine_navigation
+    assert config.viewer.camera.follow == "base"
+    assert config.viewer.camera.distance == pytest.approx(0.50)
     assert navigation.enabled is True
     assert navigation.planned_paths is True
     assert navigation.insertion_waypoints is True

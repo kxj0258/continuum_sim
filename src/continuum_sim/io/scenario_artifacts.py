@@ -723,6 +723,12 @@ def _replay_result(application, arrays: dict[str, np.ndarray], scene_xml: Path |
         "target_position": np.zeros((0, 3)) if target is None else target[:count],
         "tip_position": np.zeros((0, 3)) if tip is None else tip[1 : count + 1],
     }
+    if "base_position_m" in arrays:
+        values["base_position_m"] = arrays["base_position_m"]
+    if "mujoco_mobile_base_frame_pose" in arrays:
+        values["mujoco_mobile_base_frame_pose"] = arrays[
+            "mujoco_mobile_base_frame_pose"
+        ]
     if scene_xml is not None and "qpos" in arrays:
         values.update(
             scene_xml_path=scene_xml,

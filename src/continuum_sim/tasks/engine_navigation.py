@@ -19,6 +19,16 @@ LOCAL_PATH_TYPES = (
     "transverse_square",
     "transverse_circle",
     "transverse_figure_eight",
+    "transverse_ellipse",
+    "transverse_line",
+    "transverse_lissajous",
+    "square",
+    "circle",
+    "figure-eight",
+    "figure_eight",
+    "ellipse",
+    "line",
+    "lissajous",
 )
 LOCAL_TRACKING_ADVANCE_MODES = ("tolerance", "time", "steps")
 
@@ -31,6 +41,7 @@ class EngineNavigationLocalTrackingSpec:
     advance_time_s: float | None = None
     advance_steps: int | None = None
     waypoint_tolerance_m: float | None = None
+    rejoin_tolerance_m: float | None = None
     max_steps_per_waypoint: int | None = None
     transition_samples: int = 20
 
@@ -66,6 +77,13 @@ class EngineNavigationLocalPathSpec:
     radius_m: float
     samples: int
     axial_retraction_m: float
+    radius_x_m: float | None = None
+    radius_y_m: float | None = None
+    length_m: float | None = None
+    side_length_m: float | None = None
+    lissajous_frequency_x: int = 2
+    lissajous_frequency_y: int = 1
+    lissajous_phase_deg: float = 90.0
 
 
 @dataclass(frozen=True)
@@ -82,6 +100,13 @@ class EngineNavigationSpec:
     base_orientation_gain: float = 2.0
     local_path_type: str = "transverse_square"
     local_path_radius_m: float = 0.01
+    local_path_radius_x_m: float | None = None
+    local_path_radius_y_m: float | None = None
+    local_path_length_m: float | None = None
+    local_path_side_length_m: float | None = None
+    local_path_lissajous_frequency_x: int = 2
+    local_path_lissajous_frequency_y: int = 1
+    local_path_lissajous_phase_deg: float = 90.0
     local_path_samples: int = 40
     local_path_axial_retraction_m: float = 0.01
     local_path_name: str = "endpoint_square"
@@ -103,6 +128,10 @@ class EngineNavigationSpec:
         local_path = values.get("local_path", {})
         if not isinstance(local_path, dict):
             raise ValueError("task.engine_navigation.local_path must be a mapping.")
+        local_path_values = _merge_shape_mapping(
+            local_path,
+            "engine_navigation.local_path",
+        )
         intermediate_local_paths = _load_intermediate_local_paths(
             values.get("intermediate_local_paths", ())
         )
@@ -125,13 +154,32 @@ class EngineNavigationSpec:
             ),
             base_position_gain=float(values.get("base_position_gain", 1.5)),
             base_orientation_gain=float(values.get("base_orientation_gain", 2.0)),
-            local_path_type=str(local_path.get("type", "transverse_square")),
-            local_path_radius_m=float(local_path.get("radius_m", 0.01)),
-            local_path_samples=int(local_path.get("samples", 40)),
-            local_path_axial_retraction_m=float(
-                local_path.get("axial_retraction_m", 0.01)
+            local_path_type=str(local_path_values.get("type", "transverse_square")),
+            local_path_radius_m=float(local_path_values.get("radius_m", 0.01)),
+            local_path_radius_x_m=_optional_float(
+                local_path_values.get("radius_x_m")
             ),
-            local_path_name=str(local_path.get("name", "endpoint_square")),
+            local_path_radius_y_m=_optional_float(
+                local_path_values.get("radius_y_m")
+            ),
+            local_path_length_m=_optional_float(local_path_values.get("length_m")),
+            local_path_side_length_m=_optional_float(
+                local_path_values.get("side_length_m")
+            ),
+            local_path_lissajous_frequency_x=int(
+                local_path_values.get("lissajous_frequency_x", 2)
+            ),
+            local_path_lissajous_frequency_y=int(
+                local_path_values.get("lissajous_frequency_y", 1)
+            ),
+            local_path_lissajous_phase_deg=float(
+                local_path_values.get("lissajous_phase_deg", 90.0)
+            ),
+            local_path_samples=int(local_path_values.get("samples", 40)),
+            local_path_axial_retraction_m=float(
+                local_path_values.get("axial_retraction_m", 0.01)
+            ),
+            local_path_name=str(local_path_values.get("name", "endpoint_square")),
             intermediate_local_paths=intermediate_local_paths,
             local_tracking=local_tracking,
             observer_control=observer_control,
@@ -165,6 +213,17 @@ class EngineNavigationSpec:
             )
         if self.local_path_samples < 4:
             raise ValueError("engine_navigation.local_path.samples must be at least 4.")
+        _validate_local_path_shape(
+            "engine_navigation.local_path",
+            path_type=self.local_path_type,
+            radius_m=self.local_path_radius_m,
+            radius_x_m=self.local_path_radius_x_m,
+            radius_y_m=self.local_path_radius_y_m,
+            length_m=self.local_path_length_m,
+            side_length_m=self.local_path_side_length_m,
+            lissajous_frequency_x=self.local_path_lissajous_frequency_x,
+            lissajous_frequency_y=self.local_path_lissajous_frequency_y,
+        )
         if (
             not np.isfinite(self.local_path_axial_retraction_m)
             or self.local_path_axial_retraction_m < 0.0
@@ -275,6 +334,13 @@ def resolve_engine_navigation_plan(
             radius_m=spec.local_path_radius_m,
             samples=spec.local_path_samples,
             axial_retraction_m=spec.local_path_axial_retraction_m,
+            radius_x_m=spec.local_path_radius_x_m,
+            radius_y_m=spec.local_path_radius_y_m,
+            length_m=spec.local_path_length_m,
+            side_length_m=spec.local_path_side_length_m,
+            lissajous_frequency_x=spec.local_path_lissajous_frequency_x,
+            lissajous_frequency_y=spec.local_path_lissajous_frequency_y,
+            lissajous_phase_deg=spec.local_path_lissajous_phase_deg,
         ),
     )
     local_path_plans = tuple(
@@ -318,7 +384,24 @@ def _load_local_tracking(raw_value: object) -> EngineNavigationLocalTrackingSpec
     advance_time_s: float | None = None
     advance_steps: int | None = None
     waypoint_tolerance_m: float | None = None
+    rejoin_tolerance_m: float | None = None
     max_steps_per_waypoint: int | None = None
+    tolerance_raw = raw_value.get("waypoint_tolerance_m")
+    if tolerance_raw is not None:
+        waypoint_tolerance_m = float(tolerance_raw)
+        if not np.isfinite(waypoint_tolerance_m) or waypoint_tolerance_m < 0.0:
+            raise ValueError(
+                "engine_navigation.local_tracking."
+                "waypoint_tolerance_m must be finite and non-negative."
+            )
+    rejoin_tolerance_raw = raw_value.get("rejoin_tolerance_m")
+    if rejoin_tolerance_raw is not None:
+        rejoin_tolerance_m = float(rejoin_tolerance_raw)
+        if not np.isfinite(rejoin_tolerance_m) or rejoin_tolerance_m < 0.0:
+            raise ValueError(
+                "engine_navigation.local_tracking."
+                "rejoin_tolerance_m must be finite and non-negative."
+            )
     if mode == "time":
         if raw_value.get("advance_time_s") is None:
             raise ValueError(
@@ -341,17 +424,6 @@ def _load_local_tracking(raw_value: object) -> EngineNavigationLocalTrackingSpec
                 "engine_navigation.local_tracking.advance_steps must be positive."
             )
     else:
-        tolerance_raw = raw_value.get("waypoint_tolerance_m")
-        if tolerance_raw is not None:
-            waypoint_tolerance_m = float(tolerance_raw)
-            if (
-                not np.isfinite(waypoint_tolerance_m)
-                or waypoint_tolerance_m < 0.0
-            ):
-                raise ValueError(
-                    "engine_navigation.local_tracking."
-                    "waypoint_tolerance_m must be finite and non-negative."
-                )
         max_steps_raw = raw_value.get("max_steps_per_waypoint")
         if max_steps_raw is not None:
             max_steps_per_waypoint = int(max_steps_raw)
@@ -371,6 +443,7 @@ def _load_local_tracking(raw_value: object) -> EngineNavigationLocalTrackingSpec
         advance_time_s=advance_time_s,
         advance_steps=advance_steps,
         waypoint_tolerance_m=waypoint_tolerance_m,
+        rejoin_tolerance_m=rejoin_tolerance_m,
         max_steps_per_waypoint=max_steps_per_waypoint,
         transition_samples=transition_samples,
     )
@@ -496,13 +569,21 @@ def _load_intermediate_local_paths(
                 "Each engine_navigation intermediate local path must be a mapping."
             )
         prefix = f"engine_navigation.intermediate_local_paths[{index}]"
+        merged = _merge_shape_mapping(values, prefix)
         spec = EngineNavigationLocalPathSpec(
-            name=str(_required(values, "name")),
-            at_fraction=float(_required(values, "at_fraction")),
-            path_type=str(_required(values, "type")),
-            radius_m=float(values.get("radius_m", 0.01)),
-            samples=int(values.get("samples", 40)),
-            axial_retraction_m=float(values.get("axial_retraction_m", 0.01)),
+            name=str(_required(merged, "name")),
+            at_fraction=float(_required(merged, "at_fraction")),
+            path_type=str(_required(merged, "type")),
+            radius_m=float(merged.get("radius_m", 0.01)),
+            samples=int(merged.get("samples", 40)),
+            axial_retraction_m=float(merged.get("axial_retraction_m", 0.01)),
+            radius_x_m=_optional_float(merged.get("radius_x_m")),
+            radius_y_m=_optional_float(merged.get("radius_y_m")),
+            length_m=_optional_float(merged.get("length_m")),
+            side_length_m=_optional_float(merged.get("side_length_m")),
+            lissajous_frequency_x=int(merged.get("lissajous_frequency_x", 2)),
+            lissajous_frequency_y=int(merged.get("lissajous_frequency_y", 1)),
+            lissajous_phase_deg=float(merged.get("lissajous_phase_deg", 90.0)),
         )
         if not spec.name:
             raise ValueError(f"{prefix}.name must be non-empty.")
@@ -514,6 +595,17 @@ def _load_intermediate_local_paths(
             raise ValueError(f"{prefix}.radius_m must be positive and finite.")
         if spec.samples < 4:
             raise ValueError(f"{prefix}.samples must be at least 4.")
+        _validate_local_path_shape(
+            prefix,
+            path_type=spec.path_type,
+            radius_m=spec.radius_m,
+            radius_x_m=spec.radius_x_m,
+            radius_y_m=spec.radius_y_m,
+            length_m=spec.length_m,
+            side_length_m=spec.side_length_m,
+            lissajous_frequency_x=spec.lissajous_frequency_x,
+            lissajous_frequency_y=spec.lissajous_frequency_y,
+        )
         if (
             not np.isfinite(spec.axial_retraction_m)
             or spec.axial_retraction_m < 0.0
@@ -544,6 +636,13 @@ def _resolve_local_path_plan(
         center=center,
         frame=frame,
         radius_m=spec.radius_m,
+        radius_x_m=spec.radius_x_m,
+        radius_y_m=spec.radius_y_m,
+        length_m=spec.length_m,
+        side_length_m=spec.side_length_m,
+        lissajous_frequency_x=spec.lissajous_frequency_x,
+        lissajous_frequency_y=spec.lissajous_frequency_y,
+        lissajous_phase_deg=spec.lissajous_phase_deg,
         samples=spec.samples,
     )
     return EngineNavigationLocalPathPlan(
@@ -701,10 +800,23 @@ def _transverse_local_path(
     center: np.ndarray,
     frame: Pose6D,
     radius_m: float,
+    radius_x_m: float | None,
+    radius_y_m: float | None,
+    length_m: float | None,
+    side_length_m: float | None,
+    lissajous_frequency_x: int,
+    lissajous_frequency_y: int,
+    lissajous_phase_deg: float,
     samples: int,
 ) -> np.ndarray:
-    if path_type == "transverse_square":
-        planar = _closed_square(radius_m, samples)
+    normalized_type = _normalize_local_path_type(path_type)
+    if normalized_type == "transverse_square":
+        planar = _closed_square(
+            _shape_scale(side_length_m, 2.0 * radius_m),
+            samples,
+        )
+    elif normalized_type == "transverse_line":
+        planar = _line(_shape_scale(length_m, 2.0 * radius_m), samples)
     else:
         angle = np.linspace(
             0.0,
@@ -712,13 +824,35 @@ def _transverse_local_path(
             samples,
             endpoint=True,
         )
-        if path_type == "transverse_circle":
+        if normalized_type == "transverse_circle":
             planar = radius_m * np.column_stack(
                 (np.cos(angle), np.sin(angle))
             )
-        elif path_type == "transverse_figure_eight":
-            planar = radius_m * np.column_stack(
-                (np.sin(angle), np.sin(2.0 * angle))
+        elif normalized_type == "transverse_ellipse":
+            planar = np.column_stack(
+                (
+                    _shape_scale(radius_x_m, radius_m) * np.cos(angle),
+                    _shape_scale(radius_y_m, radius_m) * np.sin(angle),
+                )
+            )
+        elif normalized_type == "transverse_figure_eight":
+            planar = np.column_stack(
+                (
+                    _shape_scale(radius_x_m, radius_m) * np.sin(angle),
+                    _shape_scale(radius_y_m, 0.5 * radius_m) * np.sin(2.0 * angle),
+                )
+            )
+        elif normalized_type == "transverse_lissajous":
+            planar = np.column_stack(
+                (
+                    _shape_scale(radius_x_m, radius_m)
+                    * np.sin(
+                        int(lissajous_frequency_x) * angle
+                        + np.deg2rad(lissajous_phase_deg)
+                    ),
+                    _shape_scale(radius_y_m, radius_m)
+                    * np.sin(int(lissajous_frequency_y) * angle),
+                )
             )
         else:
             raise ValueError(f"Unsupported local path type {path_type!r}.")
@@ -730,8 +864,14 @@ def _transverse_local_path(
     )
 
 
-def _closed_square(radius_m: float, samples: int) -> np.ndarray:
-    half_side = radius_m
+def _line(length_m: float, samples: int) -> np.ndarray:
+    return np.column_stack(
+        (np.linspace(-0.5 * length_m, 0.5 * length_m, samples), np.zeros(samples))
+    )
+
+
+def _closed_square(side_length_m: float, samples: int) -> np.ndarray:
+    half_side = 0.5 * side_length_m
     perimeter = 8.0 * half_side
     distances = np.linspace(0.0, perimeter, samples, endpoint=True)
     planar = np.empty((samples, 2), dtype=float)
@@ -750,6 +890,74 @@ def _closed_square(radius_m: float, samples: int) -> np.ndarray:
         else:
             planar[index] = (-half_side, half_side - offset)
     return planar
+
+
+def _merge_shape_mapping(values: dict[str, object], prefix: str) -> dict[str, object]:
+    shape = values.get("shape", {})
+    if shape is None:
+        shape = {}
+    if not isinstance(shape, dict):
+        raise ValueError(f"{prefix}.shape must be a mapping.")
+    return {**values, **shape}
+
+
+def _normalize_local_path_type(path_type: str) -> str:
+    aliases = {
+        "circle": "transverse_circle",
+        "square": "transverse_square",
+        "figure-eight": "transverse_figure_eight",
+        "figure_eight": "transverse_figure_eight",
+        "ellipse": "transverse_ellipse",
+        "line": "transverse_line",
+        "lissajous": "transverse_lissajous",
+    }
+    return aliases.get(path_type, path_type)
+
+
+def _validate_local_path_shape(
+    prefix: str,
+    *,
+    path_type: str,
+    radius_m: float,
+    radius_x_m: float | None,
+    radius_y_m: float | None,
+    length_m: float | None,
+    side_length_m: float | None,
+    lissajous_frequency_x: int,
+    lissajous_frequency_y: int,
+) -> None:
+    normalized_type = _normalize_local_path_type(path_type)
+    for name, value in (
+        ("radius_m", radius_m),
+        ("radius_x_m", radius_x_m),
+        ("radius_y_m", radius_y_m),
+        ("length_m", length_m),
+        ("side_length_m", side_length_m),
+    ):
+        if value is not None and (not np.isfinite(value) or value <= 0.0):
+            raise ValueError(f"{prefix}.{name} must be positive and finite.")
+    if normalized_type != "transverse_line" and (
+        not np.isfinite(radius_m) or radius_m <= 0.0
+    ):
+        raise ValueError(f"{prefix}.radius_m must be positive and finite.")
+    if normalized_type == "transverse_line" and length_m is None and (
+        not np.isfinite(radius_m) or radius_m <= 0.0
+    ):
+        raise ValueError(f"{prefix}.length_m or radius_m must be positive and finite.")
+    if normalized_type == "transverse_lissajous" and (
+        lissajous_frequency_x <= 0 or lissajous_frequency_y <= 0
+    ):
+        raise ValueError(f"{prefix}.lissajous frequencies must be positive.")
+
+
+def _shape_scale(value: float | None, default: float) -> float:
+    return float(default if value is None else value)
+
+
+def _optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    return float(value)
 
 
 def _unit(values: np.ndarray, name: str) -> np.ndarray:

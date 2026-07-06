@@ -449,6 +449,11 @@ class MujocoLiveVideoRecorderHook:
         try:
             data = self.backend.physics.data
             self._mujoco.mj_forward(self.backend.physics.model, data)
+            _update_follow_camera(
+                self._camera,
+                self.backend.config.viewer.camera,
+                state,
+            )
             self._renderer.update_scene(data, camera=self._camera)
             _draw_tracking_overlay_scene(
                 self._renderer.scene,
@@ -529,6 +534,35 @@ def _mujoco_render_camera(mujoco, camera: object | None):
     render_camera.azimuth = float(getattr(camera, "azimuth"))
     render_camera.elevation = float(getattr(camera, "elevation"))
     return render_camera
+
+
+def _update_follow_camera(
+    render_camera: object | None,
+    camera_config: object | None,
+    state: RobotSystemState,
+) -> None:
+    if render_camera in (None, -1) or camera_config is None:
+        return
+    target = _follow_camera_target(camera_config, state)
+    if target is not None:
+        render_camera.lookat[:] = target
+
+
+def _follow_camera_target(
+    camera_config: object,
+    state: RobotSystemState,
+) -> np.ndarray | None:
+    follow = str(getattr(camera_config, "follow", "none"))
+    if follow == "base":
+        return state.base.pose.position.copy()
+    if follow == "executor_tip":
+        executor = next(
+            (arm for arm in state.arms.values() if arm.role == "executor"),
+            None,
+        )
+        if executor is not None:
+            return executor.tip_pose_world.position.copy()
+    return None
 
 
 @dataclass
@@ -745,6 +779,11 @@ class MujocoViewerHook:
                 self.backend.config.viewer.overlays,
                 self._overlay_state,
                 state=state,
+            )
+            _update_follow_camera(
+                getattr(self._viewer, "cam", None),
+                self.backend.config.viewer.camera,
+                state,
             )
             self._viewer.sync()
             viewer_config = self.backend.config.viewer

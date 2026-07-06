@@ -346,6 +346,8 @@ def _save_replay_video_subprocess(
                 str(getattr(camera, "azimuth")),
                 "--camera-elevation",
                 str(getattr(camera, "elevation")),
+                "--camera-follow",
+                str(getattr(camera, "follow", "none")),
             ]
         )
     if scene_xml_path is not None:

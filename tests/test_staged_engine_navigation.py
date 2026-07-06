@@ -222,6 +222,12 @@ def test_staged_controller_rejoins_before_resuming_base_insertion() -> None:
         intermediate.transition_waypoints_world,
     )
 
+    mid_transition_state = _state(
+        assembly,
+        base_pose,
+        tip_position=intermediate.transition_waypoints_world[1],
+    )
+    controller.compute_command(mid_transition_state)
     local_state = _state(
         assembly,
         base_pose,
@@ -241,7 +247,16 @@ def test_staged_controller_rejoins_before_resuming_base_insertion() -> None:
     controller.compute_command(straight_state)
 
     assert controller.phase == "base_insertion"
+    assert controller.insertion_index == 0
+
+    resume_command = controller.compute_command(straight_state)
+
+    assert controller.phase == "base_insertion"
     assert controller.insertion_index == 1
+    np.testing.assert_allclose(
+        resume_command.metadata["engine_navigation_active_target_m"],
+        base_pose.position,
+    )
 
 
 def test_engine_local_tracking_mode_does_not_apply_to_rejoin() -> None:
@@ -283,6 +298,75 @@ def test_engine_local_tracking_mode_does_not_apply_to_rejoin() -> None:
     assert local_tracker.scheduler.mode == "time"
     assert local_tracker.scheduler.step_interval == 5
     assert rejoin_tracker.scheduler.mode == "tolerance"
+
+
+def test_engine_rejoin_can_use_local_tracking_tolerance() -> None:
+    assembly = load_robot_assembly_config(
+        "configs/robots/assemblies/dual_spatial_mobile.yaml"
+    )
+    target = Pose6D.identity()
+    controller = StagedEngineNavigationController(
+        assembly,
+        _minimal_plan(target),
+        EngineNavigationSpec.from_mapping(
+            {
+                "entry_region": "entry_port",
+                "insertion_path": "nozzle_axis_entry",
+                "local_tracking": {
+                    "advance_mode": "tolerance",
+                    "waypoint_tolerance_m": 0.005,
+                },
+            }
+        ),
+        scene_query=None,
+        waypoint_tolerance_m=0.003,
+        min_clearance_m=0.01,
+        terminate_on_clearance_violation=True,
+    )
+    point = controller.plan.executor_waypoints_world[:1]
+
+    rejoin_tracker = controller._make_tracker(
+        point,
+        observer_roi_world=point[0],
+        use_local_tracking=False,
+    )
+
+    assert rejoin_tracker.waypoint_tolerance_m == 0.005
+
+
+def test_engine_rejoin_tolerance_overrides_local_tracking_tolerance() -> None:
+    assembly = load_robot_assembly_config(
+        "configs/robots/assemblies/dual_spatial_mobile.yaml"
+    )
+    target = Pose6D.identity()
+    controller = StagedEngineNavigationController(
+        assembly,
+        _minimal_plan(target),
+        EngineNavigationSpec.from_mapping(
+            {
+                "entry_region": "entry_port",
+                "insertion_path": "nozzle_axis_entry",
+                "local_tracking": {
+                    "advance_mode": "tolerance",
+                    "waypoint_tolerance_m": 0.005,
+                    "rejoin_tolerance_m": 0.004,
+                },
+            }
+        ),
+        scene_query=None,
+        waypoint_tolerance_m=0.003,
+        min_clearance_m=0.01,
+        terminate_on_clearance_violation=True,
+    )
+    point = controller.plan.executor_waypoints_world[:1]
+
+    rejoin_tracker = controller._make_tracker(
+        point,
+        observer_roi_world=point[0],
+        use_local_tracking=False,
+    )
+
+    assert rejoin_tracker.waypoint_tolerance_m == 0.004
 
 
 def test_observer_critical_avoidance_does_not_change_executor_command() -> None:

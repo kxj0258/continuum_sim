@@ -33,12 +33,28 @@ def test_engine_navigation_scenario_loads_named_engine_plan() -> None:
     assert config.task.engine_navigation.entry_region == "entry_port"
     assert config.task.engine_navigation.insertion_path == "nozzle_axis_entry"
     assert config.task.engine_navigation.local_path_axial_retraction_m == pytest.approx(
-        0.015
+        0.045
     )
     assert [
         path.path_type
         for path in config.task.engine_navigation.intermediate_local_paths
     ] == ["transverse_circle", "transverse_figure_eight"]
+    assert config.task.engine_navigation.local_tracking.advance_mode == "tolerance"
+    assert (
+        config.task.engine_navigation.local_tracking.waypoint_tolerance_m
+        == pytest.approx(0.003)
+    )
+    assert (
+        config.task.engine_navigation.local_tracking.max_steps_per_waypoint
+        == 150
+    )
+    assert config.task.engine_navigation.local_tracking.transition_samples == 20
+    observer = config.task.engine_navigation.observer_control
+    assert observer.inter_arm_influence_distance_m == pytest.approx(0.018)
+    assert observer.inter_arm_safe_distance_m == pytest.approx(0.014)
+    assert observer.inter_arm_critical_distance_m == pytest.approx(0.009)
+    assert observer.observer_collision_weight == pytest.approx(250.0)
+    assert observer.stop_all_on_critical_distance is False
 
 
 def test_engine_navigation_plan_resolves_annotations_without_mesh_scale() -> None:
@@ -145,12 +161,21 @@ def test_engine_navigation_plan_resolves_three_retracted_local_paths() -> None:
     for path in plan.local_path_plans:
         expected_center = (
             path.insertion_target_world
-            - 0.015 * plan.insertion_direction_world
+            - 0.045 * plan.insertion_direction_world
         )
         np.testing.assert_allclose(path.center_world, expected_center)
         np.testing.assert_allclose(
             path.waypoints_world[0],
             path.waypoints_world[-1],
+        )
+        assert path.transition_waypoints_world.shape == (20, 3)
+        np.testing.assert_allclose(
+            path.transition_waypoints_world[0],
+            path.insertion_target_world,
+        )
+        np.testing.assert_allclose(
+            path.transition_waypoints_world[-1],
+            path.waypoints_world[0],
         )
 
 
@@ -179,3 +204,39 @@ def test_engine_navigation_rejects_negative_axial_retraction() -> None:
                 },
             }
         )
+
+
+def test_engine_navigation_time_tracking_ignores_advance_steps() -> None:
+    spec = EngineNavigationSpec.from_mapping(
+        {
+            "entry_region": "entry_port",
+            "insertion_path": "nozzle_axis_entry",
+            "local_tracking": {
+                "advance_mode": "time",
+                "advance_time_s": 0.1,
+                "advance_steps": 5,
+            },
+        }
+    )
+
+    assert spec.local_tracking.advance_mode == "time"
+    assert spec.local_tracking.advance_time_s == pytest.approx(0.1)
+    assert spec.local_tracking.advance_steps is None
+
+
+def test_engine_navigation_steps_tracking_ignores_advance_time() -> None:
+    spec = EngineNavigationSpec.from_mapping(
+        {
+            "entry_region": "entry_port",
+            "insertion_path": "nozzle_axis_entry",
+            "local_tracking": {
+                "advance_mode": "steps",
+                "advance_time_s": 0.1,
+                "advance_steps": 5,
+            },
+        }
+    )
+
+    assert spec.local_tracking.advance_mode == "steps"
+    assert spec.local_tracking.advance_time_s is None
+    assert spec.local_tracking.advance_steps == 5

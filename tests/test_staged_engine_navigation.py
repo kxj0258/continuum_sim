@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
 from continuum_sim.control.mobile_base_pose_control import MobileBasePoseController
+from continuum_sim.control.coordinated_tracking import (
+    CoordinatedTrackingConfig,
+    CoordinatedTrackingController,
+    CoordinatedTrackingTarget,
+)
 from continuum_sim.control.staged_engine_navigation import (
     StagedEngineNavigationController,
 )
+from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
 from continuum_sim.model.base_pose import Pose6D
 from continuum_sim.model.robot_assembly import load_robot_assembly_config
 from continuum_sim.system.types import (
@@ -156,6 +164,13 @@ def test_staged_controller_rejoins_before_resuming_base_insertion() -> None:
         center_world=local_target,
         waypoints_world=local_target[None, :],
         is_terminal=False,
+        transition_waypoints_world=np.asarray(
+            [
+                straight_tip,
+                0.5 * (straight_tip + local_target),
+                local_target,
+            ]
+        ),
     )
     terminal = EngineNavigationLocalPathPlan(
         name="endpoint_square",
@@ -201,6 +216,11 @@ def test_staged_controller_rejoins_before_resuming_base_insertion() -> None:
     )
     assert path_command.metadata["engine_navigation_executor_subphase"] == "path"
     np.testing.assert_allclose(path_command.base_twist_world, 0.0)
+    assert controller._tracking is not None
+    np.testing.assert_allclose(
+        controller._tracking.waypoints_world,
+        intermediate.transition_waypoints_world,
+    )
 
     local_state = _state(
         assembly,
@@ -222,6 +242,100 @@ def test_staged_controller_rejoins_before_resuming_base_insertion() -> None:
 
     assert controller.phase == "base_insertion"
     assert controller.insertion_index == 1
+
+
+def test_engine_local_tracking_mode_does_not_apply_to_rejoin() -> None:
+    assembly = load_robot_assembly_config(
+        "configs/robots/assemblies/dual_spatial_mobile.yaml"
+    )
+    target = Pose6D.identity()
+    controller = StagedEngineNavigationController(
+        assembly,
+        _minimal_plan(target),
+        EngineNavigationSpec.from_mapping(
+            {
+                "entry_region": "entry_port",
+                "insertion_path": "nozzle_axis_entry",
+                "local_tracking": {
+                    "advance_mode": "steps",
+                    "advance_steps": 5,
+                },
+            }
+        ),
+        scene_query=None,
+        waypoint_tolerance_m=0.003,
+        min_clearance_m=0.01,
+        terminate_on_clearance_violation=True,
+    )
+    point = controller.plan.executor_waypoints_world[:1]
+
+    local_tracker = controller._make_tracker(
+        point,
+        observer_roi_world=point[0],
+        use_local_tracking=True,
+    )
+    rejoin_tracker = controller._make_tracker(
+        point,
+        observer_roi_world=point[0],
+        use_local_tracking=False,
+    )
+
+    assert local_tracker.scheduler.mode == "time"
+    assert local_tracker.scheduler.step_interval == 5
+    assert rejoin_tracker.scheduler.mode == "tolerance"
+
+
+def test_observer_critical_avoidance_does_not_change_executor_command() -> None:
+    assembly = load_robot_assembly_config(
+        "configs/robots/assemblies/dual_spatial_mobile.yaml"
+    )
+    fixed_assembly = replace(
+        assembly,
+        base=replace(assembly.base, control_mode="fixed"),
+    )
+    state = _state(assembly, Pose6D.identity())
+    target = (
+        state.arms["executor"].tip_pose_world.position
+        + np.array([0.002, 0.001, -0.001])
+    )
+    solver_config = WholeBodyControllerConfig(decouple_arm_singularity=True)
+    baseline = CoordinatedTrackingController(
+        fixed_assembly,
+        CoordinatedTrackingTarget(executor_position_world=target),
+        config=CoordinatedTrackingConfig(
+            inter_arm_min_distance_m=0.001,
+            observer_collision_priority=False,
+        ),
+        solver_config=solver_config,
+    )
+    avoidance = CoordinatedTrackingController(
+        fixed_assembly,
+        CoordinatedTrackingTarget(executor_position_world=target),
+        config=CoordinatedTrackingConfig(
+            observer_collision_priority=True,
+            inter_arm_influence_distance_m=0.030,
+            inter_arm_min_distance_m=0.025,
+            inter_arm_hard_stop_distance_m=0.021,
+            freeze_executor_inside_safe_distance=False,
+            stop_all_on_critical_distance=False,
+        ),
+        solver_config=solver_config,
+    )
+
+    baseline_command = baseline.compute_command(state)
+    avoidance_command = avoidance.compute_command(state)
+
+    np.testing.assert_allclose(
+        avoidance_command.arms["executor"].tendon_rate_mps,
+        baseline_command.arms["executor"].tendon_rate_mps,
+    )
+    assert avoidance_command.metadata["inter_arm_critical_distance"] is True
+    assert avoidance_command.metadata["inter_arm_hard_stop"] is False
+    assert (
+        avoidance_command.metadata["inter_arm_safety_mode"]
+        == "critical_avoidance"
+    )
+    assert avoidance_command.metadata["observer_collision_active"] is True
 
 
 def _minimal_plan(target: Pose6D) -> EngineNavigationPlan:

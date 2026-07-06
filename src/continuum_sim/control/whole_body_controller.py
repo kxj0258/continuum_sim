@@ -45,6 +45,7 @@ class WholeBodyControllerConfig:
     executor_tracking_weight: float = 100.0
     observer_tracking_weight: float = 40.0
     executor_collision_avoidance_weight: float = 80.0
+    observer_collision_avoidance_weight: float | None = None
     base_regularization_weight: float = 1.0
     tendon_regularization_weight: float = 0.2
     singularity: SingularityConfig = SingularityConfig()
@@ -209,7 +210,14 @@ class WholeBodyController:
         weights = {
             "executor_tracking": self.config.executor_tracking_weight,
             "observer_tracking": self.config.observer_tracking_weight,
-            "executor_collision_avoidance": self.config.executor_collision_avoidance_weight,
+            "executor_collision_avoidance": (
+                self.config.executor_collision_avoidance_weight
+            ),
+            "observer_collision_avoidance": (
+                self.config.executor_collision_avoidance_weight
+                if self.config.observer_collision_avoidance_weight is None
+                else self.config.observer_collision_avoidance_weight
+            ),
         }
         try:
             return weights[objective]

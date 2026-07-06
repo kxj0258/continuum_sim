@@ -89,6 +89,16 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
     )
     recorder = SimpleNamespace(
         target_position_m=[np.array([0.01, 0.0, 0.10], dtype=float)],
+        target_actual_position_m=[np.array([0.009, 0.0, 0.10], dtype=float)],
+        target_engine_local_path_name=["one_third_circle"],
+        target_engine_local_path_type=["transverse_circle"],
+        target_engine_executor_subphase=["path"],
+        target_engine_local_path_center_m=[
+            np.array([0.0, 0.0, 0.10], dtype=float)
+        ],
+        target_engine_insertion_direction_world=[
+            np.array([0.0, 0.0, 1.0], dtype=float)
+        ],
         tracking_error_m=[0.0],
         achieved_waypoint_error_m=[0.0005],
         waypoint_advanced=[True],
@@ -131,6 +141,10 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
     assert paths.result_npz.is_file()
     assert paths.metadata_json.is_file()
     assert (paths.plots_dir / "trajectory.png").is_file()
+    assert (
+        paths.plots_dir
+        / "engine_navigation_local_path_one_third_circle.png"
+    ).is_file()
     metadata = json.loads(paths.metadata_json.read_text(encoding="utf-8"))
     assert metadata["video"] is None
     assert metadata["errors"] == ["video: RuntimeError: gif encoder unavailable"]
@@ -141,6 +155,49 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
         assert arrays["engine_navigation_phase"].tolist() == ["base_approach"]
         assert arrays["base_target_position_m"].shape == (1, 3)
         assert arrays["base_position_error_m"].tolist() == [0.1]
+        assert arrays["target_actual_position_m"].shape == (1, 3)
+        assert arrays["target_engine_local_path_name"].tolist() == [
+            "one_third_circle"
+        ]
+
+
+def test_scenario_artifacts_save_separate_named_local_path_plots(tmp_path) -> None:
+    target = np.array(
+        [
+            [0.010, 0.000, 0.100],
+            [0.000, 0.010, 0.100],
+            [0.010, 0.010, 0.100],
+            [-0.010, 0.010, 0.100],
+        ],
+        dtype=float,
+    )
+    actual = target + np.array([0.0005, -0.0002, 0.0001])
+    arrays = {
+        "target_position_m": target,
+        "target_actual_position_m": actual,
+        "arm_executor_tip_position_m": np.vstack((actual[:1], actual)),
+        "target_engine_local_path_name": np.array(
+            ["one_third_circle", "one_third_circle", "endpoint_square", "endpoint_square"]
+        ),
+        "target_engine_executor_subphase": np.array(
+            ["path", "path", "path", "path"]
+        ),
+        "target_engine_local_path_center_m": np.repeat(
+            np.array([[0.0, 0.0, 0.100]]),
+            4,
+            axis=0,
+        ),
+        "target_engine_insertion_direction_world": np.repeat(
+            np.array([[0.0, 0.0, 1.0]]),
+            4,
+            axis=0,
+        ),
+    }
+
+    saved = scenario_artifacts._save_plots(arrays, tmp_path)
+
+    assert tmp_path / "engine_navigation_local_path_one_third_circle.png" in saved
+    assert tmp_path / "engine_navigation_local_path_endpoint_square.png" in saved
 
 
 def _state(time_s: float, tip_position: list[float]) -> RobotSystemState:

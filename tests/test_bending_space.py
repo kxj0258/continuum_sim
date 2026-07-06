@@ -138,3 +138,16 @@ def test_whole_body_regularization_penalizes_mapped_tendon_effort() -> None:
 
 def test_dual_arm_minimum_distance_defaults_to_ten_millimetres() -> None:
     assert CoordinatedTrackingConfig().inter_arm_min_distance_m == 0.010
+
+
+def test_observer_collision_weight_can_override_legacy_collision_weight() -> None:
+    assembly = load_robot_assembly_config(SINGLE_ASSEMBLY_CONFIG)
+    controller = WholeBodyController(
+        assembly,
+        WholeBodyControllerConfig(
+            executor_collision_avoidance_weight=80.0,
+            observer_collision_avoidance_weight=250.0,
+        ),
+    )
+
+    assert controller.weight_for("observer_collision_avoidance") == 250.0

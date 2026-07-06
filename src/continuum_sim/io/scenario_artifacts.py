@@ -234,6 +234,42 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
         )
     if recorder is not None and recorder.target_position_m:
         arrays["target_position_m"] = np.asarray(recorder.target_position_m)
+        target_count = len(recorder.target_position_m)
+        for key, attribute, dtype in (
+            (
+                "target_actual_position_m",
+                "target_actual_position_m",
+                float,
+            ),
+            (
+                "target_engine_local_path_name",
+                "target_engine_local_path_name",
+                str,
+            ),
+            (
+                "target_engine_local_path_type",
+                "target_engine_local_path_type",
+                str,
+            ),
+            (
+                "target_engine_executor_subphase",
+                "target_engine_executor_subphase",
+                str,
+            ),
+            (
+                "target_engine_local_path_center_m",
+                "target_engine_local_path_center_m",
+                float,
+            ),
+            (
+                "target_engine_insertion_direction_world",
+                "target_engine_insertion_direction_world",
+                float,
+            ),
+        ):
+            values = getattr(recorder, attribute, ())
+            if len(values) == target_count:
+                arrays[key] = np.asarray(values, dtype=dtype)
         arrays["tracking_error_m"] = np.asarray(recorder.tracking_error_m)
         arrays["achieved_waypoint_error_m"] = np.asarray(
             getattr(recorder, "achieved_waypoint_error_m", ()),
@@ -404,20 +440,46 @@ def _save_plots(arrays: dict[str, np.ndarray], output_dir: Path) -> list[Path]:
     target = arrays.get("target_position_m")
     executor = arrays.get("arm_executor_tip_position_m")
     if target is not None and executor is not None:
-        count = min(len(target), len(executor) - 1)
+        aligned_executor = arrays.get("target_actual_position_m")
+        if (
+            aligned_executor is not None
+            and aligned_executor.shape == target.shape
+        ):
+            count = len(target)
+            executor_trace = aligned_executor
+        else:
+            count = min(len(target), len(executor) - 1)
+            executor_trace = executor[1 : count + 1]
         fig = plt.figure(figsize=(8, 6))
         axis = fig.add_subplot(111, projection="3d")
         axis.plot(*target[:count].T, "--", label="target")
-        axis.plot(*executor[1 : count + 1].T, label="executor")
-        for key in sorted(arrays):
-            if key.startswith("arm_") and key.endswith("_tip_position_m") and key != "arm_executor_tip_position_m":
-                axis.plot(*arrays[key][1 : count + 1].T, label=key[4:-15])
+        axis.plot(*executor_trace[:count].T, label="executor")
+        local_names = arrays.get("target_engine_local_path_name")
+        is_engine_target_series = (
+            local_names is not None
+            and any(str(value) for value in local_names)
+        )
+        if not is_engine_target_series:
+            for key in sorted(arrays):
+                if (
+                    key.startswith("arm_")
+                    and key.endswith("_tip_position_m")
+                    and key != "arm_executor_tip_position_m"
+                ):
+                    axis.plot(*arrays[key][1 : count + 1].T, label=key[4:-15])
         axis.set(xlabel="x [m]", ylabel="y [m]", zlabel="z [m]")
         axis.legend()
         path = output_dir / "trajectory.png"
         fig.savefig(path, dpi=160, bbox_inches="tight")
         plt.close(fig)
         saved.append(path)
+    saved.extend(
+        _save_engine_navigation_local_path_plots(
+            arrays,
+            output_dir,
+            plt,
+        )
+    )
     base_target = arrays.get("base_target_position_m")
     base_position = arrays.get("base_position_m")
     if base_target is not None and base_position is not None:
@@ -492,6 +554,164 @@ def _save_plots(arrays: dict[str, np.ndarray], output_dir: Path) -> list[Path]:
         plt.close(fig)
         saved.append(path)
     return saved
+
+
+def _save_engine_navigation_local_path_plots(
+    arrays: dict[str, np.ndarray],
+    output_dir: Path,
+    plt,
+) -> list[Path]:
+    target = arrays.get("target_position_m")
+    actual = arrays.get("target_actual_position_m")
+    names = arrays.get("target_engine_local_path_name")
+    subphases = arrays.get("target_engine_executor_subphase")
+    centers = arrays.get("target_engine_local_path_center_m")
+    directions = arrays.get("target_engine_insertion_direction_world")
+    required = (target, actual, names, subphases, centers, directions)
+    if any(value is None for value in required):
+        return []
+    count = len(target)
+    if any(len(value) != count for value in required):
+        return []
+    if (
+        np.asarray(target).shape != (count, 3)
+        or np.asarray(actual).shape != (count, 3)
+        or np.asarray(centers).shape != (count, 3)
+        or np.asarray(directions).shape != (count, 3)
+        or np.asarray(names).shape != (count,)
+        or np.asarray(subphases).shape != (count,)
+    ):
+        return []
+
+    saved: list[Path] = []
+    for name in dict.fromkeys(str(value) for value in names if str(value)):
+        mask = (names == name) & (subphases == "path")
+        if not np.any(mask):
+            continue
+        target_path = np.asarray(target[mask], dtype=float)
+        actual_path = np.asarray(actual[mask], dtype=float)
+        center_path = np.asarray(centers[mask], dtype=float)
+        direction_path = np.asarray(directions[mask], dtype=float)
+        finite = (
+            np.all(np.isfinite(target_path), axis=1)
+            & np.all(np.isfinite(actual_path), axis=1)
+            & np.all(np.isfinite(center_path), axis=1)
+            & np.all(np.isfinite(direction_path), axis=1)
+        )
+        if not np.any(finite):
+            continue
+        target_path = target_path[finite]
+        actual_path = actual_path[finite]
+        center_path = center_path[finite]
+        direction = direction_path[finite][0]
+        basis = _transverse_plot_basis(direction)
+        if basis is None:
+            continue
+        axis_u, axis_v = basis
+        target_delta = target_path - center_path
+        actual_delta = actual_path - center_path
+        target_local = np.column_stack(
+            (target_delta @ axis_u, target_delta @ axis_v)
+        )
+        actual_local = np.column_stack(
+            (actual_delta @ axis_u, actual_delta @ axis_v)
+        )
+        error_mm = 1000.0 * np.linalg.norm(actual_path - target_path, axis=1)
+
+        fig, axes = plt.subplots(1, 2, figsize=(11, 4.8))
+        trajectory_axis, error_axis = axes
+        trajectory_axis.plot(
+            1000.0 * target_local[:, 0],
+            1000.0 * target_local[:, 1],
+            "--",
+            label="target",
+        )
+        trajectory_axis.plot(
+            1000.0 * actual_local[:, 0],
+            1000.0 * actual_local[:, 1],
+            label="actual",
+        )
+        trajectory_axis.scatter(
+            1000.0 * target_local[0, 0],
+            1000.0 * target_local[0, 1],
+            marker="o",
+            s=28,
+            label="start",
+        )
+        trajectory_axis.scatter(
+            1000.0 * actual_local[-1, 0],
+            1000.0 * actual_local[-1, 1],
+            marker="x",
+            s=36,
+            label="actual end",
+        )
+        trajectory_axis.set(
+            xlabel="local x [mm]",
+            ylabel="local y [mm]",
+            title=f"{name}: local trajectory",
+        )
+        trajectory_axis.set_aspect("equal", adjustable="box")
+        trajectory_axis.grid(alpha=0.3)
+        trajectory_axis.legend()
+
+        error_axis.plot(error_mm)
+        error_axis.set(
+            xlabel="target sample",
+            ylabel="3D tracking error [mm]",
+            title="Same-step tracking error",
+        )
+        error_axis.grid(alpha=0.3)
+        mean_error = float(np.mean(error_mm))
+        rms_error = float(np.sqrt(np.mean(error_mm**2)))
+        max_error = float(np.max(error_mm))
+        error_axis.text(
+            0.98,
+            0.95,
+            f"mean: {mean_error:.3f} mm\n"
+            f"RMS: {rms_error:.3f} mm\n"
+            f"max: {max_error:.3f} mm",
+            transform=error_axis.transAxes,
+            horizontalalignment="right",
+            verticalalignment="top",
+        )
+        fig.tight_layout()
+        safe_name = _safe_plot_name(name)
+        path = output_dir / f"engine_navigation_local_path_{safe_name}.png"
+        fig.savefig(path, dpi=180, bbox_inches="tight")
+        plt.close(fig)
+        saved.append(path)
+    return saved
+
+
+def _transverse_plot_basis(
+    direction: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    z_axis = np.asarray(direction, dtype=float)
+    norm = float(np.linalg.norm(z_axis))
+    if not np.isfinite(norm) or norm <= 1.0e-12:
+        return None
+    z_axis = z_axis / norm
+    reference = np.array([1.0, 0.0, 0.0], dtype=float)
+    if abs(float(reference @ z_axis)) > 0.9:
+        reference = np.array([0.0, 1.0, 0.0], dtype=float)
+    axis_u = reference - float(reference @ z_axis) * z_axis
+    axis_u_norm = float(np.linalg.norm(axis_u))
+    if axis_u_norm <= 1.0e-12:
+        return None
+    axis_u = axis_u / axis_u_norm
+    axis_v = np.cross(z_axis, axis_u)
+    axis_v_norm = float(np.linalg.norm(axis_v))
+    if axis_v_norm <= 1.0e-12:
+        return None
+    return axis_u, axis_v / axis_v_norm
+
+
+def _safe_plot_name(value: str) -> str:
+    safe = "".join(
+        character if character.isalnum() or character in "-_" else "_"
+        for character in value
+    )
+    return safe or "unnamed"
 
 
 def _replay_result(application, arrays: dict[str, np.ndarray], scene_xml: Path | None):

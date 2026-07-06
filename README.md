@@ -204,6 +204,84 @@ intermediate_local_paths:
 生效，计算方向均为机械臂局部 `-Z`。中间轨迹的名称和比例必须唯一，并按比例
 升序配置。
 
+Engine navigation 运行目录的 `plots` 文件夹中，各图含义如下：
+
+- `trajectory.png`：世界坐标中的 executor 目标与实际末端轨迹，用于观察整个
+  导航过程的全局位置关系；目标与实际位置按同一控制步对齐。
+- `engine_navigation_base_path.png`：移动底盘规划目标与实际底盘轨迹，用于分析
+  接近和插入阶段的底盘位姿跟踪。
+- `engine_navigation_local_path_<name>.png`：每个圆形、八字形或方形任务单独
+  输出。左图以回缩中心为原点显示局部横截面目标/实际轨迹，单位为毫米；右图
+  显示对应控制步执行后的三维误差及 mean、RMS、max。`rejoin` 回正过程不会
+  混入该图。
+- `tracking_error.png`：所有包含 executor 目标的控制步误差时间序列，适合定位
+  阶段切换和瞬态峰值，但不用于判断局部轨迹形状。
+- `arm_executor_tendon_displacement_m.png` 和
+  `arm_observer_tendon_displacement_m.png`：两条机械臂各 tendon 的位移变化，
+  用于检查饱和、偏置和振荡。
+- `min_clearance_m.png`：机械臂到场景 primitive 的最小间距；仅在存在有限距离
+  数据时生成。
+- `whole_body_singularity.png`：全身雅可比条件数的对数图；仅在控制器提供该
+  诊断时生成，尖峰表示接近奇异状态。
+
+`videos/simulation.gif` 是 MuJoCo 全局动态回放，适合观察阶段顺序和碰撞关系；
+厘米级局部跟踪质量应优先查看独立的
+`engine_navigation_local_path_<name>.png`。
+
+局部轨迹的目标点推进方式在 `engine_navigation.local_tracking` 中选择：
+
+```yaml
+local_tracking:
+  advance_mode: tolerance  # tolerance、time 或 steps
+  waypoint_tolerance_m: 0.003
+  advance_time_s:
+  advance_steps:
+  max_steps_per_waypoint: 150
+  transition_samples: 20
+```
+
+- `tolerance` 使用本节的 `waypoint_tolerance_m`；未设置时回退到外层
+  `task.waypoint_tolerance_m`，末端进入容差后切换目标。
+- `max_steps_per_waypoint` 仅在 `tolerance` 模式生效；单个目标达到该控制步数
+  仍未进入容差时强制切换，留空表示不限制。控制步数乘以 `controller_dt_s`
+  即为单点最长等待时间。
+- `time` 只读取 `advance_time_s`，`steps` 只读取 `advance_steps`；两个字段可以
+  同时保留在 YAML 中，未被当前模式选中的字段会被忽略。例如
+  `advance_time_s: 0.10` 在 `controller_dt_s: 0.02` 时等价于每 5 步换点。
+- 每条局部轨迹前自动生成从对应插入路径点到局部轨迹首点的三次 Hermite
+  过渡曲线：起点切向沿机械臂局部 `-Z` 回缩方向，终点切向匹配局部轨迹。
+  `transition_samples` 控制过渡曲线离散点数，增大可获得更密集的目标点。
+- 圆形、八字形和终点方形使用该模式；中间轨迹后的 `rejoin` 始终使用
+  tolerance，确保主臂真正回到插入轴后底盘才继续运动。
+
+observer 以双臂避碰为主的参数位于 `engine_navigation.observer_control`：
+
+```yaml
+observer_control:
+  position_gain: 3.0
+  executor_offset_world_m: [0.0, -0.04, 0.02]
+  roi_blend: 0.25
+  inter_arm_influence_distance_m: 0.018
+  inter_arm_safe_distance_m: 0.014
+  inter_arm_critical_distance_m: 0.009
+  inter_arm_release_margin_m: 0.002
+  inter_arm_avoidance_gain: 6.0
+  inter_arm_max_avoidance_speed_mps: 0.03
+  centerline_samples_per_segment: 8
+  observer_tracking_weight: 20.0
+  observer_collision_weight: 250.0
+  stop_all_on_critical_distance: false
+```
+
+距离均为双臂中心线距离，并满足
+`critical < safe < influence`：影响区内 observer 停止普通观测跟踪并主动撤离；
+进入 critical 区后 observer 使用最大避让速度。默认的
+`stop_all_on_critical_distance: false` 保证避碰、观测跟踪及 observer 的奇异性
+保护只改变 observer 驱动，executor 目标速度、换点调度和任务终止状态不受影响。
+固定底盘阶段还会按双臂分别计算奇异性保护，避免 observer 的退化状态缩放
+executor 命令。避碰退出使用 `influence + release_margin`，减少临界距离附近
+反复切换。
+
 Python API:
 
 ```python

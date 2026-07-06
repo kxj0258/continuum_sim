@@ -112,6 +112,14 @@ class StateRecorderHook:
     base_position_m: list[np.ndarray] = field(default_factory=list)
     arm_tip_position_m: dict[str, list[np.ndarray]] = field(default_factory=dict)
     target_position_m: list[np.ndarray] = field(default_factory=list)
+    target_actual_position_m: list[np.ndarray] = field(default_factory=list)
+    target_engine_local_path_name: list[str] = field(default_factory=list)
+    target_engine_local_path_type: list[str] = field(default_factory=list)
+    target_engine_executor_subphase: list[str] = field(default_factory=list)
+    target_engine_local_path_center_m: list[np.ndarray] = field(default_factory=list)
+    target_engine_insertion_direction_world: list[np.ndarray] = field(
+        default_factory=list
+    )
     waypoint_index: list[int] = field(default_factory=list)
     tracking_error_m: list[float] = field(default_factory=list)
     achieved_waypoint_error_m: list[float] = field(default_factory=list)
@@ -141,6 +149,12 @@ class StateRecorderHook:
         self.base_position_m.clear()
         self.arm_tip_position_m = {name: [] for name in state.arms}
         self.target_position_m.clear()
+        self.target_actual_position_m.clear()
+        self.target_engine_local_path_name.clear()
+        self.target_engine_local_path_type.clear()
+        self.target_engine_executor_subphase.clear()
+        self.target_engine_local_path_center_m.clear()
+        self.target_engine_insertion_direction_world.clear()
         self.waypoint_index.clear()
         self.tracking_error_m.clear()
         self.achieved_waypoint_error_m.clear()
@@ -217,6 +231,36 @@ class StateRecorderHook:
         target = command.metadata.get("executor_target_world")
         if target is not None:
             self.target_position_m.append(np.asarray(target, dtype=float).copy())
+            executor = next(
+                (arm for arm in state.arms.values() if arm.role == "executor"),
+                None,
+            )
+            self.target_actual_position_m.append(
+                np.full(3, np.nan, dtype=float)
+                if executor is None
+                else executor.tip_pose_world.position.copy()
+            )
+            self.target_engine_local_path_name.append(
+                str(command.metadata.get("engine_navigation_local_path_name", ""))
+            )
+            self.target_engine_local_path_type.append(
+                str(command.metadata.get("engine_navigation_local_path_type", ""))
+            )
+            self.target_engine_executor_subphase.append(
+                str(command.metadata.get("engine_navigation_executor_subphase", ""))
+            )
+            self.target_engine_local_path_center_m.append(
+                _metadata_vector_or_nan(
+                    command.metadata,
+                    "engine_navigation_observer_roi_m",
+                )
+            )
+            self.target_engine_insertion_direction_world.append(
+                _metadata_vector_or_nan(
+                    command.metadata,
+                    "engine_navigation_insertion_direction_world",
+                )
+            )
             self.waypoint_index.append(int(command.metadata.get("waypoint_index", 0)))
             self.tracking_error_m.append(
                 float(command.metadata.get("executor_error_m", np.nan))
@@ -267,6 +311,19 @@ class StateRecorderHook:
             self.arm_tip_position_m.setdefault(name, []).append(
                 arm.tip_pose_world.position.copy()
             )
+
+
+def _metadata_vector_or_nan(
+    metadata: dict[str, Any],
+    key: str,
+) -> np.ndarray:
+    value = metadata.get(key)
+    if value is None:
+        return np.full(3, np.nan, dtype=float)
+    vector = np.asarray(value, dtype=float)
+    if vector.shape != (3,) or not np.all(np.isfinite(vector)):
+        return np.full(3, np.nan, dtype=float)
+    return vector.copy()
 
 
 @dataclass

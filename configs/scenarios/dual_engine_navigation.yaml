@@ -24,25 +24,46 @@ scenario:
       base_position_gain: 1.5
       base_orientation_gain: 2.0
       phase_timeout_steps: 5000
+      local_tracking:
+        advance_mode: tolerance #tolerance, time, or steps
+        waypoint_tolerance_m: 0.003
+        advance_time_s: 0.20
+        advance_steps: 10
+        max_steps_per_waypoint: 150
+        transition_samples: 20
+      observer_control:
+        position_gain: 3.0
+        executor_offset_world_m: [0.0, -0.04, 0.02]
+        roi_blend: 0.25
+        inter_arm_influence_distance_m: 0.018
+        inter_arm_safe_distance_m: 0.014
+        inter_arm_critical_distance_m: 0.009
+        inter_arm_release_margin_m: 0.002
+        inter_arm_avoidance_gain: 6.0
+        inter_arm_max_avoidance_speed_mps: 0.03
+        centerline_samples_per_segment: 8
+        observer_tracking_weight: 20.0
+        observer_collision_weight: 250.0
+        stop_all_on_critical_distance: false
       intermediate_local_paths:
         - name: one_third_circle
           at_fraction: 0.3333333333
           type: transverse_circle
-          radius_m: 0.010
+          radius_m: 0.080
           samples: 40
-          axial_retraction_m: 0.015
+          axial_retraction_m: 0.045
         - name: two_thirds_figure_eight
           at_fraction: 0.6666666667
           type: transverse_figure_eight
-          radius_m: 0.010
+          radius_m: 0.060
           samples: 60
-          axial_retraction_m: 0.015
+          axial_retraction_m: 0.045
       local_path:
         name: endpoint_square
         type: transverse_square
-        radius_m: 0.010
+        radius_m: 0.050
         samples: 40
-        axial_retraction_m: 0.015
+        axial_retraction_m: 0.045
   runtime:
     controller_dt_s: 0.02
     n_substeps: 20

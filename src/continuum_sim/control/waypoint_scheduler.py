@@ -19,6 +19,7 @@ class WaypointScheduler:
     controller_dt_s: float
     step_interval: int | None = None
     time_interval_s: float | None = None
+    max_steps_per_waypoint: int | None = None
     active_index: int = 0
     done: bool = False
     _updates: int = 0
@@ -38,6 +39,11 @@ class WaypointScheduler:
             self.step_interval = 1
         if self.step_interval is not None and self.step_interval <= 0:
             raise ValueError("step_interval must be positive.")
+        if (
+            self.max_steps_per_waypoint is not None
+            and self.max_steps_per_waypoint <= 0
+        ):
+            raise ValueError("max_steps_per_waypoint must be positive.")
 
     def update(self, *, error_norm_m: float) -> int:
         """Update scheduler state and return the active waypoint index."""
@@ -45,7 +51,15 @@ class WaypointScheduler:
         if self.done:
             return self.active_index
         if self.mode == "tolerance":
-            if error_norm_m <= self.tolerance_m:
+            if self.max_steps_per_waypoint is not None:
+                self._updates += 1
+            if (
+                error_norm_m <= self.tolerance_m
+                or (
+                    self.max_steps_per_waypoint is not None
+                    and self._updates >= self.max_steps_per_waypoint
+                )
+            ):
                 self.advance()
             return self.active_index
         self._updates += 1
@@ -57,6 +71,7 @@ class WaypointScheduler:
     def advance(self) -> None:
         """Advance one waypoint, respecting loop and completion settings."""
 
+        self._updates = 0
         if self.active_index < self.waypoint_count - 1:
             self.active_index += 1
         elif self.loop:

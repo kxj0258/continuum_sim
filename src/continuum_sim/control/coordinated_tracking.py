@@ -85,11 +85,27 @@ class CoordinatedTrackingConfig:
     max_target_speed_mps: float | None = None
     inter_arm_min_distance_m: float = 0.010
     inter_arm_influence_distance_m: float = 0.05
+    inter_arm_hard_stop_distance_m: float = 0.008
+    inter_arm_release_margin_m: float = 0.002
     inter_arm_avoidance_gain: float = 4.0
+    inter_arm_max_avoidance_speed_mps: float = 0.03
+    observer_collision_priority: bool = False
+    freeze_executor_inside_safe_distance: bool = False
+    stop_all_on_critical_distance: bool = True
     centerline_samples_per_segment: int = 6
     engine_min_clearance_m: float = 0.01
     engine_influence_distance_m: float = 0.025
     engine_avoidance_gain: float = 4.0
+
+
+@dataclass(frozen=True)
+class _InterArmCollisionResult:
+    """Nearest centerline pair and optional observer-only avoidance task."""
+
+    task: WholeBodyTask | None
+    distance_m: float
+    observer_index: int
+    executor_index: int
 
 
 class CoordinatedTrackingController:
@@ -110,6 +126,7 @@ class CoordinatedTrackingController:
         self.solver = WholeBodyController(assembly, solver_config)
         self.scene_query = scene_query
         self.last_diagnostics: dict[str, object] = {}
+        self._observer_avoidance_active = False
 
     def set_target(self, target: CoordinatedTrackingTarget) -> None:
         self.target = target
@@ -124,28 +141,75 @@ class CoordinatedTrackingController:
         observer_tracking_active = False
         executor_name = self._arm_name_for_role("executor")
         executor_state = state.arms[executor_name]
+        observer_name = self._optional_arm_name_for_role("observer")
+        collision_result = (
+            None
+            if observer_name is None
+            else self._inter_arm_collision_task(
+                state,
+                executor_name,
+                observer_name,
+            )
+        )
+        inter_arm_distance = (
+            float("inf")
+            if collision_result is None
+            else collision_result.distance_m
+        )
+        if collision_result is not None:
+            activation_distance = (
+                self.config.inter_arm_influence_distance_m
+                if self.config.observer_collision_priority
+                else self.config.inter_arm_min_distance_m
+            )
+            if self._observer_avoidance_active:
+                release_distance = (
+                    activation_distance
+                    + (
+                        self.config.inter_arm_release_margin_m
+                        if self.config.observer_collision_priority
+                        else 0.0
+                    )
+                )
+                if inter_arm_distance > release_distance:
+                    self._observer_avoidance_active = False
+            elif inter_arm_distance < activation_distance:
+                self._observer_avoidance_active = True
+        critical_distance = (
+            collision_result is not None
+            and self.config.observer_collision_priority
+            and inter_arm_distance <= self.config.inter_arm_hard_stop_distance_m
+        )
+        hard_stop = bool(
+            critical_distance and self.config.stop_all_on_critical_distance
+        )
+        executor_frozen = bool(
+            collision_result is not None
+            and self.config.freeze_executor_inside_safe_distance
+            and inter_arm_distance <= self.config.inter_arm_min_distance_m
+        )
         executor_error = (
             self.target.executor_position_world
             - executor_state.tip_pose_world.position
+        )
+        executor_target_velocity = (
+            np.zeros(3, dtype=float)
+            if executor_frozen or hard_stop
+            else self._executor_target_velocity(executor_error)
         )
         tasks.append(
             WholeBodyTask(
                 name="executor_tracking",
                 jacobian=jacobians[executor_name],
-                target_velocity=self._executor_target_velocity(executor_error),
+                target_velocity=executor_target_velocity,
                 weight=self.solver.weight_for("executor_tracking"),
             )
         )
 
-        observer_name = self._optional_arm_name_for_role("observer")
         if observer_name is not None:
-            collision_task = self._inter_arm_collision_task(
-                state,
-                executor_name,
-                observer_name,
-            )
-            if collision_task is not None:
-                tasks.append(collision_task)
+            if self._observer_avoidance_active:
+                if collision_result is not None and collision_result.task is not None:
+                    tasks.append(collision_result.task)
                 observer_collision_active = True
             else:
                 observer_state = state.arms[observer_name]
@@ -182,11 +246,44 @@ class CoordinatedTrackingController:
                 if scene_task is not None:
                     tasks.append(scene_task)
         result = self.solver.solve(tasks)
+        if hard_stop:
+            output_command = RobotSystemCommand.zeros(
+                {
+                    arm.name: arm.spatial_arm.tendon_count
+                    for arm in self.assembly.enabled_arms
+                }
+            )
+            safety_mode = "hard_stop"
+        else:
+            output_command = result.command
+            if executor_frozen:
+                safety_mode = "protected"
+            elif critical_distance:
+                safety_mode = "critical_avoidance"
+            elif self._observer_avoidance_active:
+                safety_mode = "avoidance"
+            else:
+                safety_mode = "tracking"
         self.last_diagnostics = {
             "whole_body_singularity": result.singularity,
             "residual_norm": result.residual_norm,
             "observer_collision_active": observer_collision_active,
             "observer_tracking_active": observer_tracking_active,
+            "inter_arm_distance_m": inter_arm_distance,
+            "inter_arm_safety_mode": safety_mode,
+            "inter_arm_executor_frozen": executor_frozen,
+            "inter_arm_critical_distance": critical_distance,
+            "inter_arm_hard_stop": hard_stop,
+            "inter_arm_closest_observer_index": (
+                -1
+                if collision_result is None
+                else collision_result.observer_index
+            ),
+            "inter_arm_closest_executor_index": (
+                -1
+                if collision_result is None
+                else collision_result.executor_index
+            ),
             "tendon_mapping_singularity": {
                 arm.name: analyze_tendon_mapping(
                     arm.spatial_arm.params,
@@ -200,14 +297,12 @@ class CoordinatedTrackingController:
                 arm.name: self._measured_compatibility(state, arm.name)
                 for arm in self.assembly.enabled_arms
             },
-            "executor_target_velocity_world": self._executor_target_velocity(
-                executor_error
-            ),
+            "executor_target_velocity_world": executor_target_velocity,
             "arm_singularities": result.arm_singularities,
         }
         return RobotSystemCommand(
-            base_twist_world=result.command.base_twist_world,
-            arms=result.command.arms,
+            base_twist_world=output_command.base_twist_world,
+            arms=output_command.arms,
             metadata=self.last_diagnostics,
         )
 
@@ -267,7 +362,7 @@ class CoordinatedTrackingController:
         state: RobotSystemState,
         executor_name: str,
         observer_name: str,
-    ) -> WholeBodyTask | None:
+    ) -> _InterArmCollisionResult:
         executor_centerline, _, _ = self._world_centerline(
             state,
             executor_name,
@@ -293,8 +388,6 @@ class CoordinatedTrackingController:
         observer_point = observer_centerline[observer_index]
         separation = observer_point - executor_point
         distance = float(np.linalg.norm(separation))
-        if distance >= self.config.inter_arm_min_distance_m:
-            return None
         normal = (
             separation / distance
             if distance > 1.0e-12
@@ -312,21 +405,43 @@ class CoordinatedTrackingController:
             observer_point_jacobian,
             observer_name,
         )
-        desired_speed = self.config.inter_arm_avoidance_gain * max(
-            self.config.inter_arm_min_distance_m - distance,
-            0.0,
+        activation_distance = (
+            self.config.inter_arm_influence_distance_m
+            if self.config.observer_collision_priority
+            else self.config.inter_arm_min_distance_m
         )
+        if (
+            self.config.observer_collision_priority
+            and distance <= self.config.inter_arm_hard_stop_distance_m
+        ):
+            desired_speed = self.config.inter_arm_max_avoidance_speed_mps
+        else:
+            desired_speed = min(
+                self.config.inter_arm_max_avoidance_speed_mps,
+                self.config.inter_arm_avoidance_gain
+                * max(
+                    activation_distance - distance,
+                    0.0,
+                ),
+            )
         if (
             desired_speed <= 0.0
             or np.linalg.norm(relative_jacobian)
             <= self.solver.config.singularity.rank_tolerance
         ):
-            return None
-        return WholeBodyTask(
-            name="executor_observer_collision_avoidance",
-            jacobian=relative_jacobian,
-            target_velocity=np.array([desired_speed], dtype=float),
-            weight=self.solver.weight_for("executor_collision_avoidance"),
+            task = None
+        else:
+            task = WholeBodyTask(
+                name="executor_observer_collision_avoidance",
+                jacobian=relative_jacobian,
+                target_velocity=np.array([desired_speed], dtype=float),
+                weight=self.solver.weight_for("observer_collision_avoidance"),
+            )
+        return _InterArmCollisionResult(
+            task=task,
+            distance_m=distance,
+            observer_index=observer_index,
+            executor_index=executor_index,
         )
 
     def _world_centerline(

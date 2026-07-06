@@ -30,6 +30,8 @@ from continuum_sim.tasks.engine_cleaning_path import (
 from continuum_sim.tasks.engine_navigation import (
     EngineNavigationLocalPathPlan,
     EngineNavigationLocalPathSpec,
+    EngineNavigationLocalTrackingSpec,
+    EngineNavigationObserverControlSpec,
     EngineNavigationPlan,
     EngineNavigationSpec,
     resolve_engine_navigation_plan,
@@ -62,6 +64,8 @@ __all__ = [
     "EngineNavigationPlan",
     "EngineNavigationLocalPathPlan",
     "EngineNavigationLocalPathSpec",
+    "EngineNavigationLocalTrackingSpec",
+    "EngineNavigationObserverControlSpec",
     "EngineNavigationSpec",
     "NavigationControllerConfig",
     "NavigationMissionConfig",

@@ -9,7 +9,9 @@ import numpy as np
 from continuum_sim.control.mobile_base_pose_control import (
     MobileBasePoseController,
 )
+from continuum_sim.control.coordinated_tracking import CoordinatedTrackingConfig
 from continuum_sim.control.scenario_controllers import WaypointTrackingController
+from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
 from continuum_sim.scenes.engine_query import EngineSceneQueryProtocol
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
@@ -68,6 +70,8 @@ class StagedEngineNavigationController:
         )
         self._waypoint_tolerance_m = float(waypoint_tolerance_m)
         self._controller_dt_s = float(controller_dt_s)
+        self._local_tracking = spec.local_tracking
+        self._observer_control = spec.observer_control
         self._local_paths = (
             plan.local_path_plans
             if plan.local_path_plans
@@ -263,9 +267,18 @@ class StagedEngineNavigationController:
         path = self._local_paths[event_index]
         self._active_local_path_index = event_index
         self._executor_subphase = "path"
+        tracking_waypoints = path.waypoints_world
+        if path.transition_waypoints_world.shape[0] > 0:
+            tracking_waypoints = np.vstack(
+                (
+                    path.transition_waypoints_world,
+                    path.waypoints_world[1:],
+                )
+            )
         self._tracking = self._make_tracker(
-            path.waypoints_world,
+            tracking_waypoints,
             observer_roi_world=path.center_world,
+            use_local_tracking=True,
         )
         self._set_phase("executor_navigation")
 
@@ -274,6 +287,7 @@ class StagedEngineNavigationController:
         self._tracking = self._make_tracker(
             path.insertion_target_world[None, :],
             observer_roi_world=path.center_world,
+            use_local_tracking=False,
         )
         self._phase_steps = 0
 
@@ -282,18 +296,82 @@ class StagedEngineNavigationController:
         waypoints_world: np.ndarray,
         *,
         observer_roi_world: np.ndarray,
+        use_local_tracking: bool,
     ) -> WaypointTrackingController:
+        tracking = self._local_tracking
+        observer = self._observer_control
         return WaypointTrackingController(
             self._fixed_assembly,
             waypoints_world,
-            waypoint_tolerance_m=self._waypoint_tolerance_m,
+            waypoint_tolerance_m=(
+                tracking.waypoint_tolerance_m
+                if use_local_tracking
+                and tracking.advance_mode == "tolerance"
+                and tracking.waypoint_tolerance_m is not None
+                else self._waypoint_tolerance_m
+            ),
             observer_roi_world=observer_roi_world,
-            target_advance_mode="tolerance",
+            target_advance_mode=(
+                (
+                    "time"
+                    if tracking.advance_mode == "steps"
+                    else tracking.advance_mode
+                )
+                if use_local_tracking
+                else "tolerance"
+            ),
             controller_dt_s=self._controller_dt_s,
+            advance_time_s=(
+                tracking.advance_time_s if use_local_tracking else None
+            ),
+            advance_steps=(
+                tracking.advance_steps if use_local_tracking else None
+            ),
+            max_steps_per_waypoint=(
+                tracking.max_steps_per_waypoint
+                if use_local_tracking
+                and tracking.advance_mode == "tolerance"
+                else None
+            ),
+            scene_query=self.scene_query,
             executor_position_gain=3.0,
-            observer_position_gain=3.0,
+            observer_position_gain=observer.position_gain,
             feedforward_speed_mps=0.0,
             max_target_speed_mps=0.02,
+            observer_executor_offset_world=observer.executor_offset_world_m,
+            observer_roi_blend=observer.roi_blend,
+            coordinated_config=CoordinatedTrackingConfig(
+                executor_position_gain=3.0,
+                observer_position_gain=observer.position_gain,
+                max_target_speed_mps=0.02,
+                inter_arm_min_distance_m=observer.inter_arm_safe_distance_m,
+                inter_arm_influence_distance_m=(
+                    observer.inter_arm_influence_distance_m
+                ),
+                inter_arm_hard_stop_distance_m=(
+                    observer.inter_arm_critical_distance_m
+                ),
+                inter_arm_release_margin_m=observer.inter_arm_release_margin_m,
+                inter_arm_avoidance_gain=observer.inter_arm_avoidance_gain,
+                inter_arm_max_avoidance_speed_mps=(
+                    observer.inter_arm_max_avoidance_speed_mps
+                ),
+                observer_collision_priority=True,
+                freeze_executor_inside_safe_distance=False,
+                stop_all_on_critical_distance=(
+                    observer.stop_all_on_critical_distance
+                ),
+                centerline_samples_per_segment=(
+                    observer.centerline_samples_per_segment
+                ),
+            ),
+            solver_config=WholeBodyControllerConfig(
+                observer_tracking_weight=observer.observer_tracking_weight,
+                observer_collision_avoidance_weight=(
+                    observer.observer_collision_weight
+                ),
+                decouple_arm_singularity=True,
+            ),
         )
 
     def _minimum_clearance(self, state: RobotSystemState) -> float:
@@ -397,6 +475,9 @@ class StagedEngineNavigationController:
             ),
             "engine_navigation_insertion_path_m": (
                 self.plan.insertion_tip_waypoints_world.copy()
+            ),
+            "engine_navigation_insertion_direction_world": (
+                self.plan.insertion_direction_world.copy()
             ),
             "engine_navigation_executor_path_m": (
                 displayed_executor_path.copy()

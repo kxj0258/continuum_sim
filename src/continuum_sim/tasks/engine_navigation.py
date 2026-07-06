@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -20,6 +20,40 @@ LOCAL_PATH_TYPES = (
     "transverse_circle",
     "transverse_figure_eight",
 )
+LOCAL_TRACKING_ADVANCE_MODES = ("tolerance", "time", "steps")
+
+
+@dataclass(frozen=True)
+class EngineNavigationLocalTrackingSpec:
+    """Waypoint advancement policy for local executor paths."""
+
+    advance_mode: str = "tolerance"
+    advance_time_s: float | None = None
+    advance_steps: int | None = None
+    waypoint_tolerance_m: float | None = None
+    max_steps_per_waypoint: int | None = None
+    transition_samples: int = 20
+
+
+@dataclass(frozen=True)
+class EngineNavigationObserverControlSpec:
+    """Observer tracking target and inter-arm safety policy."""
+
+    position_gain: float = 3.0
+    executor_offset_world_m: np.ndarray = field(
+        default_factory=lambda: np.array([0.0, -0.04, 0.02], dtype=float)
+    )
+    roi_blend: float = 0.25
+    inter_arm_influence_distance_m: float = 0.018
+    inter_arm_safe_distance_m: float = 0.014
+    inter_arm_critical_distance_m: float = 0.009
+    inter_arm_release_margin_m: float = 0.002
+    inter_arm_avoidance_gain: float = 6.0
+    inter_arm_max_avoidance_speed_mps: float = 0.03
+    centerline_samples_per_segment: int = 8
+    observer_tracking_weight: float = 20.0
+    observer_collision_weight: float = 250.0
+    stop_all_on_critical_distance: bool = False
 
 
 @dataclass(frozen=True)
@@ -52,6 +86,12 @@ class EngineNavigationSpec:
     local_path_axial_retraction_m: float = 0.01
     local_path_name: str = "endpoint_square"
     intermediate_local_paths: tuple[EngineNavigationLocalPathSpec, ...] = ()
+    local_tracking: EngineNavigationLocalTrackingSpec = field(
+        default_factory=EngineNavigationLocalTrackingSpec
+    )
+    observer_control: EngineNavigationObserverControlSpec = field(
+        default_factory=EngineNavigationObserverControlSpec
+    )
     phase_timeout_steps: int = 5000
 
     @classmethod
@@ -65,6 +105,10 @@ class EngineNavigationSpec:
             raise ValueError("task.engine_navigation.local_path must be a mapping.")
         intermediate_local_paths = _load_intermediate_local_paths(
             values.get("intermediate_local_paths", ())
+        )
+        local_tracking = _load_local_tracking(values.get("local_tracking", {}))
+        observer_control = _load_observer_control(
+            values.get("observer_control", {})
         )
         spec = cls(
             entry_region=str(_required(values, "entry_region")),
@@ -89,6 +133,8 @@ class EngineNavigationSpec:
             ),
             local_path_name=str(local_path.get("name", "endpoint_square")),
             intermediate_local_paths=intermediate_local_paths,
+            local_tracking=local_tracking,
+            observer_control=observer_control,
             phase_timeout_steps=int(values.get("phase_timeout_steps", 5000)),
         )
         spec._validate()
@@ -171,6 +217,9 @@ class EngineNavigationLocalPathPlan:
     center_world: np.ndarray
     waypoints_world: np.ndarray
     is_terminal: bool
+    transition_waypoints_world: np.ndarray = field(
+        default_factory=lambda: np.empty((0, 3), dtype=float)
+    )
 
 
 def resolve_engine_navigation_plan(
@@ -234,6 +283,7 @@ def resolve_engine_navigation_plan(
             insertion_waypoints,
             insertion_direction,
             tip_orientation,
+            transition_samples=spec.local_tracking.transition_samples,
         )
         for path_spec in path_specs
     )
@@ -254,6 +304,182 @@ def resolve_engine_navigation_plan(
         observer_roi_world=endpoint_path.center_world.copy(),
         local_path_plans=local_path_plans,
     )
+
+
+def _load_local_tracking(raw_value: object) -> EngineNavigationLocalTrackingSpec:
+    if not isinstance(raw_value, dict):
+        raise ValueError("engine_navigation.local_tracking must be a mapping.")
+    mode = str(raw_value.get("advance_mode", "tolerance"))
+    if mode not in LOCAL_TRACKING_ADVANCE_MODES:
+        raise ValueError(
+            "engine_navigation.local_tracking.advance_mode must be one of "
+            f"{LOCAL_TRACKING_ADVANCE_MODES}."
+        )
+    advance_time_s: float | None = None
+    advance_steps: int | None = None
+    waypoint_tolerance_m: float | None = None
+    max_steps_per_waypoint: int | None = None
+    if mode == "time":
+        if raw_value.get("advance_time_s") is None:
+            raise ValueError(
+                "Time-based engine local tracking requires advance_time_s."
+            )
+        advance_time_s = float(raw_value["advance_time_s"])
+        if not np.isfinite(advance_time_s) or advance_time_s <= 0.0:
+            raise ValueError(
+                "engine_navigation.local_tracking.advance_time_s must be "
+                "positive and finite."
+            )
+    elif mode == "steps":
+        if raw_value.get("advance_steps") is None:
+            raise ValueError(
+                "Step-based engine local tracking requires advance_steps."
+            )
+        advance_steps = int(raw_value["advance_steps"])
+        if advance_steps <= 0:
+            raise ValueError(
+                "engine_navigation.local_tracking.advance_steps must be positive."
+            )
+    else:
+        tolerance_raw = raw_value.get("waypoint_tolerance_m")
+        if tolerance_raw is not None:
+            waypoint_tolerance_m = float(tolerance_raw)
+            if (
+                not np.isfinite(waypoint_tolerance_m)
+                or waypoint_tolerance_m < 0.0
+            ):
+                raise ValueError(
+                    "engine_navigation.local_tracking."
+                    "waypoint_tolerance_m must be finite and non-negative."
+                )
+        max_steps_raw = raw_value.get("max_steps_per_waypoint")
+        if max_steps_raw is not None:
+            max_steps_per_waypoint = int(max_steps_raw)
+            if max_steps_per_waypoint <= 0:
+                raise ValueError(
+                    "engine_navigation.local_tracking."
+                    "max_steps_per_waypoint must be positive."
+                )
+    transition_samples = int(raw_value.get("transition_samples", 20))
+    if transition_samples < 2:
+        raise ValueError(
+            "engine_navigation.local_tracking.transition_samples must be "
+            "at least 2."
+        )
+    return EngineNavigationLocalTrackingSpec(
+        advance_mode=mode,
+        advance_time_s=advance_time_s,
+        advance_steps=advance_steps,
+        waypoint_tolerance_m=waypoint_tolerance_m,
+        max_steps_per_waypoint=max_steps_per_waypoint,
+        transition_samples=transition_samples,
+    )
+
+
+def _load_observer_control(
+    raw_value: object,
+) -> EngineNavigationObserverControlSpec:
+    if not isinstance(raw_value, dict):
+        raise ValueError("engine_navigation.observer_control must be a mapping.")
+    offset = np.asarray(
+        raw_value.get("executor_offset_world_m", (0.0, -0.04, 0.02)),
+        dtype=float,
+    )
+    if offset.shape != (3,) or not np.all(np.isfinite(offset)):
+        raise ValueError(
+            "engine_navigation.observer_control.executor_offset_world_m must "
+            "be a finite 3-vector."
+        )
+    stop_all = raw_value.get(
+        "stop_all_on_critical_distance",
+        False,
+    )
+    if not isinstance(stop_all, bool):
+        raise ValueError(
+            "engine_navigation.observer_control."
+            "stop_all_on_critical_distance must be boolean."
+        )
+    spec = EngineNavigationObserverControlSpec(
+        position_gain=float(raw_value.get("position_gain", 3.0)),
+        executor_offset_world_m=offset.copy(),
+        roi_blend=float(raw_value.get("roi_blend", 0.25)),
+        inter_arm_influence_distance_m=float(
+            raw_value.get("inter_arm_influence_distance_m", 0.018)
+        ),
+        inter_arm_safe_distance_m=float(
+            raw_value.get("inter_arm_safe_distance_m", 0.014)
+        ),
+        inter_arm_critical_distance_m=float(
+            raw_value.get(
+                "inter_arm_critical_distance_m",
+                raw_value.get("inter_arm_hard_stop_distance_m", 0.009),
+            )
+        ),
+        inter_arm_release_margin_m=float(
+            raw_value.get("inter_arm_release_margin_m", 0.002)
+        ),
+        inter_arm_avoidance_gain=float(
+            raw_value.get("inter_arm_avoidance_gain", 6.0)
+        ),
+        inter_arm_max_avoidance_speed_mps=float(
+            raw_value.get("inter_arm_max_avoidance_speed_mps", 0.03)
+        ),
+        centerline_samples_per_segment=int(
+            raw_value.get("centerline_samples_per_segment", 8)
+        ),
+        observer_tracking_weight=float(
+            raw_value.get("observer_tracking_weight", 20.0)
+        ),
+        observer_collision_weight=float(
+            raw_value.get("observer_collision_weight", 250.0)
+        ),
+        stop_all_on_critical_distance=stop_all,
+    )
+    positive = {
+        "position_gain": spec.position_gain,
+        "inter_arm_influence_distance_m": spec.inter_arm_influence_distance_m,
+        "inter_arm_safe_distance_m": spec.inter_arm_safe_distance_m,
+        "inter_arm_critical_distance_m": spec.inter_arm_critical_distance_m,
+        "inter_arm_avoidance_gain": spec.inter_arm_avoidance_gain,
+        "inter_arm_max_avoidance_speed_mps": (
+            spec.inter_arm_max_avoidance_speed_mps
+        ),
+        "observer_tracking_weight": spec.observer_tracking_weight,
+        "observer_collision_weight": spec.observer_collision_weight,
+    }
+    for name, value in positive.items():
+        if not np.isfinite(value) or value <= 0.0:
+            raise ValueError(
+                f"engine_navigation.observer_control.{name} must be "
+                "positive and finite."
+            )
+    if (
+        not np.isfinite(spec.inter_arm_release_margin_m)
+        or spec.inter_arm_release_margin_m < 0.0
+    ):
+        raise ValueError(
+            "engine_navigation.observer_control.inter_arm_release_margin_m "
+            "must be finite and non-negative."
+        )
+    if not 0.0 <= spec.roi_blend <= 1.0:
+        raise ValueError(
+            "engine_navigation.observer_control.roi_blend must be in [0, 1]."
+        )
+    if spec.centerline_samples_per_segment <= 0:
+        raise ValueError(
+            "engine_navigation.observer_control."
+            "centerline_samples_per_segment must be positive."
+        )
+    if not (
+        spec.inter_arm_critical_distance_m
+        < spec.inter_arm_safe_distance_m
+        < spec.inter_arm_influence_distance_m
+    ):
+        raise ValueError(
+            "Observer inter-arm distances must satisfy "
+            "critical < safe < influence."
+        )
+    return spec
 
 
 def _load_intermediate_local_paths(
@@ -304,6 +530,8 @@ def _resolve_local_path_plan(
     insertion_waypoints: np.ndarray,
     insertion_direction: np.ndarray,
     frame: Pose6D,
+    *,
+    transition_samples: int,
 ) -> EngineNavigationLocalPathPlan:
     insertion_index = _fraction_waypoint_index(
         insertion_waypoints,
@@ -311,6 +539,13 @@ def _resolve_local_path_plan(
     )
     insertion_target = insertion_waypoints[insertion_index].copy()
     center = insertion_target - spec.axial_retraction_m * insertion_direction
+    local_waypoints = _transverse_local_path(
+        path_type=spec.path_type,
+        center=center,
+        frame=frame,
+        radius_m=spec.radius_m,
+        samples=spec.samples,
+    )
     return EngineNavigationLocalPathPlan(
         name=spec.name,
         path_type=spec.path_type,
@@ -318,12 +553,12 @@ def _resolve_local_path_plan(
         insertion_index=insertion_index,
         insertion_target_world=insertion_target,
         center_world=center.copy(),
-        waypoints_world=_transverse_local_path(
-            path_type=spec.path_type,
-            center=center,
-            frame=frame,
-            radius_m=spec.radius_m,
-            samples=spec.samples,
+        waypoints_world=local_waypoints,
+        transition_waypoints_world=_smooth_local_path_transition(
+            insertion_target=insertion_target,
+            insertion_direction=insertion_direction,
+            local_waypoints=local_waypoints,
+            samples=transition_samples,
         ),
         is_terminal=bool(np.isclose(spec.at_fraction, 1.0)),
     )
@@ -334,6 +569,40 @@ def _fraction_waypoint_index(points: np.ndarray, fraction: float) -> int:
     cumulative = np.concatenate(([0.0], np.cumsum(segment_lengths)))
     target_distance = float(fraction) * float(cumulative[-1])
     return int(np.argmin(np.abs(cumulative - target_distance)))
+
+
+def _smooth_local_path_transition(
+    *,
+    insertion_target: np.ndarray,
+    insertion_direction: np.ndarray,
+    local_waypoints: np.ndarray,
+    samples: int,
+) -> np.ndarray:
+    """Join an insertion point to a local path with a cubic Hermite curve."""
+
+    start = np.asarray(insertion_target, dtype=float)
+    end = np.asarray(local_waypoints[0], dtype=float)
+    chord_length = float(np.linalg.norm(end - start))
+    start_tangent = -_unit(
+        insertion_direction,
+        "insertion direction",
+    ) * chord_length
+    end_tangent = _unit(
+        local_waypoints[1] - local_waypoints[0],
+        "local path start tangent",
+    ) * chord_length
+    parameter = np.linspace(0.0, 1.0, samples)
+    t = parameter[:, None]
+    h00 = 2.0 * t**3 - 3.0 * t**2 + 1.0
+    h10 = t**3 - 2.0 * t**2 + t
+    h01 = -2.0 * t**3 + 3.0 * t**2
+    h11 = t**3 - t**2
+    return (
+        h00 * start[None, :]
+        + h10 * start_tangent[None, :]
+        + h01 * end[None, :]
+        + h11 * end_tangent[None, :]
+    )
 
 
 def _named_region(scene: EngineSceneConfig, name: str) -> EngineRegionConfig:

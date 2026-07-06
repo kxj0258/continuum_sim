@@ -89,6 +89,21 @@ def test_waypoint_scheduler_supports_time_and_tolerance_modes() -> None:
     assert [timed.update(error_norm_m=10.0) for _ in range(5)] == [0, 1, 1, 2, 2]
 
 
+def test_tolerance_scheduler_advances_after_waypoint_step_limit() -> None:
+    scheduler = WaypointScheduler(
+        waypoint_count=3,
+        mode="tolerance",
+        tolerance_m=0.001,
+        loop=False,
+        controller_dt_s=0.02,
+        max_steps_per_waypoint=2,
+    )
+
+    assert scheduler.update(error_norm_m=0.01) == 0
+    assert scheduler.update(error_norm_m=0.01) == 1
+    assert scheduler.update(error_norm_m=0.01) == 1
+
+
 def test_navigation_mission_resolves_scene_target_ids() -> None:
     scene = load_navigation_scene_config("configs/scenes/rocket_nozzle_entry.yaml")
     spec = NavigationMissionSpec(

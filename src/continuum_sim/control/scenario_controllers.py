@@ -45,6 +45,7 @@ class WaypointTrackingController:
         controller_dt_s: float = 0.02,
         advance_time_s: float | None = None,
         advance_steps: int | None = None,
+        max_steps_per_waypoint: int | None = None,
         scene_query: EngineSceneQueryProtocol | None = None,
         approach_mask: np.ndarray | None = None,
         source_waypoint_index: np.ndarray | None = None,
@@ -53,6 +54,9 @@ class WaypointTrackingController:
         feedforward_speed_mps: float = 0.0,
         max_target_speed_mps: float | None = None,
         solver_config: WholeBodyControllerConfig = WholeBodyControllerConfig(),
+        coordinated_config: CoordinatedTrackingConfig | None = None,
+        observer_executor_offset_world: np.ndarray | None = None,
+        observer_roi_blend: float = 0.25,
     ) -> None:
         waypoints = np.asarray(waypoints_world, dtype=float)
         if waypoints.ndim != 2 or waypoints.shape[1] != 3 or waypoints.shape[0] == 0:
@@ -69,6 +73,22 @@ class WaypointTrackingController:
         )
         if self.observer_roi_world is not None and self.observer_roi_world.shape != (3,):
             raise ValueError("observer_roi_world must have shape (3,).")
+        self.observer_executor_offset_world = np.asarray(
+            (
+                [0.0, -0.04, 0.02]
+                if observer_executor_offset_world is None
+                else observer_executor_offset_world
+            ),
+            dtype=float,
+        )
+        if (
+            self.observer_executor_offset_world.shape != (3,)
+            or not np.all(np.isfinite(self.observer_executor_offset_world))
+        ):
+            raise ValueError("observer_executor_offset_world must be a finite 3-vector.")
+        self.observer_roi_blend = float(observer_roi_blend)
+        if not 0.0 <= self.observer_roi_blend <= 1.0:
+            raise ValueError("observer_roi_blend must be in [0, 1].")
         self.loop = loop
         self.approach_mask = _waypoint_vector(
             approach_mask,
@@ -95,15 +115,20 @@ class WaypointTrackingController:
             controller_dt_s=controller_dt_s,
             step_interval=advance_steps,
             time_interval_s=advance_time_s,
+            max_steps_per_waypoint=max_steps_per_waypoint,
         )
         self._executor_name = _single_role_name(assembly, "executor")
         self._controller = CoordinatedTrackingController(
             assembly,
             self._target(),
-            config=CoordinatedTrackingConfig(
-                executor_position_gain=executor_position_gain,
-                observer_position_gain=observer_position_gain,
-                max_target_speed_mps=max_target_speed_mps,
+            config=(
+                CoordinatedTrackingConfig(
+                    executor_position_gain=executor_position_gain,
+                    observer_position_gain=observer_position_gain,
+                    max_target_speed_mps=max_target_speed_mps,
+                )
+                if coordinated_config is None
+                else coordinated_config
             ),
             solver_config=solver_config,
             scene_query=scene_query,
@@ -127,7 +152,18 @@ class WaypointTrackingController:
         achieved_error = float(
             np.linalg.norm(self.waypoints_world[achieved_index] - position)
         )
-        self.scheduler.update(error_norm_m=achieved_error)
+        scheduler_paused = bool(
+            self._controller.last_diagnostics.get(
+                "inter_arm_executor_frozen",
+                False,
+            )
+            or self._controller.last_diagnostics.get(
+                "inter_arm_hard_stop",
+                False,
+            )
+        )
+        if not scheduler_paused:
+            self.scheduler.update(error_norm_m=achieved_error)
         waypoint_advanced = self.done or self.active_index != achieved_index
         target = self._target()
         self._controller.set_target(target)
@@ -154,6 +190,7 @@ class WaypointTrackingController:
                     self.source_waypoint_index[self.active_index]
                 ),
                 "target_advance_mode": self.scheduler.mode,
+                "waypoint_scheduler_paused": scheduler_paused,
                 "executor_target_world": target.executor_position_world.copy(),
                 "executor_error_m": command_error,
                 "executor_feedforward_velocity_world": (
@@ -178,6 +215,8 @@ class WaypointTrackingController:
             executor_position_world=self.waypoints_world[self.active_index],
             executor_velocity_world=self._feedforward_velocity(),
             observer_roi_position_world=self.observer_roi_world,
+            observer_executor_offset_world=self.observer_executor_offset_world,
+            observer_roi_blend=self.observer_roi_blend,
         )
 
     def _feedforward_velocity(self) -> np.ndarray:

@@ -54,6 +54,7 @@ from continuum_sim.control.mobile_base_controller import (
     set_mobile_base_locked,
     zero_mobile_base_command,
 )
+from continuum_sim.control.mobile_base_pose_control import MobileBasePoseController
 from continuum_sim.control.navigation_controller import (
     centerline_point_motor_jacobian,
     compute_navigation_motor_velocity_command,
@@ -65,6 +66,9 @@ from continuum_sim.control.tendon_rate_control import (
     TendonRateIntegrator,
     TendonRateLimits,
     TendonRateStep,
+)
+from continuum_sim.control.staged_engine_navigation import (
+    StagedEngineNavigationController,
 )
 from continuum_sim.control.whole_body_controller import (
     WholeBodyController,
@@ -89,7 +93,9 @@ __all__ = [
     "EngineCleaningControllerGains",
     "EngineCleaningFeedback",
     "MobileBaseCommand",
+    "MobileBasePoseController",
     "MobileBaseState",
+    "StagedEngineNavigationController",
     "TendonRateIntegrator",
     "TendonRateLimits",
     "TendonRateStep",

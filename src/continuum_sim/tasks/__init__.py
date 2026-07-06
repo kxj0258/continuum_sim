@@ -27,6 +27,11 @@ from continuum_sim.tasks.engine_cleaning_path import (
     EngineCleaningPlan,
     build_engine_cleaning_plan,
 )
+from continuum_sim.tasks.engine_navigation import (
+    EngineNavigationPlan,
+    EngineNavigationSpec,
+    resolve_engine_navigation_plan,
+)
 from continuum_sim.tasks.navigation_mission import NavigationMissionSpec, resolve_navigation_waypoints
 from continuum_sim.tasks.trajectory_generation import TrajectorySpec, generate_trajectory_waypoints
 from continuum_sim.tasks.wiping_path import WipingPathPlan, WipingPathSpec, build_wiping_plan
@@ -52,6 +57,8 @@ __all__ = [
     "DMPRollout",
     "EngineCleaningPathSpec",
     "EngineCleaningPlan",
+    "EngineNavigationPlan",
+    "EngineNavigationSpec",
     "NavigationControllerConfig",
     "NavigationMissionConfig",
     "NavigationMissionSpec",
@@ -86,4 +93,5 @@ __all__ = [
     "load_demonstration",
     "load_tracking_config",
     "resolve_navigation_waypoints",
+    "resolve_engine_navigation_plan",
 ]

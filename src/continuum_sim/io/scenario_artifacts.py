@@ -207,6 +207,31 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
             [command.arms[arm_name].tendon_rate_mps for command in result.commands]
         )
     recorder = application.hooks_by_name.get("recorder")
+    if recorder is not None and getattr(recorder, "engine_navigation_phase", ()):
+        arrays["engine_navigation_phase"] = np.asarray(
+            recorder.engine_navigation_phase,
+            dtype=str,
+        )
+        arrays["engine_navigation_terminal_reason"] = np.asarray(
+            recorder.engine_navigation_terminal_reason,
+            dtype=str,
+        )
+        arrays["engine_navigation_progress"] = np.asarray(
+            recorder.engine_navigation_progress,
+            dtype=float,
+        )
+        arrays["base_target_position_m"] = np.asarray(
+            recorder.base_target_position_m,
+            dtype=float,
+        )
+        arrays["base_position_error_m"] = np.asarray(
+            recorder.base_position_error_m,
+            dtype=float,
+        )
+        arrays["base_orientation_error_rad"] = np.asarray(
+            recorder.base_orientation_error_rad,
+            dtype=float,
+        )
     if recorder is not None and recorder.target_position_m:
         arrays["target_position_m"] = np.asarray(recorder.target_position_m)
         arrays["tracking_error_m"] = np.asarray(recorder.tracking_error_m)
@@ -393,6 +418,21 @@ def _save_plots(arrays: dict[str, np.ndarray], output_dir: Path) -> list[Path]:
         fig.savefig(path, dpi=160, bbox_inches="tight")
         plt.close(fig)
         saved.append(path)
+    base_target = arrays.get("base_target_position_m")
+    base_position = arrays.get("base_position_m")
+    if base_target is not None and base_position is not None:
+        count = min(len(base_target), len(base_position) - 1)
+        if count > 0:
+            fig = plt.figure(figsize=(8, 6))
+            axis = fig.add_subplot(111, projection="3d")
+            axis.plot(*base_target[:count].T, "--", label="base target")
+            axis.plot(*base_position[1 : count + 1].T, label="base")
+            axis.set(xlabel="x [m]", ylabel="y [m]", zlabel="z [m]")
+            axis.legend()
+            path = output_dir / "engine_navigation_base_path.png"
+            fig.savefig(path, dpi=160, bbox_inches="tight")
+            plt.close(fig)
+            saved.append(path)
     error = arrays.get("tracking_error_m")
     if error is not None:
         fig, axis = plt.subplots(figsize=(8, 4.5))

@@ -132,7 +132,13 @@ python scripts/run_scenario.py configs/scenarios/dual_mujoco_wiping.yaml
 python scripts/run_scenario.py configs/scenarios/single_engine_tracking.yaml
 python scripts/run_scenario.py configs/scenarios/dual_engine_tracking.yaml
 python scripts/run_scenario.py configs/scenarios/single_engine_cleaning.yaml
+python scripts/run_scenario.py configs/scenarios/dual_engine_navigation.yaml
 ```
+
+`dual_engine_navigation.yaml` 分三个阶段运行：移动底座对准发动机入口、底座沿
+`nozzle_axis_entry` 显式路径插入、底座保持后由 executor 执行局部横向导航且
+observer 跟随观测。第一版依赖 `engine_cleaning.yaml` 中已标定的路径和 primitive
+距离监控，不包含基于完整 collision mesh 的自动规划或在线重规划。
 
 Python API:
 

@@ -18,6 +18,9 @@ from continuum_sim.control.scenario_controllers import (
     WipingController,
     ZeroSystemController,
 )
+from continuum_sim.control.staged_engine_navigation import (
+    StagedEngineNavigationController,
+)
 from continuum_sim.control.coordinated_tracking import CoordinatedTrackingConfig
 from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
 from continuum_sim.kinematics.whole_body import SingularityConfig
@@ -53,6 +56,7 @@ from continuum_sim.scenes.scene_builder import (
     lock_mobile_base_freejoint,
 )
 from continuum_sim.tasks.engine_cleaning_path import build_engine_cleaning_plan
+from continuum_sim.tasks.engine_navigation import resolve_engine_navigation_plan
 from continuum_sim.tasks.navigation_mission import resolve_navigation_waypoints
 from continuum_sim.tasks.trajectory_generation import (
     generate_trajectory_waypoints,
@@ -107,6 +111,28 @@ class SimulationApplication:
         task_plan = _resolve_task_plan(config, assembly, engine_scene, structured_scene)
         if config.task.type == "idle":
             controller = ZeroSystemController(assembly)
+        elif config.task.type == "engine_navigation":
+            if engine_scene is None or config.task.engine_navigation is None:
+                raise ValueError(
+                    "engine_navigation requires an engine scene and task specification."
+                )
+            plan = resolve_engine_navigation_plan(
+                config.task.engine_navigation,
+                engine_scene,
+                assembly,
+            )
+            controller = StagedEngineNavigationController(
+                assembly,
+                plan,
+                config.task.engine_navigation,
+                scene_query=scene_query,
+                waypoint_tolerance_m=config.task.waypoint_tolerance_m,
+                min_clearance_m=config.task.min_clearance_m,
+                terminate_on_clearance_violation=(
+                    config.task.terminate_on_clearance_violation
+                ),
+                controller_dt_s=config.runtime.controller_dt_s,
+            )
         elif config.task.type == "navigation":
             controller = NavigationController(
                 assembly,
@@ -296,7 +322,7 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
 
 def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
     task = config.task
-    if task.type == "idle":
+    if task.type in ("idle", "engine_navigation"):
         waypoints = task.waypoints_world
         phases: tuple[str, ...] = ()
         target_force = task.target_force_n

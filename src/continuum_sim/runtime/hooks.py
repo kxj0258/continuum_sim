@@ -37,6 +37,12 @@ class StateRecorderHook:
     force_error_n: list[float] = field(default_factory=list)
     contact_error_m: list[float] = field(default_factory=list)
     task_phase: list[str] = field(default_factory=list)
+    engine_navigation_phase: list[str] = field(default_factory=list)
+    engine_navigation_terminal_reason: list[str] = field(default_factory=list)
+    engine_navigation_progress: list[float] = field(default_factory=list)
+    base_target_position_m: list[np.ndarray] = field(default_factory=list)
+    base_position_error_m: list[float] = field(default_factory=list)
+    base_orientation_error_rad: list[float] = field(default_factory=list)
 
     def on_reset(self, state: RobotSystemState) -> None:
         self.time_s.clear()
@@ -60,6 +66,12 @@ class StateRecorderHook:
         self.force_error_n.clear()
         self.contact_error_m.clear()
         self.task_phase.clear()
+        self.engine_navigation_phase.clear()
+        self.engine_navigation_terminal_reason.clear()
+        self.engine_navigation_progress.clear()
+        self.base_target_position_m.clear()
+        self.base_position_error_m.clear()
+        self.base_orientation_error_rad.clear()
         self._append(state)
 
     def on_step(
@@ -84,6 +96,31 @@ class StateRecorderHook:
             )
             self.arm_peak_actuator_force_n[name].append(
                 float(np.max(np.abs(arm.actuator_force_n)))
+            )
+        if command.metadata.get("task_type") == "engine_navigation":
+            self.engine_navigation_phase.append(
+                str(command.metadata.get("engine_navigation_phase", ""))
+            )
+            self.engine_navigation_terminal_reason.append(
+                str(command.metadata.get("engine_navigation_terminal_reason", ""))
+            )
+            self.engine_navigation_progress.append(
+                float(command.metadata.get("engine_navigation_progress", np.nan))
+            )
+            self.base_target_position_m.append(
+                np.asarray(
+                    command.metadata.get(
+                        "base_target_position_m",
+                        np.full(3, np.nan, dtype=float),
+                    ),
+                    dtype=float,
+                ).copy()
+            )
+            self.base_position_error_m.append(
+                float(command.metadata.get("base_position_error_m", np.nan))
+            )
+            self.base_orientation_error_rad.append(
+                float(command.metadata.get("base_orientation_error_rad", np.nan))
             )
         target = command.metadata.get("executor_target_world")
         if target is not None:

@@ -12,13 +12,21 @@ from continuum_sim.config import load_yaml
 from continuum_sim.config_validation import resolve_path
 from continuum_sim.control.waypoint_scheduler import WAYPOINT_ADVANCE_MODES
 from continuum_sim.tasks.engine_cleaning_path import EngineCleaningPathSpec
+from continuum_sim.tasks.engine_navigation import EngineNavigationSpec
 from continuum_sim.tasks.navigation_mission import NavigationMissionSpec
 from continuum_sim.tasks.trajectory_generation import TrajectorySpec
 from continuum_sim.tasks.wiping_path import WipingPathSpec
 
 
 BACKEND_TYPES = ("analytic", "mujoco")
-TASK_TYPES = ("idle", "tracking", "navigation", "wiping", "engine_cleaning")
+TASK_TYPES = (
+    "idle",
+    "tracking",
+    "navigation",
+    "wiping",
+    "engine_cleaning",
+    "engine_navigation",
+)
 WIPING_CONTROL_TYPES = ("contact_distance", "hybrid_force_position", "dynamic_adaptive_impedance")
 MUJOCO_FEEDBACK_MODES = ("pcc_command", "mujoco_actual")
 VIDEO_MODES = ("replay", "live_mujoco")
@@ -132,6 +140,7 @@ class ScenarioTaskConfig:
     force_proxy_stiffness_n_m: float
     max_contact_force_n: float | None
     contact_loss_tolerance_steps: int
+    engine_navigation: EngineNavigationSpec | None = None
     tracking_control: ScenarioTrackingControlConfig = field(
         default_factory=ScenarioTrackingControlConfig
     )
@@ -225,6 +234,16 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
         if task_values.get("engine_cleaning") is None
         else EngineCleaningPathSpec.from_mapping(
             _mapping(task_values["engine_cleaning"], "scenario.task.engine_cleaning")
+        )
+    )
+    engine_navigation = (
+        None
+        if task_values.get("engine_navigation") is None
+        else EngineNavigationSpec.from_mapping(
+            _mapping(
+                task_values["engine_navigation"],
+                "scenario.task.engine_navigation",
+            )
         )
     )
     waypoint_source = _waypoint_source(task_values)
@@ -341,6 +360,7 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             mission=mission,
             wiping_path=wiping_path,
             engine_cleaning=engine_cleaning,
+            engine_navigation=engine_navigation,
             waypoint_phases=tuple(str(value) for value in task_values.get("waypoint_phases", ())),
             target_force_n=np.asarray(task_values.get("target_force_n", []), dtype=float),
             wiping_control_type=wiping_control_type,
@@ -457,7 +477,14 @@ def _mapping(value: object, name: str) -> dict:
 def _waypoint_source(task_values: dict[str, Any]) -> str:
     sources = [
         name
-        for name in ("waypoints_world", "trajectory", "mission", "wiping_path", "engine_cleaning")
+        for name in (
+            "waypoints_world",
+            "trajectory",
+            "mission",
+            "wiping_path",
+            "engine_cleaning",
+            "engine_navigation",
+        )
         if task_values.get(name) is not None
     ]
     if not sources:

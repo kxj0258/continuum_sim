@@ -101,7 +101,17 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
         waypoint_index=[0],
         min_clearance_m=[np.nan],
         contact_distance_m=[np.nan],
+        contact_error_m=[np.nan],
+        target_force_n=[np.nan],
+        estimated_force_n=[np.nan],
+        force_error_n=[np.nan],
         task_phase=["tracking"],
+        engine_navigation_phase=["base_approach"],
+        engine_navigation_terminal_reason=[""],
+        engine_navigation_progress=[0.0],
+        base_target_position_m=[np.array([0.1, 0.2, 0.3])],
+        base_position_error_m=[0.1],
+        base_orientation_error_rad=[0.2],
     )
     application = SimpleNamespace(
         config=config,
@@ -128,6 +138,9 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
     with np.load(paths.result_npz) as arrays:
         assert arrays["arm_executor_saturation_scale"].tolist() == [0.75]
         assert arrays["arm_executor_peak_actuator_force_n"].tolist() == [3.0]
+        assert arrays["engine_navigation_phase"].tolist() == ["base_approach"]
+        assert arrays["base_target_position_m"].shape == (1, 3)
+        assert arrays["base_position_error_m"].tolist() == [0.1]
 
 
 def _state(time_s: float, tip_position: list[float]) -> RobotSystemState:

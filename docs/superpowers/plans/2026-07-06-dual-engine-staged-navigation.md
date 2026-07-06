@@ -223,7 +223,7 @@ git commit -m "feat(control): add staged engine navigation controller"
 - Create: `configs/robots/assemblies/dual_spatial_mobile.yaml`
 - Create: `configs/scenarios/dual_engine_navigation.yaml`
 - Modify: `src/continuum_sim/application/application.py`
-- Test: `tests/test_simulation_application.py`
+- Test: `tests/test_engine_navigation_application.py`
 
 **Interfaces:**
 - Consumes: `resolve_engine_navigation_plan` and `StagedEngineNavigationController`.
@@ -291,13 +291,13 @@ Do not alter ordinary navigation, tracking, or wiping behavior.
 - [ ] **Step 5: Document the composition test command without running it**
 
 ```powershell
-pytest tests/test_simulation_application.py -q
+pytest tests/test_engine_navigation_application.py -q
 ```
 
 - [ ] **Step 6: Commit the runnable composition**
 
 ```powershell
-git add configs/robots/assemblies/dual_spatial_mobile.yaml configs/scenarios/dual_engine_navigation.yaml src/continuum_sim/application/application.py tests/test_simulation_application.py
+git add configs/robots/assemblies/dual_spatial_mobile.yaml configs/scenarios/dual_engine_navigation.yaml src/continuum_sim/application/application.py tests/test_engine_navigation_application.py
 git commit -m "feat(engine): compose dual-arm staged navigation scenario"
 ```
 
@@ -368,7 +368,7 @@ belong to the feature.
 Per project instruction, leave these commands for the user:
 
 ```powershell
-pytest tests/test_engine_navigation.py tests/test_staged_engine_navigation.py tests/test_simulation_application.py tests/test_scenario_artifacts.py -q
+pytest tests/test_engine_navigation.py tests/test_staged_engine_navigation.py tests/test_engine_navigation_application.py tests/test_scenario_artifacts.py -q
 python scripts/run_scenario.py configs/scenarios/dual_engine_navigation.yaml
 ```
 

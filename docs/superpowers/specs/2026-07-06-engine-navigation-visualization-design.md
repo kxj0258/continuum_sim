@@ -12,6 +12,7 @@ visual elements must be independently configurable from YAML.
 The visualization covers the `engine_navigation` task:
 
 - pre-entry target;
+- mobile-base planned path;
 - insertion planned path and insertion waypoints;
 - executor local planned path;
 - observer region of interest;
@@ -19,6 +20,11 @@ The visualization covers the `engine_navigation` task:
 - actual mobile-base history;
 - actual executor-tip history;
 - visited target history.
+
+The executor local path center is not the fully extended insertion endpoint.
+`task.engine_navigation.local_path.axial_retraction_m` moves that center back
+toward the arm base along the negative insertion axis. The observer ROI follows
+the retracted center so planning, control, and visualization stay consistent.
 
 The existing generic target marker, target trail, tip trail, tendon paths, and
 segment endpoint overlays remain compatible with tracking, navigation, and
@@ -42,6 +48,7 @@ runtime layer, and appearance in the MuJoCo YAML configuration.
 Each engine-navigation command exposes:
 
 - `engine_navigation_pre_entry_target_m`;
+- `engine_navigation_base_path_m`;
 - `engine_navigation_insertion_path_m`;
 - `engine_navigation_executor_path_m`;
 - `engine_navigation_observer_roi_m`;
@@ -58,6 +65,7 @@ metadata so hooks do not need to depend directly on task/controller classes.
 The shared MuJoCo overlay renderer draws:
 
 - pre-entry target as a sphere;
+- mobile-base planned route as a line of spheres;
 - insertion route as a line of spheres;
 - insertion waypoints as larger spheres;
 - executor local route as a line of spheres;
@@ -94,6 +102,9 @@ rendering. Missing or malformed optional visualization metadata is ignored
 rather than affecting control. Configuration values are validated with the
 same positive-number, positive-integer, boolean, and RGBA helpers used by the
 existing overlay settings.
+
+`axial_retraction_m` must be finite and non-negative. A value of zero restores
+the original endpoint-centered behavior.
 
 ## Manual Validation
 

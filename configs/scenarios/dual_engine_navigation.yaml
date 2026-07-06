@@ -50,24 +50,24 @@ scenario:
         - name: one_third_circle
           at_fraction: 0.3333333333
           type: transverse_circle
-          radius_m: 0.075
+          radius_m: 0.035
           samples: 60
-          axial_retraction_m: 0.045
+          axial_retraction_m: 0.025
         - name: two_thirds_ellipse
           at_fraction: 0.6666666667
           type: ellipse
-          radius_m: 0.075
+          radius_m: 0.035
           shape:
-            radius_x_m: 0.075
-            radius_y_m: 0.045
-          samples: 75
-          axial_retraction_m: 0.045
+            radius_x_m: 0.035
+            radius_y_m: 0.020
+          samples: 60
+          axial_retraction_m: 0.025
       local_path:
         name: endpoint_square
         type: transverse_square
-        radius_m: 0.050
+        radius_m: 0.030
         samples: 60
-        axial_retraction_m: 0.045
+        axial_retraction_m: 0.025
   runtime:
     controller_dt_s: 0.02
     n_substeps: 20

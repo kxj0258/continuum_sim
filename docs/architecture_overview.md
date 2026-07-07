@@ -1,220 +1,118 @@
 # 架构概览
 
-## 可组合 spatial system
+本文描述当前推荐维护路径。旧运行时和旧任务配置仍保留用于兼容、测试和参考，但新的实验应优先使用
+`configs/scenarios/*.yaml` 与 `SimulationApplication`。
 
-当前主架构由 `RobotAssemblyConfig + EngineSceneConfig` 组合：
-
-```text
-RobotAssemblyConfig + EngineSceneConfig
-        -> ControlLayout
-        -> RobotSystemState
-        -> CoordinatedTrackingController
-        -> world base twist + named tendon-length rates
-        -> MujocoSystemBackend
-        -> prescribed freejoint pose + absolute tendon-length targets
-```
-
-单臂和双臂复用同一 controller、backend、simulation loop 和 engine scene
-adapter，仅由 assembly 配置决定启用哪些命名臂。单臂布局为15D，双臂布局为
-24D。
-
-spatial 控制链不再包含电机、卷盘或减速器映射。奇异规避基于
-tendon-to-shape 与任务 Jacobian 的 SVD。engine 实时 clearance 暂时使用
-`primitive_collision_geoms`，visual mesh 不参与控制查询。
-
-坐标系和命令语义以 `docs/coordinate_conventions.md` 为准。
-
-## Scenario应用层
-
-推荐入口为：
+## 顶层数据流
 
 ```text
-ScenarioConfig
-  -> SimulationApplication
-  -> assembly/backend/scene/task/hooks
+场景 YAML
+  -> load_scenario_config()
+  -> SimulationApplication.from_config()
+  -> 装配 + 后端 + 场景 + 任务 + hooks
   -> SimulationLoop
+  -> RobotSystemState / RobotSystemCommand
+  -> 可选运行产物
 ```
 
-`configs/scenarios/`分别提供单臂、双臂、analytic、MuJoCo和engine组合。旧 CLI
-入口已删除，不再决定模块边界。
+应用层是组合根：它负责读取配置、生成或注入 MuJoCo XML、创建控制器、注册 hooks，并把后端
+和控制器交给统一的仿真循环。业务逻辑应尽量留在 model、tasks、control、scenes 等模块中，
+避免在脚本里堆临时分支。
 
-## 旧版研究模块
-
-早期模块使用 PCC 运动学、differential IK 和可选 MuJoCo 降阶后端建模三段
-腱驱连续体机械臂。它们不再构成新的 system runtime 公共接口。
-
-## 分层
+## 主要模块边界
 
 ```text
-YAML 配置
-  -> 机器人与腱模型
-  -> 驱动映射
-  -> PCC 运动学
-  -> differential IK
-  -> analytic 或 MuJoCo 后端
-  -> 可视化与运行命令
+continuum_sim.application
+  场景 dataclass、YAML 加载器、SimulationApplication 组合根
+
+continuum_sim.model
+  机器人装配、底座位姿、多臂状态、tendon routing、bending-space 模型
+
+continuum_sim.system
+  ControlLayout、RobotSystemState、RobotSystemCommand 等系统层协议
+
+continuum_sim.tasks
+  轨迹、导航任务、擦拭路径、发动机导航计划解析
+
+continuum_sim.control
+  路点跟踪、导航、擦拭、发动机清洗、分阶段发动机导航
+
+continuum_sim.backends
+  analytic 和 MuJoCo 系统后端
+
+continuum_sim.scenes
+  发动机和结构化场景配置、查询和 MJCF 注入
+
+continuum_sim.runtime
+  后端无关循环、viewer、视频、记录器和诊断 hooks
+
+continuum_sim.io
+  场景运行产物、NPZ、metadata、图表、视频回放导出
 ```
 
-## 主要模块
+## 场景配置职责
 
-- `continuum_sim.model`：机器人段参数、物理腱路径，以及物理腱长与 PCC 状态 `q` 之间的耦合矩阵。
-- `continuum_sim.actuation`：根据 spool radius、gear ratio、direction 和 zero offset，在电机位置/速度与腱长/腱速之间转换。
-- `continuum_sim.kinematics`：PCC 变换、中心线采样、末端位置有限差分 Jacobian，以及 `ContinuumKinematicsChain`。
-- `continuum_sim.control`：阻尼最小二乘 differential IK 和离线 tracking 仿真。
-- `continuum_sim.backends`：`AnalyticBackend`、`MujocoBackend`、共享 backend protocol/state，以及 PCC 到 MuJoCo target 的转换。
-- `continuum_sim.scenes`：结构化场景 YAML、clearance 查询原语，以及把障碍物注入 MuJoCo XML 的 builder。
-- `continuum_sim.tasks`：PCC/MuJoCo tracking 与 MuJoCo navigation 的 YAML loader，以及目标轨迹/巡检 waypoint 生成。
-- `continuum_sim.runtime`：MuJoCo tracking/navigation 运行编排和共享 viewer helper。
-- `continuum_sim.visualization`：PCC、motor-chain、MuJoCo tendon monitor 和 tracking 结果绘图工具。
+一个场景配置应该回答这些问题：
 
-当前 tracking 任务的目标轨迹生成已经从单一圆/8 字扩展为一组离散空间 waypoint 生成器，支持 `circle`、`figure-eight`、`ellipse`、`line`、`square`、`lissajous` 和 `helix`，并通过 `trajectory.placement` 与 `trajectory.shape` 两层配置描述轨迹放置和形状参数。
+- 使用哪个机器人装配：`assembly_config_path`
+- 使用哪个后端：`backend.type`
+- 是否需要 MuJoCo XML 注入：`source_xml_path`、`generated_xml_path`
+- 使用哪个场景查询：`scene.engine_config_path` 或 `scene.structured_config_path`
+- 执行什么任务：`task.type` 以及对应的 trajectory、mission、wiping、engine_navigation
+- 运行时节拍和最长步数：`runtime.controller_dt_s`、`n_substeps`、`max_steps`
+- 需要哪些观察器：`hooks.recorder`、`tendon_debug`、viewer、实时面板
+- 是否写产物：`artifacts.enabled`、`save_npz`、`save_plots`、`save_gif`、`save_model`
 
-## 命令边界
-
-当前维护的运行入口是 `scripts/run_scenario.py`：
-
-```powershell
-python scripts/run_scenario.py configs/scenarios/single_analytic_smoke.yaml
-python scripts/run_scenario.py configs/scenarios/single_mujoco_smoke.yaml
-python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml
-python scripts/run_scenario.py configs/scenarios/single_engine_tracking.yaml
-```
-
-## 结构化导航流程
-
-火箭发动机腔体检修任务新增了一条 MuJoCo navigation 链路：
+## MuJoCo 组合路径
 
 ```text
-scene YAML
-  -> shell/obstacle clearance primitives
-  -> generated MuJoCo XML with chamber geoms
-  -> ordered inspection waypoints
-  -> tip tracking + centerline clearance differential IK
-  -> tendon-position or joint-position MuJoCo control
+source_xml_path
+  -> 重设文件资源相对路径
+  -> 可选保留指定空间臂
+  -> 可选注入发动机或结构化场景
+  -> 可选锁定固定底座 freejoint
+  -> generated_xml_path
+  -> MujocoSystemBackend
 ```
 
-`configs/scenes/rocket_*.yaml` 定义腔体内壁、筋条、凸台和喷注器柱等结构；同一份场景既用于生成 MuJoCo XML，也用于控制器查询机械臂中心线到环境的最小 clearance。默认任务入口是 `configs/tasks/mujoco_navigation_rocket.yaml`。
+`generated_xml_path` 是输出位置，不应被当成手写源文件。固定基线 XML 位于 `assets/mujoco/`；
+场景运行期间生成或覆盖的 XML 通常位于 `output/generated/` 或运行产物目录。
 
-## 作业面擦拭流程
+## 控制路径
 
-板面擦拭任务复用 structured scene 和 XML builder，但把环境查询从 clearance 扩展到 planar work surface：
+常规跟踪、导航、擦拭控制链路：
 
 ```text
-scene YAML
-  -> collidable board/frame geoms + surface/patch metadata
-  -> generated MuJoCo XML with tip-mounted contact pad
-  -> raster wipe waypoints in the surface frame
-  -> 切向位置跟踪 + 法向力/接触 proxy 调节
-  -> tendon-position MuJoCo control
+任务目标
+  -> 控制器计算底座速度和机械臂 bending rate
+  -> ControlLayout 映射相容 bending 命令
+  -> 后端应用底座位姿和 tendon 目标
+  -> RobotSystemState 回报末端位姿、tendon 状态、metadata
+  -> hooks 记录诊断数据和运行产物
 ```
 
-`configs/scenes/wiping_board.yaml` 定义可碰撞作业面、辅助边框、`work_surfaces` 和 `wipe_patches`；`configs/tasks/mujoco_wiping_board.yaml` 绑定 tool pad、raster motion、hybrid force-position controller 和 MuJoCo runtime 记录字段。
+发动机导航使用 `StagedEngineNavigationController`，按预进入、插入、局部执行臂路径、回归和终止阶段推进，
+并通过 metadata 暴露活动目标、底座路径、执行臂路径、observer ROI 等叠加层和运行产物需要的数据。
 
-当 MuJoCo viewer 启用且 `mujoco.show_live_force_panel` 为 true 时，wiping runtime 会在同一循环中创建 `WipingForceMonitorPanel`，按 stride 显示法向接触力、目标力、force error、contact proxy、phase 和 waypoint 状态；它与 live tendon panel 独立，可同时打开。
+## Hooks 与调试数据
 
-运行行为写在 scenario YAML 中，这样实验可以通过提交 YAML 复现，而不是依赖临时命令行覆盖项。
+`runtime.hooks` 是调试便利性的核心模块，包含：
 
-## 规范配置
+- `StateRecorderHook`：记录状态、目标、误差、force/contact、发动机导航阶段。
+- `TendonDiagnosticHook`：按 stride 打印 tendon 目标误差和饱和信息。
+- `MujocoReplayRecorderHook`：记录 qpos、qvel、mocap，用于离屏回放视频。
+- `MujocoLiveVideoRecorderHook`：仿真过程中直接采集 MuJoCo 帧。
+- `MujocoViewerHook`、`MatplotlibSystemViewerHook`：交互式查看。
+- 实时面板：tendon、擦拭力、诊断数据。
 
-- `configs/scenarios/`：推荐运行入口，组合机器人、后端、场景、任务、runtime 和 hooks。
-- `configs/robot_3seg.yaml`：几何、物理腱、电机和执行限幅。
-- `configs/pcc.yaml`：analytic PCC 后端设置。
-- `configs/mujoco.yaml`：MuJoCo XML 路径、solver、控制模式、actuator、sensor、viewer 和 overlay。
-- `configs/tasks/pcc_trajectory_tracking.yaml`：PCC tracking 运行配置。
-- `configs/tasks/mujoco_trajectory_tracking.yaml`：MuJoCo tracking 运行配置。
-- `configs/tasks/mujoco_navigation_rocket.yaml`：结构化障碍 navigation 运行配置。
-- `configs/tasks/mujoco_wiping_board.yaml`：作业面擦拭 hybrid force-position 运行配置。
-- `configs/scenes/wiping_board.yaml`：板面作业场景和 patch 元数据。
+新增调试字段时，优先放入控制器命令 metadata，再由 recorder/hooks 消费。这样不会把具体任务逻辑
+塞进 IO 或 viewer 代码里。
 
-## 离线 PCC 流程
+## 可扩展性约定
 
-```text
-motor_position
-  -> motor_position_to_tendon_delta
-  -> physical_tendon_delta_to_q
-  -> forward_kinematics
-  -> tip position error
-  -> motor_position_jacobian
-  -> damped least-squares motor velocity
-```
-
-这条路径确定性强、运行快，并由 `core` 测试标记覆盖。
-
-## MuJoCo 流程
-
-```text
-tracking target
-  -> differential IK motor velocity
-  -> motor/tendon integration
-  -> MuJoCo control vector
-  -> MujocoBackend.step()
-  -> tip pose, segment poses, sensors, force history
-```
-
-`configs/mujoco.yaml` 选择 `tendon_position` 或 `position_joint` 模式。MuJoCo 是可选依赖；需要 MuJoCo 的测试在未安装该包时会干净跳过。
-
-## Segment-2DOF follower MuJoCo 模型
-
-`MujocoBackend` 支持两种模型拓扑：
-
-- `distributed_links`：现有默认模型。它有三段，每段四个物理 link，每个 link 两个 hinge joint，以及 9 个 tendon-position actuator。
-- `segment_2dof_followers`：并行的 2DOF 降阶模型，每段只有两个物理 hinge DOF。6 个物理 `q` 是各段总 hinge 角，顺序为 `segment_1_x`、`segment_1_y`、...、`segment_3_y`。
-
-对于 `segment_2dof_followers`，运行时 follower body 是名为 `follower_segment_<i>_sample_<k>` 的 MuJoCo mocap body。它们的位姿由 `continuum_sim.model.segment_followers` 中的 PCC 模型采样得到，并在 reset、step 和 replay 时写入 `data.mocap_pos` / `data.mocap_quat`。这些 body 只提供视觉/碰撞采样，不增加广义坐标。
-
-擦拭力反馈路径为：
-
-```text
-MuJoCo contacts
-  -> follower 碰撞 geom 筛选
-  -> mj_contactForce 接触坐标系扳手
-  -> 世界坐标系力/力矩
-  -> 相对 6 维 segment q 的 follower/contact-point 有限差分 Jacobian
-  -> normal_force_n + projected_generalized_force_q
-  -> 混合力位擦拭控制器
-```
-
-`mujoco_actual` 擦拭反馈优先使用 `mujoco_follower_contact_projection`；如果没有 follower 接触，则回退到已有 tool-pad MuJoCo 接触力，再回退到距离 proxy。`apply_projected_qfrc` 可用但默认关闭，因为当前首要用途是力反馈，而不是接触反作用动力学。
-
-## 运行产物导出
-
-Scenario 产物导出刻意放在 runtime 控制循环之外。运行命令会先返回内存中的 result dataclass；当 scenario 启用 artifacts 时，`continuum_sim.io.scenario_artifacts` 会创建 `output/runs/<scenario>_<timestamp>/`，写出 NPZ 数据、metadata、配置副本、静态 PNG 曲线图、生成的 scene XML，以及可选的 `videos/simulation.gif`。
-
-对 MuJoCo 结果，回放视频导出被隔离在 `scripts/export_replay_video.py`，这样渲染器会在新进程中创建。导出器用保存的 `qpos/qvel` 复现归档的 `model/scene.xml`，尺寸使用 `configs/mujoco.yaml` 的 `rendering.offscreen_*`，相机使用 `viewer.camera`，与 passive viewer 的前侧斜视角保持一致。如果视频导出失败，原因会记录到 `videos/video_error.txt`，数值和曲线产物仍会保留。
-
-如果要在完整运行前诊断某台机器上的渲染环境问题，可以先运行 `scripts/check_mujoco_offscreen_renderer.py`。它会直接探测配置中的 XML，并报告失败发生在 XML 加载、渲染器创建还是帧渲染阶段。
-## Bending-space control path
-
-Normal arm commands use six bending variables per three-segment arm, not nine
-independent tendon variables:
-
-```text
-Cartesian task
-  -> J_b = J_q S_b
-  -> base + bending weighted solve
-  -> tendon rate = C_b bending rate
-  -> measured-length anti-windup target lead limit
-  -> constrained bending-rate projection for rate/displacement limits
-  -> bending-target integration
-  -> analytic or MuJoCo tendon-position target
-```
-
-`BendingSpaceModel` owns `S_b`, `C_b`, projection, inverse estimation, rank, and
-compatibility residuals. `ControlLayout` owns base-plus-bending optimization
-slices and separate physical-tendon slices. `RobotSystemCommand` remains the
-runtime boundary; an arm command is compatible by default and raw tendon control
-requires the explicit `raw_tendon_debug` mode.
-
-Compatible target integration keeps tendon targets close to measured tendon
-lengths before integrating the next rate command. The default target lead is
-0.5 mm. The single-arm baseline uses `kp=40000 N/m` and `forcerange=±20 N`
-(a 0.5 mm linear band), while the dual-arm model uses `forcerange=±30 N`
-(a 0.75 mm linear band). When a tendon target is at a displacement boundary, the
-integrator no longer applies one arm-wide scale that can freeze all bending
-motion. It projects the requested six-dimensional bending rate onto the
-available tendon-rate and next-target displacement constraints, so remaining
-feasible compatible bending directions can continue moving along the boundary.
-
-Measured tendon state is projected before PCC kinematics and always reconstructs
-zero axial strain. The discarded component is diagnostic model/physics residual,
-not an additional control degree of freedom.
+- 新任务类型：先在 `tasks` 中定义 spec/plan，再在 `control` 中实现控制器，最后在 `application` 中组合。
+- 新场景：优先实现结构化 YAML 和查询对象，MuJoCo 注入只负责渲染和碰撞表达。
+- 新运行产物：优先扩展 `io.scenario_artifacts`，不要在控制器中直接写文件。
+- 新可视化：优先通过 hooks 和 metadata 接入，不要让仿真循环依赖某个 viewer。
+- 新配置字段：在 dataclass 中给出默认值和 `__post_init__` 校验，并同步更新
+  `docs/configuration_reference.md`。

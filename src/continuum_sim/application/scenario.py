@@ -298,10 +298,7 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     feedback_mode = str(task_values.get("feedback_mode", "mujoco_actual"))
     if feedback_mode not in MUJOCO_FEEDBACK_MODES:
         raise ValueError(f"scenario.task.feedback_mode must be one of {MUJOCO_FEEDBACK_MODES}.")
-    tracking_control_values = _mapping(
-        task_values.get("tracking_control", {}),
-        "scenario.task.tracking_control",
-    )
+    tracking_control = _load_tracking_control_config(task_values)
     viewer = str(hook_values.get("viewer", "none"))
     if viewer not in ("none", "matplotlib", "mujoco"):
         raise ValueError("scenario.hooks.viewer must be none, matplotlib, or mujoco.")
@@ -383,59 +380,7 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             contact_loss_tolerance_steps=int(
                 task_values.get("contact_loss_tolerance_steps", 20)
             ),
-            tracking_control=ScenarioTrackingControlConfig(
-                approach_samples=int(
-                    tracking_control_values.get("approach_samples", 0)
-                ),
-                executor_position_gain=float(
-                    tracking_control_values.get("executor_position_gain", 4.0)
-                ),
-                observer_position_gain=float(
-                    tracking_control_values.get("observer_position_gain", 5.0)
-                ),
-                feedforward_speed_mps=float(
-                    tracking_control_values.get("feedforward_speed_mps", 0.0)
-                ),
-                max_target_speed_mps=_optional_float(
-                    tracking_control_values.get("max_target_speed_mps")
-                ),
-                executor_tracking_weight=float(
-                    tracking_control_values.get("executor_tracking_weight", 100.0)
-                ),
-                observer_tracking_weight=float(
-                    tracking_control_values.get("observer_tracking_weight", 40.0)
-                ),
-                executor_collision_avoidance_weight=float(
-                    tracking_control_values.get(
-                        "executor_collision_avoidance_weight",
-                        80.0,
-                    )
-                ),
-                base_regularization_weight=float(
-                    tracking_control_values.get("base_regularization_weight", 1.0)
-                ),
-                tendon_regularization_weight=float(
-                    tracking_control_values.get("tendon_regularization_weight", 0.2)
-                ),
-                rank_tolerance=float(
-                    tracking_control_values.get("rank_tolerance", 1.0e-9)
-                ),
-                minimum_singular_value=float(
-                    tracking_control_values.get("minimum_singular_value", 1.0e-5)
-                ),
-                nominal_damping=float(
-                    tracking_control_values.get("nominal_damping", 1.0e-4)
-                ),
-                maximum_damping=float(
-                    tracking_control_values.get("maximum_damping", 5.0e-2)
-                ),
-                minimum_velocity_scale=float(
-                    tracking_control_values.get("minimum_velocity_scale", 0.05)
-                ),
-                decouple_arm_singularity=bool(
-                    tracking_control_values.get("decouple_arm_singularity", False)
-                ),
-            ),
+            tracking_control=tracking_control,
         ),
         runtime=ScenarioRuntimeConfig(
             controller_dt_s=float(runtime_values.get("controller_dt_s", 0.02)),
@@ -510,6 +455,39 @@ def _waypoint_source(task_values: dict[str, Any]) -> str:
     if len(sources) > 1:
         raise ValueError(f"scenario.task defines multiple waypoint sources: {sources}.")
     return sources[0]
+
+
+def _load_tracking_control_config(
+    task_values: dict[str, Any],
+) -> ScenarioTrackingControlConfig:
+    values = _mapping(
+        task_values.get("tracking_control", {}),
+        "scenario.task.tracking_control",
+    )
+    return ScenarioTrackingControlConfig(
+        approach_samples=int(values.get("approach_samples", 0)),
+        executor_position_gain=float(values.get("executor_position_gain", 4.0)),
+        observer_position_gain=float(values.get("observer_position_gain", 5.0)),
+        feedforward_speed_mps=float(values.get("feedforward_speed_mps", 0.0)),
+        max_target_speed_mps=_optional_float(values.get("max_target_speed_mps")),
+        executor_tracking_weight=float(values.get("executor_tracking_weight", 100.0)),
+        observer_tracking_weight=float(values.get("observer_tracking_weight", 40.0)),
+        executor_collision_avoidance_weight=float(
+            values.get("executor_collision_avoidance_weight", 80.0)
+        ),
+        base_regularization_weight=float(values.get("base_regularization_weight", 1.0)),
+        tendon_regularization_weight=float(
+            values.get("tendon_regularization_weight", 0.2)
+        ),
+        rank_tolerance=float(values.get("rank_tolerance", 1.0e-9)),
+        minimum_singular_value=float(values.get("minimum_singular_value", 1.0e-5)),
+        nominal_damping=float(values.get("nominal_damping", 1.0e-4)),
+        maximum_damping=float(values.get("maximum_damping", 5.0e-2)),
+        minimum_velocity_scale=float(values.get("minimum_velocity_scale", 0.05)),
+        decouple_arm_singularity=bool(
+            values.get("decouple_arm_singularity", False)
+        ),
+    )
 
 
 def _required(values: dict, name: str, section: str) -> object:

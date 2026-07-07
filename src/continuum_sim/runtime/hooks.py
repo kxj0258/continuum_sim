@@ -70,10 +70,7 @@ class _TrackingOverlayState:
         ):
             self.target_trail.append(target)
             self.target_trail_kinds.append(target_kind)
-        executor = next(
-            (arm for arm in state.arms.values() if arm.role == "executor"),
-            None,
-        )
+        executor = _executor_arm(state)
         if executor is not None:
             self.tip_trail.append(executor.tip_pose_world.position.copy())
         if is_engine_navigation:
@@ -231,10 +228,7 @@ class StateRecorderHook:
         target = command.metadata.get("executor_target_world")
         if target is not None:
             self.target_position_m.append(np.asarray(target, dtype=float).copy())
-            executor = next(
-                (arm for arm in state.arms.values() if arm.role == "executor"),
-                None,
-            )
+            executor = _executor_arm(state)
             self.target_actual_position_m.append(
                 np.full(3, np.nan, dtype=float)
                 if executor is None
@@ -324,6 +318,10 @@ def _metadata_vector_or_nan(
     if vector.shape != (3,) or not np.all(np.isfinite(vector)):
         return np.full(3, np.nan, dtype=float)
     return vector.copy()
+
+
+def _executor_arm(state: RobotSystemState):
+    return next((arm for arm in state.arms.values() if arm.role == "executor"), None)
 
 
 @dataclass
@@ -556,10 +554,7 @@ def _follow_camera_target(
     if follow == "base":
         return state.base.pose.position.copy()
     if follow == "executor_tip":
-        executor = next(
-            (arm for arm in state.arms.values() if arm.role == "executor"),
-            None,
-        )
+        executor = _executor_arm(state)
         if executor is not None:
             return executor.tip_pose_world.position.copy()
     return None
@@ -1339,17 +1334,11 @@ def _draw_error_vector_overlay_scene(
         if kind == "base":
             start = state.base.pose.position.copy()
         else:
-            executor = next(
-                (arm for arm in state.arms.values() if arm.role == "executor"),
-                None,
-            )
+            executor = _executor_arm(state)
             start = None if executor is None else executor.tip_pose_world.position.copy()
     else:
         target = overlay_state.target_trail[-1] if overlay_state.target_trail else None
-        executor = next(
-            (arm for arm in state.arms.values() if arm.role == "executor"),
-            None,
-        )
+        executor = _executor_arm(state)
         start = None if executor is None else executor.tip_pose_world.position.copy()
     if start is None or target is None:
         return
@@ -1558,10 +1547,7 @@ class MatplotlibSystemViewerHook:
         if target is not None:
             self._target = np.asarray(target, dtype=float).copy()
             self._target_trail.append(self._target)
-        executor = next(
-            (arm for arm in state.arms.values() if arm.role == "executor"),
-            None,
-        )
+        executor = _executor_arm(state)
         if executor is not None:
             self._tip_trail.append(executor.tip_pose_world.position.copy())
         self._draw(state)

@@ -655,7 +655,9 @@ class LiveTendonPanelHook:
     def on_finish(self, state: RobotSystemState) -> None:
         del state
         if self._panel is not None:
-            self._panel.flush_events()
+            _safe_panel_call(self._panel, "flush_events")
+            _safe_panel_call(self._panel, "close")
+            self._panel = None
 
 
 class LiveWipingForcePanelHook:
@@ -709,7 +711,14 @@ class LiveWipingForcePanelHook:
     def on_finish(self, state: RobotSystemState) -> None:
         del state
         if self._plt is not None:
-            self._plt.ioff()
+            try:
+                self._plt.ioff()
+                if self._figure is not None:
+                    self._plt.close(self._figure)
+            except Exception:
+                pass
+        self._figure = None
+        self._axes = None
 
     def _trim(self) -> None:
         if len(self._time) <= self.history_points:
@@ -731,6 +740,255 @@ class LiveWipingForcePanelHook:
         self._axes.legend(loc="upper right")
         self._figure.canvas.draw_idle()
         self._figure.canvas.flush_events()
+
+
+class LiveDiagnosticsPanelHook:
+    """Optional compact live panel for tracking, safety, and actuator diagnostics."""
+
+    def __init__(self, *, stride: int = 5, history_points: int = 300) -> None:
+        if stride <= 0:
+            raise ValueError("LiveDiagnosticsPanelHook stride must be positive.")
+        if history_points <= 0:
+            raise ValueError("LiveDiagnosticsPanelHook history_points must be positive.")
+        self.stride = int(stride)
+        self.history_points = int(history_points)
+        self._plt = None
+        self._figure = None
+        self._axes = None
+        self._info_text = None
+        self._time: list[float] = []
+        self._tracking_error: list[float] = []
+        self._base_error: list[float] = []
+        self._clearance: list[float] = []
+        self._contact_distance: list[float] = []
+        self._force_error: list[float] = []
+        self._condition: list[float] = []
+        self._velocity_scale: list[float] = []
+        self._saturation_scale: list[float] = []
+        self._tendon_error: list[float] = []
+        self._phase = ""
+        self._waypoint_index = -1
+
+    def on_reset(self, state: RobotSystemState) -> None:
+        import matplotlib.pyplot as plt
+
+        self._plt = plt
+        self._figure, axes = plt.subplots(2, 2, figsize=(12.0, 7.2))
+        manager = getattr(self._figure.canvas, "manager", None)
+        if manager is not None:
+            manager.set_window_title("continuum_sim live diagnostics")
+        self._axes = axes.reshape(-1)
+        self._info_text = self._axes[3].text(
+            0.02,
+            0.98,
+            "",
+            va="top",
+            ha="left",
+            family="monospace",
+            fontsize=8.5,
+            transform=self._axes[3].transAxes,
+        )
+        self._axes[3].axis("off")
+        self._clear()
+        self._append(state, None)
+        plt.ion()
+        self._draw()
+
+    def on_step(
+        self,
+        state: RobotSystemState,
+        command: RobotSystemCommand,
+        step_index: int,
+    ) -> None:
+        if step_index % self.stride != 0:
+            return
+        self._append(state, command)
+        self._trim()
+        self._draw()
+
+    def should_stop(self, state: RobotSystemState, step_index: int) -> bool:
+        del state, step_index
+        return False
+
+    def on_finish(self, state: RobotSystemState) -> None:
+        del state
+        if self._plt is None:
+            return
+        try:
+            self._plt.ioff()
+            if self._figure is not None:
+                self._plt.close(self._figure)
+        except Exception:
+            pass
+        self._figure = None
+        self._axes = None
+
+    def _clear(self) -> None:
+        for values in (
+            self._time,
+            self._tracking_error,
+            self._base_error,
+            self._clearance,
+            self._contact_distance,
+            self._force_error,
+            self._condition,
+            self._velocity_scale,
+            self._saturation_scale,
+            self._tendon_error,
+        ):
+            values.clear()
+        self._phase = ""
+        self._waypoint_index = -1
+
+    def _append(
+        self,
+        state: RobotSystemState,
+        command: RobotSystemCommand | None,
+    ) -> None:
+        metadata = {} if command is None else command.metadata
+        self._time.append(float(state.time_s))
+        self._tracking_error.append(float(metadata.get("executor_error_m", np.nan)))
+        self._base_error.append(float(metadata.get("base_position_error_m", np.nan)))
+        self._clearance.append(float(metadata.get("min_clearance_m", np.nan)))
+        self._contact_distance.append(float(metadata.get("contact_distance_m", np.nan)))
+        self._force_error.append(float(metadata.get("force_error_n", np.nan)))
+        singularity = metadata.get("whole_body_singularity")
+        self._condition.append(
+            float(getattr(singularity, "condition_number", np.nan))
+        )
+        self._velocity_scale.append(
+            float(getattr(singularity, "velocity_scale", np.nan))
+        )
+        saturation = state.metadata.get("saturation", {})
+        scales = [
+            float(values.get("common_scale", np.nan))
+            for values in saturation.values()
+            if isinstance(values, dict)
+        ]
+        finite_scales = [value for value in scales if np.isfinite(value)]
+        self._saturation_scale.append(
+            float(min(finite_scales)) if finite_scales else np.nan
+        )
+        tendon_errors = []
+        for arm in state.arms.values():
+            tendon_errors.append(
+                float(np.linalg.norm(arm.tendon_target_m - arm.tendon_displacement_m))
+            )
+        self._tendon_error.append(float(max(tendon_errors)) if tendon_errors else np.nan)
+        self._phase = str(
+            metadata.get(
+                "engine_navigation_phase",
+                metadata.get("wiping_phase", metadata.get("task_type", "")),
+            )
+        )
+        self._waypoint_index = int(metadata.get("waypoint_index", -1))
+
+    def _trim(self) -> None:
+        extra = len(self._time) - self.history_points
+        if extra <= 0:
+            return
+        for values in (
+            self._time,
+            self._tracking_error,
+            self._base_error,
+            self._clearance,
+            self._contact_distance,
+            self._force_error,
+            self._condition,
+            self._velocity_scale,
+            self._saturation_scale,
+            self._tendon_error,
+        ):
+            del values[:extra]
+
+    def _draw(self) -> None:
+        if self._axes is None or self._figure is None:
+            return
+        time_s = np.asarray(self._time, dtype=float)
+        axes = self._axes
+        for axis in axes[:3]:
+            axis.cla()
+            axis.grid(True, alpha=0.25)
+        axes[3].cla()
+        axes[3].axis("off")
+        self._info_text = axes[3].text(
+            0.02,
+            0.98,
+            "",
+            va="top",
+            ha="left",
+            family="monospace",
+            fontsize=8.5,
+            transform=axes[3].transAxes,
+        )
+
+        axes[0].plot(time_s, 1000.0 * np.asarray(self._tracking_error), label="tip error")
+        axes[0].plot(time_s, 1000.0 * np.asarray(self._base_error), label="base error")
+        axes[0].set(title="Task error", xlabel="time [s]", ylabel="error [mm]")
+        axes[0].legend(loc="upper right", fontsize=8)
+
+        axes[1].plot(time_s, np.asarray(self._clearance), label="clearance [m]")
+        axes[1].plot(
+            time_s,
+            1000.0 * np.asarray(self._contact_distance),
+            label="contact distance [mm]",
+        )
+        axes[1].plot(time_s, np.asarray(self._force_error), label="force error [N]")
+        axes[1].set(title="Safety/contact", xlabel="time [s]")
+        axes[1].legend(loc="upper right", fontsize=8)
+
+        axes[2].semilogy(time_s, _finite_positive(self._condition), label="condition")
+        axes[2].plot(time_s, np.asarray(self._velocity_scale), label="velocity scale")
+        axes[2].plot(time_s, np.asarray(self._saturation_scale), label="limit scale")
+        axes[2].plot(
+            time_s,
+            1000.0 * np.asarray(self._tendon_error),
+            label="tendon target err [mm]",
+        )
+        axes[2].set(title="Solver/actuation", xlabel="time [s]")
+        axes[2].legend(loc="upper right", fontsize=8)
+
+        latest = [
+            f"time_s: {self._time[-1]:.3f}" if self._time else "time_s: n/a",
+            f"phase: {self._phase}",
+            f"waypoint_index: {self._waypoint_index}",
+            "",
+            f"tracking_error_m: {_last_value(self._tracking_error): .5f}",
+            f"base_error_m: {_last_value(self._base_error): .5f}",
+            f"min_clearance_m: {_last_value(self._clearance): .5f}",
+            f"contact_distance_m: {_last_value(self._contact_distance): .5f}",
+            f"force_error_n: {_last_value(self._force_error): .5f}",
+            f"condition: {_last_value(self._condition): .5e}",
+            f"velocity_scale: {_last_value(self._velocity_scale): .5f}",
+            f"limit_scale: {_last_value(self._saturation_scale): .5f}",
+            f"tendon_target_error_m: {_last_value(self._tendon_error): .5e}",
+        ]
+        self._info_text.set_text("\n".join(latest))
+        self._figure.tight_layout()
+        self._figure.canvas.draw_idle()
+        self._figure.canvas.flush_events()
+
+
+def _finite_positive(values: list[float]) -> np.ndarray:
+    result = np.asarray(values, dtype=float)
+    result[~np.isfinite(result) | (result <= 0.0)] = np.nan
+    return result
+
+
+def _last_value(values: list[float]) -> float:
+    if not values:
+        return float("nan")
+    return float(values[-1])
+
+
+def _safe_panel_call(panel: object, method_name: str) -> None:
+    method = getattr(panel, method_name, None)
+    if not callable(method):
+        return
+    try:
+        method()
+    except Exception:
+        pass
 
 
 class MujocoViewerHook:
@@ -908,6 +1166,15 @@ def _draw_tracking_overlay_scene(
             config.target_trail_radius,
             config.target_trail_rgba,
         )
+    if state is not None and config.error_vector:
+        _draw_error_vector_overlay_scene(
+            scene,
+            mujoco,
+            config,
+            overlay_state,
+            state,
+            navigation_enabled=navigation_enabled,
+        )
     if state is not None and config.segment_endpoints:
         _draw_segment_endpoint_overlay_scene(scene, mujoco, state, config)
 
@@ -1052,6 +1319,52 @@ def _draw_engine_navigation_overlay_scene(
                 config.target_history_radius,
                 config.target_history_rgba,
             )
+
+
+def _draw_error_vector_overlay_scene(
+    scene,
+    mujoco,
+    config,
+    overlay_state: _TrackingOverlayState,
+    state: RobotSystemState,
+    *,
+    navigation_enabled: bool,
+) -> None:
+    start: np.ndarray | None = None
+    target: np.ndarray | None = None
+    if navigation_enabled:
+        metadata = overlay_state.navigation_metadata
+        target = _metadata_point(metadata, "engine_navigation_active_target_m")
+        kind = metadata.get("engine_navigation_active_target_kind", "executor")
+        if kind == "base":
+            start = state.base.pose.position.copy()
+        else:
+            executor = next(
+                (arm for arm in state.arms.values() if arm.role == "executor"),
+                None,
+            )
+            start = None if executor is None else executor.tip_pose_world.position.copy()
+    else:
+        target = overlay_state.target_trail[-1] if overlay_state.target_trail else None
+        executor = next(
+            (arm for arm in state.arms.values() if arm.role == "executor"),
+            None,
+        )
+        start = None if executor is None else executor.tip_pose_world.position.copy()
+    if start is None or target is None:
+        return
+    points = np.asarray([start, target], dtype=float)
+    if not np.all(np.isfinite(points)):
+        return
+    if float(np.linalg.norm(points[1] - points[0])) <= 1.0e-9:
+        return
+    _add_overlay_trail(
+        scene,
+        mujoco,
+        points,
+        config.error_vector_radius,
+        config.error_vector_rgba,
+    )
 
 
 def _metadata_point(

@@ -114,32 +114,38 @@ class ScenarioTrackingControlConfig:
 @dataclass(frozen=True)
 class ScenarioTaskConfig:
     type: str
-    waypoints_world: np.ndarray
-    waypoint_source: str
-    waypoint_tolerance_m: float
-    observer_roi_world: np.ndarray | None
-    loop: bool
-    target_advance_mode: str
-    advance_time_s: float | None
-    advance_steps: int | None
-    min_clearance_m: float
-    terminate_on_clearance_violation: bool
-    surface_normal_world: np.ndarray
-    target_contact_distance_m: float
-    contact_tolerance_m: float
-    trajectory: TrajectorySpec | None
-    mission: NavigationMissionSpec | None
-    wiping_path: WipingPathSpec | None
-    engine_cleaning: EngineCleaningPathSpec | None
-    waypoint_phases: tuple[str, ...]
-    target_force_n: np.ndarray
-    wiping_control_type: str
-    feedback_mode: str
-    normal_force_gain: float
-    target_normal_force_n: float
-    force_proxy_stiffness_n_m: float
-    max_contact_force_n: float | None
-    contact_loss_tolerance_steps: int
+    waypoints_world: np.ndarray = field(
+        default_factory=lambda: np.zeros((0, 3), dtype=float)
+    )
+    waypoint_source: str = "waypoints_world"
+    waypoint_tolerance_m: float = 0.001
+    observer_roi_world: np.ndarray | None = None
+    loop: bool = False
+    target_advance_mode: str = "tolerance"
+    advance_time_s: float | None = None
+    advance_steps: int | None = None
+    min_clearance_m: float = 0.01
+    terminate_on_clearance_violation: bool = True
+    surface_normal_world: np.ndarray = field(
+        default_factory=lambda: np.array([0.0, 0.0, 1.0], dtype=float)
+    )
+    target_contact_distance_m: float = 0.0
+    contact_tolerance_m: float = 0.002
+    trajectory: TrajectorySpec | None = None
+    mission: NavigationMissionSpec | None = None
+    wiping_path: WipingPathSpec | None = None
+    engine_cleaning: EngineCleaningPathSpec | None = None
+    waypoint_phases: tuple[str, ...] = ()
+    target_force_n: np.ndarray = field(
+        default_factory=lambda: np.zeros(0, dtype=float)
+    )
+    wiping_control_type: str = "contact_distance"
+    feedback_mode: str = "mujoco_actual"
+    normal_force_gain: float = 0.0
+    target_normal_force_n: float = 0.0
+    force_proxy_stiffness_n_m: float = 600.0
+    max_contact_force_n: float | None = None
+    contact_loss_tolerance_steps: int = 20
     engine_navigation: EngineNavigationSpec | None = None
     tracking_control: ScenarioTrackingControlConfig = field(
         default_factory=ScenarioTrackingControlConfig
@@ -160,11 +166,14 @@ class ScenarioHookConfig:
     tendon_debug_stride: int
     viewer: str
     keep_viewer_open: bool
-    show_live_tendon_panel: bool
-    live_tendon_panel_stride: int
-    show_live_force_panel: bool
-    live_force_panel_stride: int
-    live_force_panel_history_points: int
+    show_live_tendon_panel: bool = False
+    live_tendon_panel_stride: int = 1
+    show_live_force_panel: bool = False
+    live_force_panel_stride: int = 1
+    live_force_panel_history_points: int = 300
+    show_live_diagnostics_panel: bool = False
+    live_diagnostics_panel_stride: int = 5
+    live_diagnostics_panel_history_points: int = 300
 
 
 @dataclass(frozen=True)
@@ -175,9 +184,9 @@ class ScenarioArtifactConfig:
     save_plots: bool
     save_gif: bool
     save_model: bool
-    video_mode: str
-    video_fps: int
-    video_stride: int | None
+    video_mode: str = "replay"
+    video_fps: int = 20
+    video_stride: int | None = None
 
 
 @dataclass(frozen=True)
@@ -445,6 +454,15 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             live_force_panel_stride=int(hook_values.get("live_force_panel_stride", 1)),
             live_force_panel_history_points=int(
                 hook_values.get("live_force_panel_history_points", 300)
+            ),
+            show_live_diagnostics_panel=bool(
+                hook_values.get("show_live_diagnostics_panel", False)
+            ),
+            live_diagnostics_panel_stride=int(
+                hook_values.get("live_diagnostics_panel_stride", 5)
+            ),
+            live_diagnostics_panel_history_points=int(
+                hook_values.get("live_diagnostics_panel_history_points", 300)
             ),
         ),
         artifacts=ScenarioArtifactConfig(

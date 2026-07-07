@@ -28,6 +28,7 @@ from continuum_sim.model.robot_assembly import load_robot_assembly_config
 from continuum_sim.runtime.hooks import (
     ControllerCompletionHook,
     LiveTendonPanelHook,
+    LiveDiagnosticsPanelHook,
     LiveWipingForcePanelHook,
     MatplotlibSystemViewerHook,
     MujocoLiveVideoRecorderHook,
@@ -223,6 +224,11 @@ class SimulationApplication:
             hooks_by_name["live_force_panel"] = LiveWipingForcePanelHook(
                 stride=config.hooks.live_force_panel_stride,
                 history_points=config.hooks.live_force_panel_history_points,
+            )
+        if config.hooks.show_live_diagnostics_panel:
+            hooks_by_name["live_diagnostics_panel"] = LiveDiagnosticsPanelHook(
+                stride=config.hooks.live_diagnostics_panel_stride,
+                history_points=config.hooks.live_diagnostics_panel_history_points,
             )
         if (
             config.backend.type == "mujoco"

@@ -73,6 +73,7 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
         "npz_keys": sorted(arrays) if settings.save_npz else [],
         "plots": plot_files,
         "video": None,
+        "video_status": "disabled" if not settings.save_gif else "pending",
         "video_mode": settings.video_mode if settings.save_gif else None,
         "video_frames": None,
         "model": None if scene_xml is None else str(scene_xml),
@@ -103,7 +104,16 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
                 )
             except Exception as exc:  # Video errors are reported alongside successful data.
                 errors.append(f"video: {type(exc).__name__}: {exc}")
+        if video_path is None:
+            _collect_video_error_file(paths.videos_dir / "simulation.gif", errors)
     metadata["video"] = None if video_path is None else str(video_path)
+    metadata["video_status"] = (
+        "disabled"
+        if not settings.save_gif
+        else "ok"
+        if video_path is not None
+        else "failed"
+    )
     metadata["video_frames"] = _video_frame_count(application)
     metadata["errors"] = errors
     _write_metadata(paths.metadata_json, metadata)
@@ -153,6 +163,20 @@ def _write_live_video_error(destination: Path, recorder: object) -> None:
         "\n".join(messages) + "\n",
         encoding="utf-8",
     )
+
+
+def _collect_video_error_file(destination: Path, errors: list[str]) -> None:
+    error_path = destination.parent / "video_error.txt"
+    if not error_path.is_file():
+        if not any(error.startswith("video:") for error in errors):
+            errors.append("video: export produced no video file")
+        return
+    for line in error_path.read_text(encoding="utf-8").splitlines():
+        if not line:
+            continue
+        message = f"video: {line}"
+        if message not in errors:
+            errors.append(message)
 
 
 def _write_metadata(path: Path, metadata: dict[str, object]) -> None:

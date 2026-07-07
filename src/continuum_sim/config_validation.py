@@ -17,7 +17,24 @@ def resolve_path(config_path: Path, raw_path: object) -> Path:
     cwd_candidate = path.resolve()
     if cwd_candidate.exists():
         return cwd_candidate
+    portable_candidate = _resolve_portable_project_path(path)
+    if portable_candidate is not None and portable_candidate.exists():
+        return portable_candidate
     return parent_candidate
+
+
+def _resolve_portable_project_path(path: Path) -> Path | None:
+    parts = path.parts
+    while parts and parts[0] == "..":
+        parts = parts[1:]
+    if not parts or parts[0] not in {"assets", "configs"}:
+        return None
+    portable_path = Path(*parts)
+    for root in (Path.cwd(), Path(__file__).resolve().parents[2]):
+        candidate = (root / portable_path).resolve()
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def section(values: dict, name: str) -> dict:

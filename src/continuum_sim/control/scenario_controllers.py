@@ -271,6 +271,7 @@ class NavigationController:
         self.min_clearance_m = min_clearance_m
         self.terminate_on_clearance_violation = terminate_on_clearance_violation
         self.clearance_violated = False
+        self._last_clearance_query = None
 
     @property
     def done(self) -> bool:
@@ -279,15 +280,17 @@ class NavigationController:
         )
 
     def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
-        clearances = [
+        queries = [
             self.scene_query.nearest_centerline_clearance(
                 arm.centerline_world
                 if arm.centerline_world is not None
                 else np.asarray([arm.tip_pose_world.position])
-            ).distance_m
+            )
             for arm in state.arms.values()
         ]
-        minimum = float(min(clearances))
+        query = min(queries, key=lambda value: value.distance_m)
+        self._last_clearance_query = query
+        minimum = float(query.distance_m)
         self.clearance_violated = minimum < self.min_clearance_m
         command = self._tracking.compute_command(state)
         if self.done and self.clearance_violated:
@@ -301,6 +304,9 @@ class NavigationController:
                 **command.metadata,
                 "task_type": "navigation",
                 "min_clearance_m": minimum,
+                "clearance_point": query.point.copy(),
+                "clearance_normal": query.normal.copy(),
+                "clearance_source_id": query.source_id,
                 "clearance_violated": self.clearance_violated,
             },
         )
@@ -359,11 +365,12 @@ class WipingController:
         self.normal_force_gain = float(normal_force_gain)
         self.force_proxy_stiffness_n_m = float(force_proxy_stiffness_n_m)
         self.max_contact_force_n = max_contact_force_n
+        self.force_limit_exceeded = False
         self.phase = "approach"
 
     @property
     def done(self) -> bool:
-        return self._tracking.done
+        return self._tracking.done or self.force_limit_exceeded
 
     def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
         executor = next(arm for arm in state.arms.values() if arm.role == "executor")
@@ -389,6 +396,11 @@ class WipingController:
             float("nan")
             if not np.isfinite(distance)
             else max(0.0, -distance * self.force_proxy_stiffness_n_m)
+        )
+        self.force_limit_exceeded = bool(
+            self.max_contact_force_n is not None
+            and np.isfinite(estimated_force)
+            and estimated_force > self.max_contact_force_n
         )
         waypoint_index = self._tracking.active_index
         target_force = float(self.target_force_n[waypoint_index])
@@ -423,12 +435,17 @@ class WipingController:
                 "task_type": "wiping",
                 "wiping_phase": self.phase,
                 "wiping_control_type": self.control_type,
+                "wiping_dynamic_requested": (
+                    self.control_type == "dynamic_adaptive_impedance"
+                ),
+                "wiping_dynamic_system_controller_active": False,
                 "target_normal_force_n": float(self.target_force_n[waypoint_index]),
                 "estimated_normal_force_n": estimated_force,
                 "force_error_n": force_error,
                 "normal_force_gain": self.normal_force_gain,
                 "force_proxy_stiffness_n_m": self.force_proxy_stiffness_n_m,
                 "max_contact_force_n": self.max_contact_force_n,
+                "force_limit_exceeded": self.force_limit_exceeded,
                 "contact_distance_m": distance,
                 "contact_error_m": contact_error,
                 "contact_established": bool(

@@ -104,6 +104,9 @@ viewer:
     tendon_path_radius: 0.0002
     tendon_path_stride: 1
     tendon_path_arms: both
+    error_vector: true
+    error_vector_radius: 0.0008
+    error_vector_rgba: [1.0, 0.0, 0.0, 0.85]
     engine_navigation:
       enabled: true
       planned_paths: true

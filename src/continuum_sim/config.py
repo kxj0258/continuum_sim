@@ -216,6 +216,9 @@ class MujocoViewerOverlayConfig:
     tendon_path_radius: float
     tendon_path_stride: int
     tendon_path_arms: str
+    error_vector: bool
+    error_vector_radius: float
+    error_vector_rgba: tuple[float, float, float, float]
     engine_navigation: MujocoEngineNavigationOverlayConfig
 
 
@@ -755,6 +758,15 @@ def _load_mujoco_viewer_overlay_config(
             values.get("tendon_path_arms", "default"),
             "viewer.overlays.tendon_path_arms",
             MUJOCO_TENDON_PATH_ARM_MODES,
+        ),
+        error_vector=_bool(values, "error_vector", default=True),
+        error_vector_radius=_positive_float_value(
+            values.get("error_vector_radius", 0.0008),
+            "viewer.overlays.error_vector_radius",
+        ),
+        error_vector_rgba=_rgba_tuple(
+            values.get("error_vector_rgba", (1.0, 0.0, 0.0, 0.85)),
+            "viewer.overlays.error_vector_rgba",
         ),
         engine_navigation=_load_mujoco_engine_navigation_overlay_config(values),
     )

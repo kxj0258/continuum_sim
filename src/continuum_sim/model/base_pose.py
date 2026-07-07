@@ -5,7 +5,7 @@ Quaternion order is always ``[w, x, y, z]``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -15,7 +15,9 @@ class Pose6D:
     """Rigid pose with position and quaternion in ``[w, x, y, z]`` order."""
 
     position: np.ndarray
-    quat: np.ndarray
+    quat: np.ndarray = field(
+        default_factory=lambda: np.array([1.0, 0.0, 0.0, 0.0], dtype=float)
+    )
 
     def __post_init__(self) -> None:
         position = np.asarray(self.position, dtype=float)

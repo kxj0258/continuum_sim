@@ -9,6 +9,11 @@ from continuum_sim.control.cbf_qp_kinematics import (
     cbf_lower_bound,
     solve_cbf_qp_velocity,
 )
+from continuum_sim.control.contact_triggered_admittance import (
+    ContactTriggeredAdmittanceCommand,
+    ContactTriggeredAdmittanceConfig,
+    ContactTriggeredAdmittanceTracker,
+)
 from continuum_sim.control.coordinated_tracking import (
     CoordinatedTrackingConfig,
     CoordinatedTrackingController,
@@ -81,6 +86,9 @@ __all__ = [
     "AdaptiveImpedanceConfig",
     "CBFQPConfig",
     "ContactMeasurement",
+    "ContactTriggeredAdmittanceCommand",
+    "ContactTriggeredAdmittanceConfig",
+    "ContactTriggeredAdmittanceTracker",
     "CoordinatedTrackingConfig",
     "CoordinatedTrackingController",
     "CompatibleTendonRateIntegrator",

@@ -249,6 +249,10 @@ viewer:
 
 可视化叠加由 `viewer.overlays` 控制。engine navigation 默认显示底座规划路径、插入路径、
 局部 executor 路径、当前目标、observer ROI、底座历史和 executor 历史。
+`viewer.overlays.error_vector` 会在 MuJoCo viewer 中同步显示当前执行点到当前目标的误差向量；
+tracking/wiping 使用 executor tip 到目标点，engine navigation 会根据当前目标类型在 base 或 executor
+之间切换。场景 hook 还可以开启 `show_live_diagnostics_panel`，同步显示 tracking/base error、
+clearance/contact/force error、奇异条件数、限速比例和 tendon target error，便于运行中定位误差来源。
 
 ## 调试工具
 
@@ -271,6 +275,9 @@ hooks:
   live_tendon_panel_stride: 5
   show_live_force_panel: true
   live_force_panel_stride: 5
+  show_live_diagnostics_panel: true
+  live_diagnostics_panel_stride: 5
+  live_diagnostics_panel_history_points: 300
 ```
 
 ## 关键目录

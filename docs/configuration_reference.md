@@ -39,7 +39,8 @@ python scripts/run_scenario.py configs/scenarios/single_mujoco_wiping.yaml
 MuJoCo 场景 XML，以及 `videos/simulation.gif`。MuJoCo 回放视频会在独立子进程中根据保存的
 `qpos/qvel` 历史和归档的 `model/scene.xml` 导出，尺寸使用 MuJoCo 后端中的
 `rendering.offscreen_*`，相机使用 `viewer.camera`。如果离屏渲染或视频编码不可用，命令仍会保存
-NPZ/PNG，失败原因写入 `videos/video_error.txt`。
+NPZ/PNG，失败原因写入 `videos/video_error.txt`，并同步汇总到 `metadata.json.errors`；
+`metadata.json.video_status` 会标记为 `ok`、`failed` 或 `disabled`。
 
 已保存的 MuJoCo 运行结果可以在不重新仿真的情况下再次导出视频：
 
@@ -55,6 +56,22 @@ python scripts/export_replay_video.py `
 ```powershell
 python scripts/check_mujoco_offscreen_renderer.py --config configs/mujoco.yaml
 ```
+
+## 运行期同步诊断
+
+scenario 的 `hooks` 可打开同步诊断窗口：
+
+```yaml
+hooks:
+  show_live_diagnostics_panel: true
+  live_diagnostics_panel_stride: 5
+  live_diagnostics_panel_history_points: 300
+```
+
+该面板同步显示 tracking/base error、clearance/contact/force error、奇异条件数、
+限速/限幅比例和 tendon target error。tracking、navigation、wiping 运行时可用同一面板对照
+目标误差、环境距离、接触力代理和 tendon 执行滞后，定位误差来自控制目标、避障/接触约束、
+奇异性还是执行器饱和。
 
 ## `configs/robot_3seg.yaml`
 
@@ -167,6 +184,9 @@ observer configs use `0.0005` m.
 | `viewer.camera.azimuth`           | float, deg   | 相机方位角。                                     |
 | `viewer.camera.elevation`         | float, deg   | 相机俯仰角。                                     |
 | `viewer.overlays.*`               | scalar       | 目标 marker、轨迹 trail 和 tendon path overlay 设置。 |
+| `viewer.overlays.error_vector`     | bool         | 在 viewer 中显示当前执行点到当前目标的误差向量。 |
+| `viewer.overlays.error_vector_radius` | float, m  | 误差向量 capsule 半径。                         |
+| `viewer.overlays.error_vector_rgba` | list[float] | 误差向量颜色。                                  |
 | `solver.timestep`                 | float, s     | MuJoCo 积分 timestep。                           |
 | `solver.integrator`               | string       | MuJoCo integrator。                              |
 | `solver.iterations`               | int          | MuJoCo solver 迭代次数。                         |

@@ -170,7 +170,7 @@ data.ctrl = neutral_tendon_length + tendon_delta_command
 BackendState.tendon_length = data.ten_length - neutral_tendon_length
 ```
 
-双臂整机控制向量为：
+低层 `MujocoBackend.step()` 的 raw 控制向量为：
 
 ```text
 [18D tendon_delta, 6D mobile_base_xyz_rpy]
@@ -184,7 +184,16 @@ BackendState.tendon_length = data.ten_length - neutral_tendon_length
 
 `scene_builder.inject_mobile_base_wrapper()` 会给 `mobile_base` body 注入 `mobile_base_freejoint`。`MujocoBackend.step()` 接收到 24 维整机命令时，会先写入 6D freejoint qpos，再写入 18 维 tendon actuator 控制。
 
-现有 tracking、navigation、wiping 控制器仍只计算默认主臂 9 维 tendon 命令；runtime 会自动扩展为 18 维双臂 tendon 命令，并追加 6D 零基座命令。后续控制器可以逐步输出非零 base 6D 命令。
+scenario 主接口不直接拼接这个 raw 向量，而是使用 `RobotSystemCommand`：
+
+```text
+[base_twist(6), executor_tendon_rate(9), observer_tendon_rate(9)]
+```
+
+`MujocoSystemBackend` 会把每条臂的 tendon-rate 命令积分为相容 tendon target，再按低层 MuJoCo
+raw 控制顺序写入 `[tendon_target, base_pose_rpy]`。旧单臂 runtime 仍可能通过
+`DualArmCommandAdapter` 将默认主臂 9 维命令扩展到双臂 XML；新控制器应优先输出命名的
+`RobotSystemCommand`，不要依赖默认主臂扩展。
 
 ## 诊断视图
 

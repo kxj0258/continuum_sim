@@ -15,6 +15,7 @@ scenario:
     waypoint_tolerance_m: 0.003
     target_advance_mode: tolerance
     wiping_control_type: dynamic_adaptive_impedance
+    dynamics_config_path: ../dynamics/pcc_reduced.yaml
     feedback_mode: mujoco_actual
     normal_force_gain: 0.075
     target_normal_force_n: 1.5

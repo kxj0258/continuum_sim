@@ -13,16 +13,19 @@ from continuum_sim.backends.analytic_system_backend import AnalyticSystemBackend
 from continuum_sim.backends.mujoco_system_backend import MujocoSystemBackend
 from continuum_sim.config import load_mujoco_config
 from continuum_sim.control.scenario_controllers import (
+    EngineCleaningSystemController,
     NavigationController,
     WaypointTrackingController,
     WipingController,
     ZeroSystemController,
 )
+from continuum_sim.control.engine_cleaning_types import EngineCleaningControllerGains
 from continuum_sim.control.staged_engine_navigation import (
     StagedEngineNavigationController,
 )
 from continuum_sim.control.coordinated_tracking import CoordinatedTrackingConfig
 from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
+from continuum_sim.dynamics import load_pcc_dynamics_config
 from continuum_sim.kinematics.whole_body import SingularityConfig
 from continuum_sim.model.robot_assembly import load_robot_assembly_config
 from continuum_sim.runtime.hooks import (
@@ -149,8 +152,30 @@ class SimulationApplication:
                 controller_dt_s=config.runtime.controller_dt_s,
                 advance_time_s=config.task.advance_time_s,
                 advance_steps=config.task.advance_steps,
+                control_type=config.task.navigation_control_type,
+                cbf_gain=config.task.navigation_cbf_gain,
+                cbf_influence_distance_m=(
+                    config.task.navigation_cbf_influence_distance_m
+                ),
             )
-        elif config.task.type in ("wiping", "engine_cleaning"):
+        elif config.task.type == "engine_cleaning":
+            controller = EngineCleaningSystemController(
+                assembly,
+                task_plan["waypoints_world"],
+                task_plan["normals_world"],
+                task_plan["phases"],
+                task_plan["target_force_n"],
+                task_plan["standoff_distance_m"],
+                scene_query=scene_query,
+                gains=(
+                    config.task.engine_cleaning_control
+                    if config.task.engine_cleaning_control is not None
+                    else _default_engine_cleaning_gains(config)
+                ),
+                controller_dt_s=config.runtime.controller_dt_s,
+                observer_roi_world=config.task.observer_roi_world,
+            )
+        elif config.task.type == "wiping":
             controller = WipingController(
                 assembly,
                 task_plan["waypoints_world"],
@@ -169,6 +194,8 @@ class SimulationApplication:
                 normal_force_gain=config.task.normal_force_gain,
                 force_proxy_stiffness_n_m=config.task.force_proxy_stiffness_n_m,
                 max_contact_force_n=config.task.max_contact_force_n,
+                dynamics_config=_load_task_dynamics_config(config, assembly),
+                admittance_config=config.task.contact_admittance,
             )
         else:
             tracking = config.task.tracking_control
@@ -361,11 +388,15 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
         phases = plan.phases
         target_force = plan.target_force_n
         normal = plan.normals_world[0]
+        normals = plan.normals_world
+        standoff_distance = plan.standoff_distance_m
     else:
         waypoints = task.waypoints_world
         phases = task.waypoint_phases
         target_force = task.target_force_n
         normal = task.surface_normal_world
+        normals = np.tile(normal, (waypoints.shape[0], 1))
+        standoff_distance = np.zeros(waypoints.shape[0], dtype=float)
     if task.type == "tracking":
         tracking_plan = prepend_tracking_approach(
             waypoints,
@@ -378,6 +409,13 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
     else:
         approach_mask = np.zeros(waypoints.shape[0], dtype=bool)
         source_waypoint_index = np.arange(waypoints.shape[0], dtype=int)
+    if "normals" not in locals() or normals.shape[0] != waypoints.shape[0]:
+        normals = np.tile(normal, (waypoints.shape[0], 1))
+    if (
+        "standoff_distance" not in locals()
+        or standoff_distance.shape != (waypoints.shape[0],)
+    ):
+        standoff_distance = np.zeros(waypoints.shape[0], dtype=float)
     if phases and len(phases) != waypoints.shape[0]:
         raise ValueError("scenario.task.waypoint_phases must match waypoint count.")
     if target_force.size == 0:
@@ -393,6 +431,38 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
         "phases": phases,
         "target_force_n": target_force,
         "surface_normal_world": normal,
+        "normals_world": normals,
+        "standoff_distance_m": standoff_distance,
         "approach_mask": approach_mask,
         "source_waypoint_index": source_waypoint_index,
     }
+
+
+def _load_task_dynamics_config(config, assembly):
+    if config.task.dynamics_config_path is None:
+        return None
+    executor_names = [arm.name for arm in assembly.enabled_arms if arm.role == "executor"]
+    if len(executor_names) != 1:
+        raise ValueError("Task dynamics requires exactly one executor arm.")
+    params = assembly.arms[executor_names[0]].spatial_arm.params
+    return load_pcc_dynamics_config(config.task.dynamics_config_path, params)
+
+
+def _default_engine_cleaning_gains(config) -> EngineCleaningControllerGains:
+    return EngineCleaningControllerGains(
+        tangential_position_gain=8.0,
+        normal_position_gain=3.0,
+        normal_force_gain=max(config.task.normal_force_gain, 0.001),
+        approach_position_gain=5.0,
+        retreat_position_gain=5.0,
+        max_tcp_speed_mps=0.03,
+        max_normal_speed_mps=0.01,
+        waypoint_tolerance_m=config.task.waypoint_tolerance_m,
+        max_contact_force_n=(
+            5.0
+            if config.task.max_contact_force_n is None
+            else config.task.max_contact_force_n
+        ),
+        force_deadband_n=0.05,
+        min_clearance_m=config.task.min_clearance_m,
+    )

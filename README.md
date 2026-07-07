@@ -37,7 +37,7 @@ src/continuum_sim/control  跟踪、导航、擦拭、发动机导航控制器
 src/continuum_sim/model    机器人参数、装配、tendon、bending-space 模型
 src/continuum_sim/runtime  后端无关仿真循环和 hooks
 src/continuum_sim/io       运行产物、图表、metadata、视频导出
-docs/                      架构、配置、调试和阶段性说明
+docs/                      架构、配置、调试、双臂和当前能力状态说明
 ```
 
 ## 常用场景
@@ -115,6 +115,8 @@ output/runs/<scenario>_<timestamp>/
 - [docs/configuration_reference.md](docs/configuration_reference.md)：场景、MuJoCo、任务配置字段。
 - [docs/debugging_guide.md](docs/debugging_guide.md)：调试 hooks、运行产物和手动检查建议。
 - [docs/coordinate_conventions.md](docs/coordinate_conventions.md)：坐标系约定。
+- [docs/dual_arm_mujoco_landing.md](docs/dual_arm_mujoco_landing.md)：双臂 spatial tendon、孔位和 MuJoCo 资产说明。
+- [docs/current_status.md](docs/current_status.md)：当前动力学、未接入主接口的控制能力和迁移建议。
 
 ## 手动验证建议
 

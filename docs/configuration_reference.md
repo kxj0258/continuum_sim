@@ -477,9 +477,16 @@ wiping 力反馈信号使用，若要通过 `qfrc_applied` 加入动力学反作
 
 ## 高级控制扩展
 
+本节区分两类入口：
+
+- scenario 主入口：`configs/scenarios/*.yaml` 与 `SimulationApplication`。
+- 旧任务 runtime：`configs/tasks/*.yaml` 与 `src/continuum_sim/runtime/mujoco_*_runtime.py`。
+
+如果某个模式只在旧 runtime 中启用，本节会明确标注。
+
 ### DMP Tracking 轨迹
 
-Tracking YAML 支持 `trajectory.type: dmp`：
+scenario tracking 支持 `trajectory.type: dmp`：
 
 ```yaml
 trajectory:
@@ -497,19 +504,36 @@ trajectory:
 
 ### Navigation CBF 模式
 
-MuJoCo navigation YAML 支持：
+scenario navigation 支持：
 
 ```yaml
-controller:
-  type: navigation_cbf_qp
+task:
+  type: navigation
+  navigation_control_type: navigation_cbf_qp
+  navigation_cbf_gain: 4.0
+  navigation_cbf_influence_distance_m: 0.025
 ```
 
-当前实现使用小规模 NumPy 投影处理 CBF 半空间约束。后续如果加入大量同步约束，可以在不改变
-navigation runtime API 的前提下替换为 OSQP。
+当前实现使用小规模 NumPy 投影处理 CBF 半空间约束，对 `WaypointTrackingController` /
+`CoordinatedTrackingController` 生成的 whole-body command 做后处理。旧 `controller.type:
+navigation_cbf_qp` 写法在 scenario 中也会被识别为 `navigation_control_type:
+navigation_cbf_qp`。未显式配置 `navigation_cbf_influence_distance_m` 时，控制器会使用略大于
+`min_clearance_m` 的默认影响距离提前介入。
 
 ### PCC 降阶动力学
 
 `configs/dynamics/pcc_reduced.yaml` 保存实验性动力学擦拭控制器使用的工程估计参数。
+旧 `run_mujoco_wiping(...)` runtime 和 scenario 主入口都可调用该模型。scenario 写法：
+
+```yaml
+task:
+  type: wiping
+  wiping_control_type: dynamic_adaptive_impedance
+  dynamics_config_path: ../dynamics/pcc_reduced.yaml
+```
+
+scenario 中的系统级控制器会把预测的 executor `qdot` 映射为相容 tendon-rate，并在 metadata 中记录
+`wiping_dynamic_system_controller_active`。
 
 | 字段 | 类型 | 说明 |
 |-------|------|---------|
@@ -528,10 +552,46 @@ M(q) qddot + D qdot + K q = tau + J_tip(q).T F_contact
 
 ### Wiping 控制器模式
 
-- `hybrid_force_position`：原有运动学级切向位置/法向力控制器，仍然是默认基线。
-- `dynamic_adaptive_impedance`：实验控制器，先使用 PCC 降阶动力学预测降阶状态速度，再映射回电机速度。
+- `contact_distance`：scenario 主入口的默认接触距离修正模式。
+- `hybrid_force_position`：旧 runtime 的运动学级切向位置/法向力控制器；scenario 中作为接触修正模式保留。
+- `dynamic_adaptive_impedance`：先使用 PCC 降阶动力学预测降阶状态速度，再映射回 scenario tendon-rate。
+- `contact_triggered_admittance`：接触后启用目标法向力，使用导纳状态修正目标点并输出期望 TCP 速度。
 
-动力学实验任务示例：
+接触导纳示例：
+
+```yaml
+task:
+  type: wiping
+  wiping_control_type: contact_triggered_admittance
+  contact_admittance:
+    target_normal_force_n: 1.5
+    contact_force_threshold_n: 0.1
+    tangent_tolerance_m: 0.001
+    force_tolerance_n: 0.08
+```
+
+### Engine Cleaning 控制器
+
+`task.type: engine_cleaning` 默认使用 task-space engine cleaning controller。可通过
+`engine_cleaning_control` 覆盖增益：
+
+```yaml
+task:
+  type: engine_cleaning
+  engine_cleaning_control:
+    tangential_position_gain: 8.0
+    normal_position_gain: 3.0
+    normal_force_gain: 0.001
+    approach_position_gain: 5.0
+    retreat_position_gain: 5.0
+    max_tcp_speed_mps: 0.03
+    max_normal_speed_mps: 0.01
+    waypoint_tolerance_m: 0.002
+    max_contact_force_n: 5.0
+    force_deadband_n: 0.05
+```
+
+旧 runtime 动力学实验任务示例：
 
 ```text
 configs/tasks/mujoco_wiping_board_dynamic.yaml
@@ -557,3 +617,5 @@ python scripts/test_indicator_3_3_force_tracking.py --result-npz output/runs/<ru
 
 如果不提供 `--result-npz`，脚本会尝试无窗口运行对应 MuJoCo 任务。动态阻抗模式需要在每个控制步计算
 PCC 质量矩阵，耗时会明显长于只分析已保存 NPZ。
+
+当前动力学、双臂适用范围和旧接口迁移状态汇总见 `docs/current_status.md`。

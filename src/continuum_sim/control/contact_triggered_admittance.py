@@ -42,6 +42,7 @@ class ContactTriggeredAdmittanceConfig:
     force_filter_alpha: float = 0.1
     max_tangent_velocity_m_s: float = 0.012
     max_normal_velocity_m_s: float = 0.010
+    enforce_velocity_limits: bool = False
 
     def __post_init__(self) -> None:
         _validate_nonnegative("target_normal_force_n", self.target_normal_force_n)
@@ -200,14 +201,17 @@ class ContactTriggeredAdmittanceTracker:
         corrected_error_vec = tip - corrected_target
         corrected_normal_error = float(np.dot(corrected_error_vec, normal_unit))
         corrected_tangent_error = corrected_error_vec - corrected_normal_error * normal_unit
-        tangent_velocity = _clip_norm(
-            -self.config.position_gain * corrected_tangent_error,
-            self.config.max_tangent_velocity_m_s,
-        )
-        normal_velocity = _clip_norm(
-            -self.config.position_gain * corrected_normal_error * normal_unit,
-            self.config.max_normal_velocity_m_s,
-        )
+        tangent_velocity = -self.config.position_gain * corrected_tangent_error
+        normal_velocity = -self.config.position_gain * corrected_normal_error * normal_unit
+        if self.config.enforce_velocity_limits:
+            tangent_velocity = _clip_norm(
+                tangent_velocity,
+                self.config.max_tangent_velocity_m_s,
+            )
+            normal_velocity = _clip_norm(
+                normal_velocity,
+                self.config.max_normal_velocity_m_s,
+            )
         desired_velocity = tangent_velocity + normal_velocity
 
         force_error = target_force - measured_force

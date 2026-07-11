@@ -88,7 +88,7 @@ class CoordinatedTrackingConfig:
     inter_arm_hard_stop_distance_m: float = 0.008
     inter_arm_release_margin_m: float = 0.002
     inter_arm_avoidance_gain: float = 4.0
-    inter_arm_max_avoidance_speed_mps: float = 0.03
+    inter_arm_max_avoidance_speed_mps: float | None = None
     observer_collision_priority: bool = False
     freeze_executor_inside_safe_distance: bool = False
     stop_all_on_critical_distance: bool = True
@@ -96,6 +96,7 @@ class CoordinatedTrackingConfig:
     engine_min_clearance_m: float = 0.01
     engine_influence_distance_m: float = 0.025
     engine_avoidance_gain: float = 4.0
+    enforce_backend_tendon_limits: bool = False
 
 
 @dataclass(frozen=True)
@@ -299,6 +300,10 @@ class CoordinatedTrackingController:
             },
             "executor_target_velocity_world": executor_target_velocity,
             "arm_singularities": result.arm_singularities,
+            "whole_body_solver": result.solver_diagnostics or {},
+            "disable_backend_tendon_limits": (
+                not self.config.enforce_backend_tendon_limits
+            ),
         }
         return RobotSystemCommand(
             base_twist_world=output_command.base_twist_world,
@@ -414,15 +419,19 @@ class CoordinatedTrackingController:
             self.config.observer_collision_priority
             and distance <= self.config.inter_arm_hard_stop_distance_m
         ):
-            desired_speed = self.config.inter_arm_max_avoidance_speed_mps
+            desired_speed = self.config.inter_arm_avoidance_gain * max(
+                activation_distance - distance,
+                0.0,
+            )
         else:
+            desired_speed = self.config.inter_arm_avoidance_gain * max(
+                activation_distance - distance,
+                0.0,
+            )
+        if self.config.inter_arm_max_avoidance_speed_mps is not None:
             desired_speed = min(
-                self.config.inter_arm_max_avoidance_speed_mps,
-                self.config.inter_arm_avoidance_gain
-                * max(
-                    activation_distance - distance,
-                    0.0,
-                ),
+                float(self.config.inter_arm_max_avoidance_speed_mps),
+                desired_speed,
             )
         if (
             desired_speed <= 0.0

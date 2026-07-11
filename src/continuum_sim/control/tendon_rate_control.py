@@ -12,6 +12,7 @@ from continuum_sim.model.bending_space import BendingSpaceModel
 
 DEFAULT_TARGET_LEAD_M = 0.0005
 _BENDING_LIMIT_PROJECTION_CONFIG = CBFQPConfig(max_projection_iterations=32)
+TENDON_TARGET_MODES = ("protected", "free_integrated", "actual_anchored")
 
 
 @dataclass(frozen=True)
@@ -184,9 +185,13 @@ class CompatibleTendonRateIntegrator:
         *,
         raw_debug: bool = False,
         actual_displacement_m: np.ndarray | None = None,
+        enforce_limits: bool = True,
+        target_mode: str = "protected",
     ) -> CompatibleTendonRateStep:
         if dt <= 0.0:
             raise ValueError(f"dt must be positive, got {dt}.")
+        if target_mode not in TENDON_TARGET_MODES:
+            raise ValueError(f"target_mode must be one of {TENDON_TARGET_MODES}.")
         requested = _as_vector(
             requested_rate_mps,
             "requested_rate_mps",
@@ -203,13 +208,15 @@ class CompatibleTendonRateIntegrator:
                 self.model.tendon_count,
             )
         )
-        return self._step_compatible(requested, float(dt), actual)
+        mode = target_mode if enforce_limits else "actual_anchored"
+        return self._step_compatible(requested, float(dt), actual, mode)
 
     def _step_compatible(
         self,
         requested: np.ndarray,
         dt: float,
         actual_displacement_m: np.ndarray | None,
+        target_mode: str,
     ) -> CompatibleTendonRateStep:
         if self._raw_mode:
             self._bending = self.model.estimate(self._raw_target)
@@ -223,6 +230,43 @@ class CompatibleTendonRateIntegrator:
             )
         bending_rate = self.model.estimate(requested)
         compatible_rate = self.model.to_tendon(bending_rate)
+        if target_mode == "actual_anchored":
+            anchor = (
+                self.displacement_m
+                if actual_displacement_m is None
+                else actual_displacement_m
+            )
+            displacement = anchor + dt * compatible_rate
+            self._raw_target = displacement.copy()
+            self._bending = self.model.estimate(displacement)
+            self._raw_mode = True
+            return CompatibleTendonRateStep(
+                requested_rate_mps=requested.copy(),
+                applied_rate_mps=compatible_rate,
+                bending_rate=bending_rate,
+                bending_displacement=self._bending.copy(),
+                displacement_m=displacement.copy(),
+                common_scale=1.0,
+                compatibility_residual_mps=residual,
+                rate_saturated=np.zeros(self.model.tendon_count, dtype=bool),
+                displacement_saturated=np.zeros(self.model.tendon_count, dtype=bool),
+                raw_debug=False,
+            )
+        if target_mode == "free_integrated":
+            self._bending = self._bending + dt * bending_rate
+            displacement = self.model.to_tendon(self._bending)
+            return CompatibleTendonRateStep(
+                requested_rate_mps=requested.copy(),
+                applied_rate_mps=compatible_rate,
+                bending_rate=bending_rate,
+                bending_displacement=self._bending.copy(),
+                displacement_m=displacement,
+                common_scale=1.0,
+                compatibility_residual_mps=residual,
+                rate_saturated=np.zeros(self.model.tendon_count, dtype=bool),
+                displacement_saturated=np.zeros(self.model.tendon_count, dtype=bool),
+                raw_debug=False,
+            )
         if actual_displacement_m is not None:
             self._bending = _project_bending_displacement(
                 self.model,

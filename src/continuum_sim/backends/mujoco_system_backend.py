@@ -148,8 +148,16 @@ class MujocoSystemBackend:
             self._base_state,
             MobileBaseCommand(command.base_twist_world, frame="world"),
             dt=dt,
-            max_linear_speed=self.assembly.base.max_linear_speed_mps,
-            max_angular_speed=self.assembly.base.max_angular_speed_rad_s,
+            max_linear_speed=(
+                self.assembly.base.max_linear_speed_mps
+                if bool(command.metadata.get("enforce_backend_base_speed_limits", False))
+                else None
+            ),
+            max_angular_speed=(
+                self.assembly.base.max_angular_speed_rad_s
+                if bool(command.metadata.get("enforce_backend_base_speed_limits", False))
+                else None
+            ),
         )
         base_position = np.clip(
             self._base_state.pose.position,
@@ -164,7 +172,14 @@ class MujocoSystemBackend:
 
         tendon_target = np.zeros(self.layout.tendon_size, dtype=float)
         actual_tendon_displacement = self.physics.get_tendon_length()
-        saturation: dict[str, dict[str, np.ndarray]] = {}
+        saturation: dict[str, dict[str, object]] = {}
+        enforce_tendon_limits = not bool(
+            command.metadata.get("disable_backend_tendon_limits", False)
+        )
+        tendon_target_mode = command.metadata.get("backend_tendon_target_mode")
+        if tendon_target_mode is None:
+            tendon_target_mode = "protected" if enforce_tendon_limits else "actual_anchored"
+        tendon_target_mode = str(tendon_target_mode)
         for arm_name in self.layout.arms:
             tendon_slice = self.layout.tendon_slice(arm_name)
             step = self._integrators[arm_name].step(
@@ -174,6 +189,8 @@ class MujocoSystemBackend:
                     command.arms[arm_name].control_space == "raw_tendon_debug"
                 ),
                 actual_displacement_m=actual_tendon_displacement[tendon_slice],
+                enforce_limits=enforce_tendon_limits,
+                target_mode=tendon_target_mode,
             )
             tendon_target[tendon_slice] = step.displacement_m
             self._last_applied_rates[arm_name] = step.applied_rate_mps
@@ -183,6 +200,7 @@ class MujocoSystemBackend:
                 "common_scale": step.common_scale,
                 "compatibility_residual_mps": step.compatibility_residual_mps,
                 "raw_debug": step.raw_debug,
+                "target_mode": tendon_target_mode,
             }
 
         base_rpy = _pose_to_xyz_rpy(self._base_state.pose)

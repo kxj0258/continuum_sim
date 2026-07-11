@@ -59,6 +59,7 @@ class WaypointTrackingController:
         feedforward_speed_mps: float = 0.0,
         max_target_speed_mps: float | None = None,
         solver_config: WholeBodyControllerConfig = WholeBodyControllerConfig(),
+        enforce_backend_tendon_limits: bool = False,
         coordinated_config: CoordinatedTrackingConfig | None = None,
         observer_executor_offset_world: np.ndarray | None = None,
         observer_roi_blend: float = 0.25,
@@ -131,6 +132,7 @@ class WaypointTrackingController:
                     executor_position_gain=executor_position_gain,
                     observer_position_gain=observer_position_gain,
                     max_target_speed_mps=max_target_speed_mps,
+                    enforce_backend_tendon_limits=enforce_backend_tendon_limits,
                 )
                 if coordinated_config is None
                 else coordinated_config
@@ -246,6 +248,186 @@ class WaypointTrackingController:
         return self.feedforward_speed_mps * delta / distance
 
 
+class TimedTrajectoryTrackingController:
+    """Track a time-parameterized Cartesian trajectory."""
+
+    def __init__(
+        self,
+        assembly: RobotAssemblyConfig,
+        waypoints_world: np.ndarray,
+        *,
+        trajectory_duration_s: float,
+        waypoint_tolerance_m: float = 1.0e-3,
+        observer_roi_world: np.ndarray | None = None,
+        loop: bool = False,
+        scene_query: EngineSceneQueryProtocol | None = None,
+        approach_mask: np.ndarray | None = None,
+        source_waypoint_index: np.ndarray | None = None,
+        executor_position_gain: float = 4.0,
+        observer_position_gain: float = 5.0,
+        max_target_speed_mps: float | None = None,
+        solver_config: WholeBodyControllerConfig = WholeBodyControllerConfig(),
+        enforce_backend_tendon_limits: bool = False,
+        observer_executor_offset_world: np.ndarray | None = None,
+        observer_roi_blend: float = 0.25,
+    ) -> None:
+        waypoints = np.asarray(waypoints_world, dtype=float)
+        if waypoints.ndim != 2 or waypoints.shape[1] != 3 or waypoints.shape[0] == 0:
+            raise ValueError("waypoints_world must have shape (N, 3) with N > 0.")
+        if trajectory_duration_s <= 0.0 or not np.isfinite(trajectory_duration_s):
+            raise ValueError("trajectory_duration_s must be positive and finite.")
+        self.assembly = assembly
+        self.waypoints_world = waypoints.copy()
+        self.trajectory_duration_s = float(trajectory_duration_s)
+        self.waypoint_tolerance_m = float(waypoint_tolerance_m)
+        self.loop = loop
+        self.approach_mask = _waypoint_vector(
+            approach_mask,
+            waypoints.shape[0],
+            default=False,
+            dtype=bool,
+            name="approach_mask",
+        )
+        self.source_waypoint_index = _waypoint_vector(
+            source_waypoint_index,
+            waypoints.shape[0],
+            default=None,
+            dtype=int,
+            name="source_waypoint_index",
+        )
+        self.observer_roi_world = (
+            None
+            if observer_roi_world is None
+            else np.asarray(observer_roi_world, dtype=float).copy()
+        )
+        self.observer_executor_offset_world = np.asarray(
+            (
+                [0.0, -0.04, 0.02]
+                if observer_executor_offset_world is None
+                else observer_executor_offset_world
+            ),
+            dtype=float,
+        )
+        self.observer_roi_blend = float(observer_roi_blend)
+        self._executor_name = _single_role_name(assembly, "executor")
+        self._start_time_s: float | None = None
+        self._done = False
+        self._controller = CoordinatedTrackingController(
+            assembly,
+            self._target_at(0.0)[0],
+            config=CoordinatedTrackingConfig(
+                executor_position_gain=executor_position_gain,
+                observer_position_gain=observer_position_gain,
+                max_target_speed_mps=max_target_speed_mps,
+                enforce_backend_tendon_limits=enforce_backend_tendon_limits,
+            ),
+            solver_config=solver_config,
+            scene_query=scene_query,
+        )
+
+    @property
+    def last_diagnostics(self) -> dict[str, object]:
+        return self._controller.last_diagnostics
+
+    @property
+    def active_index(self) -> int:
+        return int(self._target_at(self._elapsed_or_zero())[1])
+
+    @property
+    def done(self) -> bool:
+        return self._done
+
+    def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
+        if self._start_time_s is None:
+            self._start_time_s = float(state.time_s)
+        elapsed = max(0.0, float(state.time_s) - self._start_time_s)
+        target, source_index, local_fraction = self._target_at(elapsed)
+        self._controller.set_target(target)
+        command = self._controller.compute_command(state)
+        controller_metadata = command.metadata
+        position = state.arms[self._executor_name].tip_pose_world.position
+        error = float(np.linalg.norm(target.executor_position_world - position))
+        complete = (not self.loop) and elapsed >= self.trajectory_duration_s
+        self._done = complete
+        if complete:
+            command = RobotSystemCommand.zeros(
+                {
+                    arm.name: arm.spatial_arm.tendon_count
+                    for arm in self.assembly.enabled_arms
+                }
+            )
+        return RobotSystemCommand(
+            base_twist_world=command.base_twist_world,
+            arms=command.arms,
+            metadata={
+                **controller_metadata,
+                "task_type": "tracking",
+                "tracking_mode": "time",
+                "trajectory_time_s": min(elapsed, self.trajectory_duration_s),
+                "trajectory_duration_s": self.trajectory_duration_s,
+                "waypoint_index": int(source_index),
+                "source_waypoint_index": int(self.source_waypoint_index[source_index]),
+                "trajectory_local_fraction": float(local_fraction),
+                "executor_target_world": target.executor_position_world.copy(),
+                "executor_error_m": error,
+                "executor_feedforward_velocity_world": (
+                    target.executor_velocity_world.copy()
+                ),
+                "achieved_waypoint_index": -1,
+                "achieved_waypoint_error_m": np.nan,
+                "waypoint_advanced": False,
+                "tracking_complete": self._done,
+                "tracking_approach": bool(self.approach_mask[source_index]),
+            },
+        )
+
+    def _target_at(self, elapsed_s: float) -> tuple[CoordinatedTrackingTarget, int, float]:
+        position, velocity, source_index, fraction = self._sample_trajectory(elapsed_s)
+        return (
+            CoordinatedTrackingTarget(
+                executor_position_world=position,
+                executor_velocity_world=velocity,
+                observer_roi_position_world=self.observer_roi_world,
+                observer_executor_offset_world=self.observer_executor_offset_world,
+                observer_roi_blend=self.observer_roi_blend,
+            ),
+            source_index,
+            fraction,
+        )
+
+    def _sample_trajectory(
+        self,
+        elapsed_s: float,
+    ) -> tuple[np.ndarray, np.ndarray, int, float]:
+        count = self.waypoints_world.shape[0]
+        if count == 1:
+            return self.waypoints_world[0].copy(), np.zeros(3, dtype=float), 0, 0.0
+        if self.loop:
+            phase = (elapsed_s % self.trajectory_duration_s) / self.trajectory_duration_s
+            scaled = phase * count
+            index = int(np.floor(scaled)) % count
+            next_index = (index + 1) % count
+            fraction = float(scaled - np.floor(scaled))
+            segment_dt = self.trajectory_duration_s / count
+        else:
+            clamped = min(max(elapsed_s, 0.0), self.trajectory_duration_s)
+            scaled = (clamped / self.trajectory_duration_s) * (count - 1)
+            index = min(int(np.floor(scaled)), count - 2)
+            next_index = index + 1
+            fraction = float(scaled - index)
+            segment_dt = self.trajectory_duration_s / (count - 1)
+        current = self.waypoints_world[index]
+        following = self.waypoints_world[next_index]
+        position = current + fraction * (following - current)
+        velocity = (following - current) / segment_dt
+        if (not self.loop) and elapsed_s >= self.trajectory_duration_s:
+            velocity = np.zeros(3, dtype=float)
+        return position, velocity, index, fraction
+
+    def _elapsed_or_zero(self) -> float:
+        return 0.0
+
+
 class NavigationController:
     """Waypoint tracking with explicit clearance reporting and termination."""
 
@@ -263,6 +445,12 @@ class NavigationController:
         controller_dt_s: float = 0.02,
         advance_time_s: float | None = None,
         advance_steps: int | None = None,
+        executor_position_gain: float = 4.0,
+        observer_position_gain: float = 5.0,
+        feedforward_speed_mps: float = 0.0,
+        max_target_speed_mps: float | None = None,
+        solver_config: WholeBodyControllerConfig = WholeBodyControllerConfig(),
+        enforce_backend_tendon_limits: bool = False,
     ) -> None:
         if scene_query is None:
             raise ValueError("NavigationController requires a scene query.")
@@ -276,6 +464,12 @@ class NavigationController:
             advance_time_s=advance_time_s,
             advance_steps=advance_steps,
             scene_query=scene_query,
+            executor_position_gain=executor_position_gain,
+            observer_position_gain=observer_position_gain,
+            feedforward_speed_mps=feedforward_speed_mps,
+            max_target_speed_mps=max_target_speed_mps,
+            solver_config=solver_config,
+            enforce_backend_tendon_limits=enforce_backend_tendon_limits,
         )
         self.scene_query = scene_query
         self.min_clearance_m = min_clearance_m
@@ -352,6 +546,7 @@ class WipingController:
         feedforward_speed_mps: float = 0.0,
         max_target_speed_mps: float | None = None,
         solver_config: WholeBodyControllerConfig = WholeBodyControllerConfig(),
+        enforce_backend_tendon_limits: bool = False,
     ) -> None:
         self._tracking = WaypointTrackingController(
             assembly,
@@ -369,6 +564,7 @@ class WipingController:
             feedforward_speed_mps=feedforward_speed_mps,
             max_target_speed_mps=max_target_speed_mps,
             solver_config=solver_config,
+            enforce_backend_tendon_limits=enforce_backend_tendon_limits,
         )
         self.scene_query = scene_query
         self.surface_normal_world = np.asarray(surface_normal_world, dtype=float)

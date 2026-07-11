@@ -1,4 +1,4 @@
-"""Bounded world-frame pose control for the prescribed mobile base."""
+"""World-frame pose control for the prescribed mobile base."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from continuum_sim.model.base_pose import Pose6D
 
 
 class MobileBasePoseController:
-    """Convert an SE(3) pose error into a bounded world-frame twist."""
+    """Convert an SE(3) pose error into a world-frame twist."""
 
     def __init__(self, *, position_gain: float, orientation_gain: float) -> None:
         if position_gain <= 0.0 or orientation_gain <= 0.0:
@@ -21,10 +21,10 @@ class MobileBasePoseController:
         current: Pose6D,
         target: Pose6D,
         *,
-        max_linear_speed: float,
-        max_angular_speed: float,
+        max_linear_speed: float | None = None,
+        max_angular_speed: float | None = None,
     ) -> tuple[np.ndarray, float, float]:
-        """Return bounded twist plus position and orientation error norms."""
+        """Return twist plus position and orientation error norms."""
 
         position_delta = target.position - current.position
         current_rotation = current.as_matrix()[:3, :3]
@@ -47,8 +47,10 @@ class MobileBasePoseController:
         )
 
 
-def _limit_norm(values: np.ndarray, limit: float) -> np.ndarray:
+def _limit_norm(values: np.ndarray, limit: float | None) -> np.ndarray:
     vector = np.asarray(values, dtype=float)
+    if limit is None:
+        return vector.copy()
     if limit <= 0.0:
         raise ValueError("Velocity limits must be positive.")
     norm = float(np.linalg.norm(vector))

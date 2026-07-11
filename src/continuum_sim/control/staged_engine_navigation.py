@@ -155,8 +155,8 @@ class StagedEngineNavigationController:
             self._pose_controller.compute_twist(
                 state.base.pose,
                 target,
-                max_linear_speed=self.assembly.base.max_linear_speed_mps,
-                max_angular_speed=self.assembly.base.max_angular_speed_rad_s,
+                max_linear_speed=None,
+                max_angular_speed=None,
             )
         )
         reached = (
@@ -265,8 +265,8 @@ class StagedEngineNavigationController:
             self._pose_controller.compute_twist(
                 state.base.pose,
                 target,
-                max_linear_speed=self.assembly.base.max_linear_speed_mps,
-                max_angular_speed=self.assembly.base.max_angular_speed_rad_s,
+                max_linear_speed=None,
+                max_angular_speed=None,
             )
         )
         command = RobotSystemCommand.zeros(self._tendon_counts)
@@ -369,13 +369,14 @@ class StagedEngineNavigationController:
             executor_position_gain=3.0,
             observer_position_gain=observer.position_gain,
             feedforward_speed_mps=0.0,
-            max_target_speed_mps=0.02,
+            max_target_speed_mps=None,
+            enforce_backend_tendon_limits=False,
             observer_executor_offset_world=observer.executor_offset_world_m,
             observer_roi_blend=observer.roi_blend,
             coordinated_config=CoordinatedTrackingConfig(
                 executor_position_gain=3.0,
                 observer_position_gain=observer.position_gain,
-                max_target_speed_mps=0.02,
+                max_target_speed_mps=None,
                 inter_arm_min_distance_m=observer.inter_arm_safe_distance_m,
                 inter_arm_influence_distance_m=(
                     observer.inter_arm_influence_distance_m
@@ -385,9 +386,7 @@ class StagedEngineNavigationController:
                 ),
                 inter_arm_release_margin_m=observer.inter_arm_release_margin_m,
                 inter_arm_avoidance_gain=observer.inter_arm_avoidance_gain,
-                inter_arm_max_avoidance_speed_mps=(
-                    observer.inter_arm_max_avoidance_speed_mps
-                ),
+                inter_arm_max_avoidance_speed_mps=None,
                 observer_collision_priority=True,
                 freeze_executor_inside_safe_distance=False,
                 stop_all_on_critical_distance=(
@@ -403,6 +402,9 @@ class StagedEngineNavigationController:
                     observer.observer_collision_weight
                 ),
                 decouple_arm_singularity=True,
+                singularity_strategy="svd_projection",
+                enforce_base_velocity_limits=False,
+                enforce_tendon_rate_limits=False,
             ),
         )
 

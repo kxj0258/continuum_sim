@@ -41,6 +41,8 @@ WIPING_FORCE_STRATEGY_TYPES = (
     "dynamic_adaptive_impedance",
     "contact_triggered_admittance",
 )
+TRACKING_MODES = ("waypoint", "time")
+SINGULARITY_STRATEGIES = ("damping_scale", "svd_projection")
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,8 @@ class ScenarioTrackingControlConfig:
     """Scenario-native trajectory-tracking controller parameters."""
 
     approach_samples: int = 0
+    tracking_mode: str = "waypoint"
+    trajectory_duration_s: float | None = None
     executor_position_gain: float = 4.0
     observer_position_gain: float = 5.0
     feedforward_speed_mps: float = 0.0
@@ -78,10 +82,32 @@ class ScenarioTrackingControlConfig:
     maximum_damping: float = 5.0e-2
     minimum_velocity_scale: float = 0.05
     decouple_arm_singularity: bool = False
+    singularity_strategy: str = "svd_projection"
+    enforce_target_speed_limit: bool = False
+    enforce_solver_velocity_limits: bool = False
+    enforce_backend_tendon_limits: bool = False
 
     def __post_init__(self) -> None:
         if self.approach_samples == 1 or self.approach_samples < 0:
             raise ValueError("tracking_control.approach_samples must be 0 or at least 2.")
+        if self.tracking_mode not in TRACKING_MODES:
+            raise ValueError(
+                f"tracking_control.tracking_mode must be one of {TRACKING_MODES}."
+            )
+        if self.singularity_strategy not in SINGULARITY_STRATEGIES:
+            raise ValueError(
+                "tracking_control.singularity_strategy must be one of "
+                f"{SINGULARITY_STRATEGIES}."
+            )
+        if self.tracking_mode == "time" and (
+            self.trajectory_duration_s is None
+            or not np.isfinite(self.trajectory_duration_s)
+            or self.trajectory_duration_s <= 0.0
+        ):
+            raise ValueError(
+                "tracking_control.trajectory_duration_s must be positive for "
+                "tracking_mode='time'."
+            )
         positive = {
             "executor_position_gain": self.executor_position_gain,
             "observer_position_gain": self.observer_position_gain,
@@ -103,6 +129,8 @@ class ScenarioTrackingControlConfig:
                 "tracking_control.feedforward_speed_mps must be non-negative and finite."
             )
         if (
+            self.enforce_target_speed_limit
+            and
             self.max_target_speed_mps is not None
             and (
                 not np.isfinite(self.max_target_speed_mps)
@@ -146,6 +174,7 @@ class ScenarioAdmittanceConfig:
     force_filter_alpha: float = 0.1
     max_tangent_velocity_m_s: float = 0.012
     max_normal_velocity_m_s: float = 0.010
+    enforce_velocity_limits: bool = False
 
 
 @dataclass(frozen=True)
@@ -517,6 +546,8 @@ def _load_tracking_control_config(
     )
     return ScenarioTrackingControlConfig(
         approach_samples=int(values.get("approach_samples", 0)),
+        tracking_mode=str(values.get("tracking_mode", "waypoint")),
+        trajectory_duration_s=_optional_float(values.get("trajectory_duration_s")),
         executor_position_gain=float(values.get("executor_position_gain", 4.0)),
         observer_position_gain=float(values.get("observer_position_gain", 5.0)),
         feedforward_speed_mps=float(values.get("feedforward_speed_mps", 0.0)),
@@ -537,6 +568,16 @@ def _load_tracking_control_config(
         minimum_velocity_scale=float(values.get("minimum_velocity_scale", 0.05)),
         decouple_arm_singularity=bool(
             values.get("decouple_arm_singularity", False)
+        ),
+        singularity_strategy=str(values.get("singularity_strategy", "svd_projection")),
+        enforce_target_speed_limit=bool(
+            values.get("enforce_target_speed_limit", False)
+        ),
+        enforce_solver_velocity_limits=bool(
+            values.get("enforce_solver_velocity_limits", False)
+        ),
+        enforce_backend_tendon_limits=bool(
+            values.get("enforce_backend_tendon_limits", False)
         ),
     )
 
@@ -592,6 +633,7 @@ def _load_admittance_config(task_values: dict[str, Any]) -> ScenarioAdmittanceCo
         force_filter_alpha=float(values.get("force_filter_alpha", 0.1)),
         max_tangent_velocity_m_s=float(values.get("max_tangent_velocity_m_s", 0.012)),
         max_normal_velocity_m_s=float(values.get("max_normal_velocity_m_s", 0.010)),
+        enforce_velocity_limits=bool(values.get("enforce_velocity_limits", False)),
     )
 
 

@@ -8,12 +8,17 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
-from continuum_sim.application.scenario import ScenarioConfig, load_scenario_config
+from continuum_sim.application.scenario import (
+    ScenarioConfig,
+    ScenarioTrackingControlConfig,
+    load_scenario_config,
+)
 from continuum_sim.backends.analytic_system_backend import AnalyticSystemBackend
 from continuum_sim.backends.mujoco_system_backend import MujocoSystemBackend
 from continuum_sim.config import load_mujoco_config
 from continuum_sim.control.scenario_controllers import (
     NavigationController,
+    TimedTrajectoryTrackingController,
     WaypointTrackingController,
     WipingController,
     ZeroSystemController,
@@ -144,6 +149,7 @@ class SimulationApplication:
                 controller_dt_s=config.runtime.controller_dt_s,
             )
         elif config.task.type == "navigation":
+            tracking = config.task.tracking_control
             controller = NavigationController(
                 assembly,
                 task_plan["waypoints_world"],
@@ -158,6 +164,12 @@ class SimulationApplication:
                 controller_dt_s=config.runtime.controller_dt_s,
                 advance_time_s=config.task.advance_time_s,
                 advance_steps=config.task.advance_steps,
+                executor_position_gain=tracking.executor_position_gain,
+                observer_position_gain=tracking.observer_position_gain,
+                feedforward_speed_mps=tracking.feedforward_speed_mps,
+                max_target_speed_mps=_tracking_target_speed_limit(tracking),
+                solver_config=_tracking_solver_config(tracking),
+                enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
             )
         elif config.task.type in ("wiping", "engine_cleaning"):
             tracking = config.task.tracking_control
@@ -184,62 +196,50 @@ class SimulationApplication:
                 executor_position_gain=tracking.executor_position_gain,
                 observer_position_gain=tracking.observer_position_gain,
                 feedforward_speed_mps=tracking.feedforward_speed_mps,
-                max_target_speed_mps=tracking.max_target_speed_mps,
-                solver_config=WholeBodyControllerConfig(
-                    executor_tracking_weight=tracking.executor_tracking_weight,
-                    observer_tracking_weight=tracking.observer_tracking_weight,
-                    executor_collision_avoidance_weight=(
-                        tracking.executor_collision_avoidance_weight
-                    ),
-                    base_regularization_weight=tracking.base_regularization_weight,
-                    tendon_regularization_weight=tracking.tendon_regularization_weight,
-                    singularity=SingularityConfig(
-                        rank_tolerance=tracking.rank_tolerance,
-                        minimum_singular_value=tracking.minimum_singular_value,
-                        nominal_damping=tracking.nominal_damping,
-                        maximum_damping=tracking.maximum_damping,
-                        minimum_velocity_scale=tracking.minimum_velocity_scale,
-                    ),
-                    decouple_arm_singularity=tracking.decouple_arm_singularity,
-                ),
+                max_target_speed_mps=_tracking_target_speed_limit(tracking),
+                solver_config=_tracking_solver_config(tracking),
+                enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
             )
         else:
             tracking = config.task.tracking_control
-            controller = WaypointTrackingController(
-                assembly,
-                task_plan["waypoints_world"],
-                waypoint_tolerance_m=config.task.waypoint_tolerance_m,
-                observer_roi_world=config.task.observer_roi_world,
-                loop=config.task.loop,
-                target_advance_mode=config.task.target_advance_mode,
-                controller_dt_s=config.runtime.controller_dt_s,
-                advance_time_s=config.task.advance_time_s,
-                advance_steps=config.task.advance_steps,
-                scene_query=scene_query,
-                approach_mask=task_plan["approach_mask"],
-                source_waypoint_index=task_plan["source_waypoint_index"],
-                executor_position_gain=tracking.executor_position_gain,
-                observer_position_gain=tracking.observer_position_gain,
-                feedforward_speed_mps=tracking.feedforward_speed_mps,
-                max_target_speed_mps=tracking.max_target_speed_mps,
-                solver_config=WholeBodyControllerConfig(
-                    executor_tracking_weight=tracking.executor_tracking_weight,
-                    observer_tracking_weight=tracking.observer_tracking_weight,
-                    executor_collision_avoidance_weight=(
-                        tracking.executor_collision_avoidance_weight
-                    ),
-                    base_regularization_weight=tracking.base_regularization_weight,
-                    tendon_regularization_weight=tracking.tendon_regularization_weight,
-                    singularity=SingularityConfig(
-                        rank_tolerance=tracking.rank_tolerance,
-                        minimum_singular_value=tracking.minimum_singular_value,
-                        nominal_damping=tracking.nominal_damping,
-                        maximum_damping=tracking.maximum_damping,
-                        minimum_velocity_scale=tracking.minimum_velocity_scale,
-                    ),
-                    decouple_arm_singularity=tracking.decouple_arm_singularity,
-                ),
-            )
+            if tracking.tracking_mode == "time":
+                controller = TimedTrajectoryTrackingController(
+                    assembly,
+                    task_plan["waypoints_world"],
+                    trajectory_duration_s=float(tracking.trajectory_duration_s),
+                    waypoint_tolerance_m=config.task.waypoint_tolerance_m,
+                    observer_roi_world=config.task.observer_roi_world,
+                    loop=config.task.loop,
+                    scene_query=scene_query,
+                    approach_mask=task_plan["approach_mask"],
+                    source_waypoint_index=task_plan["source_waypoint_index"],
+                    executor_position_gain=tracking.executor_position_gain,
+                    observer_position_gain=tracking.observer_position_gain,
+                    max_target_speed_mps=_tracking_target_speed_limit(tracking),
+                    solver_config=_tracking_solver_config(tracking),
+                    enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
+                )
+            else:
+                controller = WaypointTrackingController(
+                    assembly,
+                    task_plan["waypoints_world"],
+                    waypoint_tolerance_m=config.task.waypoint_tolerance_m,
+                    observer_roi_world=config.task.observer_roi_world,
+                    loop=config.task.loop,
+                    target_advance_mode=config.task.target_advance_mode,
+                    controller_dt_s=config.runtime.controller_dt_s,
+                    advance_time_s=config.task.advance_time_s,
+                    advance_steps=config.task.advance_steps,
+                    scene_query=scene_query,
+                    approach_mask=task_plan["approach_mask"],
+                    source_waypoint_index=task_plan["source_waypoint_index"],
+                    executor_position_gain=tracking.executor_position_gain,
+                    observer_position_gain=tracking.observer_position_gain,
+                    feedforward_speed_mps=tracking.feedforward_speed_mps,
+                    max_target_speed_mps=_tracking_target_speed_limit(tracking),
+                    solver_config=_tracking_solver_config(tracking),
+                    enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
+                )
         hooks: list[object] = []
         hooks_by_name: dict[str, object] = {}
         if config.hooks.recorder:
@@ -386,6 +386,7 @@ def _build_wiping_force_strategy(config, assembly):
                 force_filter_alpha=admittance.force_filter_alpha,
                 max_tangent_velocity_m_s=admittance.max_tangent_velocity_m_s,
                 max_normal_velocity_m_s=admittance.max_normal_velocity_m_s,
+                enforce_velocity_limits=admittance.enforce_velocity_limits,
             )
         )
     if strategy_type == "dynamic_adaptive_impedance":
@@ -398,6 +399,39 @@ def _build_wiping_force_strategy(config, assembly):
             ),
         )
     raise ValueError(f"Unsupported wiping force strategy {strategy_type!r}.")
+
+
+def _tracking_solver_config(
+    tracking: ScenarioTrackingControlConfig,
+) -> WholeBodyControllerConfig:
+    return WholeBodyControllerConfig(
+        executor_tracking_weight=tracking.executor_tracking_weight,
+        observer_tracking_weight=tracking.observer_tracking_weight,
+        executor_collision_avoidance_weight=(
+            tracking.executor_collision_avoidance_weight
+        ),
+        base_regularization_weight=tracking.base_regularization_weight,
+        tendon_regularization_weight=tracking.tendon_regularization_weight,
+        singularity=SingularityConfig(
+            rank_tolerance=tracking.rank_tolerance,
+            minimum_singular_value=tracking.minimum_singular_value,
+            nominal_damping=tracking.nominal_damping,
+            maximum_damping=tracking.maximum_damping,
+            minimum_velocity_scale=tracking.minimum_velocity_scale,
+        ),
+        decouple_arm_singularity=tracking.decouple_arm_singularity,
+        singularity_strategy=tracking.singularity_strategy,
+        enforce_base_velocity_limits=tracking.enforce_solver_velocity_limits,
+        enforce_tendon_rate_limits=tracking.enforce_solver_velocity_limits,
+    )
+
+
+def _tracking_target_speed_limit(
+    tracking: ScenarioTrackingControlConfig,
+) -> float | None:
+    if not tracking.enforce_target_speed_limit:
+        return None
+    return tracking.max_target_speed_mps
 
 
 def _resolve_task_plan(config, assembly, engine_scene, structured_scene):

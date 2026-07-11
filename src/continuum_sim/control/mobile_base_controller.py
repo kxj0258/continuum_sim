@@ -107,13 +107,19 @@ def resolve_mobile_base_command(
     state: MobileBaseState,
     command: MobileBaseCommand,
     *,
-    max_linear_speed: float,
-    max_angular_speed: float,
+    max_linear_speed: float | None,
+    max_angular_speed: float | None,
 ) -> MobileBaseCommand:
     """Apply lock state and speed clipping to a commanded base twist."""
 
     if state.locked:
         return zero_mobile_base_command(frame=command.frame)
+    if max_linear_speed is None or max_angular_speed is None:
+        return MobileBaseCommand(
+            twist=command.twist,
+            frame=command.frame,
+            metadata=dict(command.metadata),
+        )
     return MobileBaseCommand(
         twist=clip_base_twist(
             command.twist,
@@ -130,8 +136,8 @@ def integrate_base_pose(
     command: MobileBaseCommand,
     *,
     dt: float,
-    max_linear_speed: float,
-    max_angular_speed: float,
+    max_linear_speed: float | None,
+    max_angular_speed: float | None,
 ) -> MobileBaseState:
     """Integrate a world-frame twist into a new pose with lock-aware clipping."""
 

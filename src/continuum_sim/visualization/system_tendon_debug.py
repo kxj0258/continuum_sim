@@ -188,11 +188,12 @@ def _saturation_summary(state: RobotSystemState) -> str:
         )
         scale = arm_values.get("common_scale", 1.0)
         mode = "raw" if bool(arm_values.get("raw_debug", False)) else "compatible"
+        target_mode = str(arm_values.get("target_mode", "unknown"))
         lines.append(
             f"{arm_name}: rate {int(np.count_nonzero(rate))}/{rate.size}, "
             f"displacement {int(np.count_nonzero(displacement))}/{displacement.size}\n"
             f"  mode {mode}, scale {float(scale):.4f}, "
-            f"residual {float(np.linalg.norm(residual)):.3e} m/s"
+            f"target {target_mode}, residual {float(np.linalg.norm(residual)):.3e} m/s"
         )
     return "\n".join(lines) if lines else "none"
 

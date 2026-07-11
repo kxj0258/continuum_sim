@@ -50,6 +50,9 @@ class WholeBodyControllerConfig:
     tendon_regularization_weight: float = 0.2
     singularity: SingularityConfig = SingularityConfig()
     decouple_arm_singularity: bool = False
+    singularity_strategy: str = "svd_projection"
+    enforce_base_velocity_limits: bool = False
+    enforce_tendon_rate_limits: bool = False
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,7 @@ class WholeBodySolveResult:
     residual_norm: float
     arm_diagnostics: dict[str, dict[str, object]]
     arm_singularities: dict[str, SingularityReport]
+    solver_diagnostics: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -136,6 +140,22 @@ class WholeBodyController:
         weighted_target = np.concatenate(
             [np.sqrt(task.weight) * task.target_velocity for task in tasks]
         )
+        target_projection_residual_norm = 0.0
+        if self.config.singularity_strategy == "svd_projection":
+            projected_target = _project_target_to_controllable_subspace(
+                weighted_jacobian,
+                weighted_target,
+                self.config.singularity.minimum_singular_value,
+            )
+            target_projection_residual_norm = float(
+                np.linalg.norm(weighted_target - projected_target)
+            )
+            weighted_target = projected_target
+        elif self.config.singularity_strategy != "damping_scale":
+            raise ValueError(
+                "WholeBodyControllerConfig.singularity_strategy must be "
+                "'damping_scale' or 'svd_projection'."
+            )
         regularization = self._regularization_matrix()
         augmented_jacobian = np.vstack((weighted_jacobian, regularization))
         augmented_target = np.concatenate(
@@ -162,6 +182,12 @@ class WholeBodyController:
                 for name, arm_slice in self.layout.arms.items()
             },
             arm_singularities=protection.arm_reports,
+            solver_diagnostics={
+                "singularity_strategy": self.config.singularity_strategy,
+                "target_projection_residual_norm": target_projection_residual_norm,
+                "enforce_base_velocity_limits": self.config.enforce_base_velocity_limits,
+                "enforce_tendon_rate_limits": self.config.enforce_tendon_rate_limits,
+            },
         )
 
     def _singularity_protection(
@@ -172,6 +198,22 @@ class WholeBodyController:
             weighted_jacobian,
             self.config.singularity,
         )
+        if self.config.singularity_strategy == "svd_projection":
+            damping = np.zeros(self.layout.size, dtype=float)
+            velocity_scale = np.ones(self.layout.size, dtype=float)
+            arm_reports = {
+                name: analyze_singularity(
+                    weighted_jacobian[:, arm_slice],
+                    self.config.singularity,
+                )
+                for name, arm_slice in self.layout.arms.items()
+            }
+            return SingularityProtection(
+                damping=damping,
+                velocity_scale=velocity_scale,
+                global_report=global_report,
+                arm_reports=arm_reports,
+            )
         damping = np.full(
             self.layout.size,
             global_report.damping,
@@ -254,7 +296,7 @@ class WholeBodyController:
         arm_scales: dict[str, float] = {}
         if self.assembly.base.control_mode == "fixed":
             result[self.layout.base] = 0.0
-        else:
+        elif self.config.enforce_base_velocity_limits:
             result[self.layout.base.start : self.layout.base.start + 3] = np.clip(
                 result[self.layout.base.start : self.layout.base.start + 3],
                 -self.assembly.base.max_linear_speed_mps,
@@ -269,15 +311,17 @@ class WholeBodyController:
             arm_slice = self.layout.arms[arm.name]
             model = self.layout.bending_models[arm.name]
             tendon_rate = model.to_tendon(result[arm_slice])
-            rate_limit = arm.spatial_arm.limits.max_tendon_rate_mps
-            ratios = np.divide(
-                rate_limit,
-                np.abs(tendon_rate),
-                out=np.full_like(rate_limit, np.inf),
-                where=np.abs(tendon_rate) > 0.0,
-            )
-            scale = float(min(1.0, np.min(ratios)))
-            result[arm_slice] *= scale
+            scale = 1.0
+            if self.config.enforce_tendon_rate_limits:
+                rate_limit = arm.spatial_arm.limits.max_tendon_rate_mps
+                ratios = np.divide(
+                    rate_limit,
+                    np.abs(tendon_rate),
+                    out=np.full_like(rate_limit, np.inf),
+                    where=np.abs(tendon_rate) > 0.0,
+                )
+                scale = float(min(1.0, np.min(ratios)))
+                result[arm_slice] *= scale
             arm_scales[arm.name] = scale
         return result, arm_scales
 
@@ -298,3 +342,22 @@ class WholeBodyController:
             "bending_mapping_rank": model.rank,
             "bending_mapping_condition_number": model.condition_number,
         }
+
+
+def _project_target_to_controllable_subspace(
+    jacobian: np.ndarray,
+    target: np.ndarray,
+    minimum_singular_value: float,
+) -> np.ndarray:
+    """Drop task-space target components along weak SVD directions."""
+
+    if jacobian.size == 0:
+        return target.copy()
+    u, singular_values, _ = np.linalg.svd(jacobian, full_matrices=False)
+    if singular_values.size == 0:
+        return np.zeros_like(target)
+    keep = singular_values >= minimum_singular_value
+    if not np.any(keep):
+        return np.zeros_like(target)
+    controllable = u[:, keep]
+    return controllable @ (controllable.T @ target)

@@ -83,8 +83,16 @@ class AnalyticSystemBackend:
             self._base_state,
             MobileBaseCommand(command.base_twist_world, frame="world"),
             dt=dt,
-            max_linear_speed=self.assembly.base.max_linear_speed_mps,
-            max_angular_speed=self.assembly.base.max_angular_speed_rad_s,
+            max_linear_speed=(
+                self.assembly.base.max_linear_speed_mps
+                if bool(command.metadata.get("enforce_backend_base_speed_limits", False))
+                else None
+            ),
+            max_angular_speed=(
+                self.assembly.base.max_angular_speed_rad_s
+                if bool(command.metadata.get("enforce_backend_base_speed_limits", False))
+                else None
+            ),
         )
         clipped_position = np.clip(
             self._base_state.pose.position,
@@ -97,10 +105,20 @@ class AnalyticSystemBackend:
             last_twist=self._base_state.last_twist,
         )
         for arm_name, arm_command in command.arms.items():
+            enforce_tendon_limits = bool(
+                command.metadata.get("enforce_backend_tendon_limits", False)
+            )
+            tendon_target_mode = command.metadata.get("backend_tendon_target_mode")
+            if tendon_target_mode is None:
+                tendon_target_mode = (
+                    "protected" if enforce_tendon_limits else "actual_anchored"
+                )
             step = self._integrators[arm_name].step(
                 arm_command.tendon_rate_mps,
                 dt,
                 raw_debug=arm_command.control_space == "raw_tendon_debug",
+                enforce_limits=enforce_tendon_limits,
+                target_mode=str(tendon_target_mode),
             )
             self._last_rates[arm_name] = step.applied_rate_mps
         self._time_s += float(dt)

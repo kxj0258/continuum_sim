@@ -8,6 +8,7 @@ from continuum_sim.actuation.motor_mapping import (
     MotorParams,
     tendon_velocity_to_motor_velocity,
 )
+from continuum_sim.kinematics.analytic_pcc import analytic_bending_position_jacobian
 from continuum_sim.kinematics.pcc import forward_kinematics
 from continuum_sim.model.physical_tendon import PhysicalTendonPath
 from continuum_sim.model.bending_space import BendingSpaceModel
@@ -77,9 +78,12 @@ def bending_position_jacobian(
 ) -> np.ndarray:
     """Return the tip-position Jacobian with respect to bending rate."""
 
+    del step
     model = BendingSpaceModel.from_arm(params, physical_tendons)
-    return finite_difference_position_jacobian(q, params, step=step) @ (
-        model.selection_matrix
+    return analytic_bending_position_jacobian(
+        q,
+        params,
+        model.selection_matrix,
     )
 
 

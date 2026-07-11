@@ -20,8 +20,8 @@ from continuum_sim.dynamics import (
 )
 from continuum_sim.kinematics.differential import (
     bending_rate_to_motor_velocity,
-    finite_difference_position_jacobian,
 )
+from continuum_sim.kinematics.analytic_pcc import analytic_position_jacobian
 from continuum_sim.model.physical_tendon import PhysicalTendonPath
 from continuum_sim.model.robot_params import PCC_VALUES_PER_SEGMENT, ThreeSegmentRobotParams
 from continuum_sim.scenes.contact_surfaces import WorkSurfaceConfig
@@ -69,11 +69,7 @@ def compute_dynamic_wiping_motor_velocity_command_from_state(
         contact_radius_m=contact_radius_m,
         force_control_enabled=force_control_enabled,
     )
-    J_tip = finite_difference_position_jacobian(
-        q,
-        params,
-        step=wiping_config.finite_difference_step_rad,
-    )
+    J_tip = analytic_position_jacobian(q, params)
     active_dofs = _bending_dof_mask(params)
     desired_qdot = np.zeros(params.q_size, dtype=float)
     desired_qdot[active_dofs] = damped_least_squares(

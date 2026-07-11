@@ -14,31 +14,31 @@ scene:
   primitives:
     - id: board_surface_geom
       type: box_surface
-      center_m: [0.040, 0.0, 0.095]
+      center_m: [0.050, 0.0, 0.095]
       half_size_m: [0.0025, 0.035, 0.030]
       rgba: [0.12, 0.16, 0.17, 1.0]
 
     - id: board_frame_top
       type: box_obstacle
-      center_m: [0.0365, 0.0, 0.127]
+      center_m: [0.0465, 0.0, 0.127]
       half_size_m: [0.0015, 0.038, 0.001]
       rgba: [0.85, 0.82, 0.72, 1.0]
 
     - id: board_frame_bottom
       type: box_obstacle
-      center_m: [0.0365, 0.0, 0.063]
+      center_m: [0.0465, 0.0, 0.063]
       half_size_m: [0.0015, 0.038, 0.001]
       rgba: [0.85, 0.82, 0.72, 1.0]
 
     - id: board_frame_left
       type: box_obstacle
-      center_m: [0.0365, -0.038, 0.095]
+      center_m: [0.0465, -0.038, 0.095]
       half_size_m: [0.0015, 0.001, 0.032]
       rgba: [0.85, 0.82, 0.72, 1.0]
 
     - id: board_frame_right
       type: box_obstacle
-      center_m: [0.0365, 0.038, 0.095]
+      center_m: [0.0465, 0.038, 0.095]
       half_size_m: [0.0015, 0.001, 0.032]
       rgba: [0.85, 0.82, 0.72, 1.0]
 

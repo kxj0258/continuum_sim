@@ -16,6 +16,16 @@ scenario:
     surface_normal_world: [-1.0, 0.0, 0.0]
     target_contact_distance_m: -0.0025
     contact_tolerance_m: 0.002
+    tracking_control:
+      executor_position_gain: 1.5
+      observer_position_gain: 3.0
+      feedforward_speed_mps: 0.0
+      max_target_speed_mps: 0.015
+      tendon_regularization_weight: 0.5
+      nominal_damping: 0.001
+      maximum_damping: 0.05
+      minimum_velocity_scale: 0.05
+      decouple_arm_singularity: true
     waypoints_world:
       - [0.0425, -0.020, 0.0825]
       - [0.0350, -0.020, 0.0825]

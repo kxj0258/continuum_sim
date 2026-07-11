@@ -557,3 +557,96 @@ python scripts/test_indicator_3_3_force_tracking.py --result-npz output/runs/<ru
 
 如果不提供 `--result-npz`，脚本会尝试无窗口运行对应 MuJoCo 任务。动态阻抗模式需要在每个控制步计算
 PCC 质量矩阵，耗时会明显长于只分析已保存 NPZ。
+### Scenario 擦拭力控策略
+
+当前 scenario 主线支持通过 `task.force_strategy.type` 显式选择擦拭力控策略。默认不改变已有控制器行为。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `task.wiping_control_type` | string | 擦拭控制类型。支持 `contact_distance`、`hybrid_force_position`、`dynamic_adaptive_impedance`、`contact_triggered_admittance`。 |
+| `task.force_strategy.type` | string | 主线策略选择。支持 `contact_distance`、`kinematic_hybrid`、`dynamic_adaptive_impedance`、`contact_triggered_admittance`。未配置时会根据 `wiping_control_type` 自动推导。 |
+| `task.dynamics_config_path` | path | `dynamic_adaptive_impedance` 使用的 PCC 降阶动力学参数路径。 |
+| `task.admittance.*` | mapping | `contact_triggered_admittance` 使用的导纳控制参数。 |
+
+动态策略示例：
+
+```yaml
+task:
+  type: wiping
+  wiping_control_type: dynamic_adaptive_impedance
+  dynamics_config_path: ../dynamics/pcc_reduced.yaml
+  force_strategy:
+    type: dynamic_adaptive_impedance
+```
+
+导纳策略示例：
+
+```yaml
+task:
+  type: wiping
+  wiping_control_type: contact_triggered_admittance
+  force_strategy:
+    type: contact_triggered_admittance
+  admittance:
+    target_normal_force_n: 1.5
+    contact_force_threshold_n: 0.1
+    tangent_tolerance_m: 0.001
+    force_tolerance_n: 0.08
+    stable_steps_required: 3
+    max_steps_per_target: 80
+    admittance_mass: 1.0
+    admittance_damping: 20.0
+    admittance_stiffness: 5.0
+    admittance_clip_m: 0.012
+```
+
+运行产物会额外记录：
+
+```text
+measured_force_n
+normal_force_source
+admittance_position_m
+admittance_velocity_m_s
+dynamic_normal_correction_m
+wiping_dynamic_active
+```
+
+### Wiping 轨迹与跟踪调参
+
+scenario 主线中的 `wiping` 任务现在复用 `task.tracking_control`，字段含义与 tracking/navigation 主线一致。常用调参项如下：
+
+| 字段 | 建议用途 |
+| ---- | -------- |
+| `tracking_control.executor_position_gain` | 末端位置误差到目标速度的比例增益。连续体擦拭建议先用 `1.0` 到 `2.0` 的保守值。 |
+| `tracking_control.feedforward_speed_mps` | 沿下一 waypoint 的前馈速度。擦拭接触调试阶段建议先设为 `0.0`。 |
+| `tracking_control.max_target_speed_mps` | 末端目标速度上限。用于抑制厘米级 waypoint 跳变导致的超调。 |
+| `tracking_control.tendon_regularization_weight` | tendon 速度正则权重。增大后动作更慢、更稳。 |
+| `tracking_control.nominal_damping` / `maximum_damping` | 奇异或病态映射附近的阻尼。连续体接触任务建议显式配置。 |
+| `tracking_control.decouple_arm_singularity` | 固定底座单臂任务建议打开，使单臂奇异保护更直接。 |
+
+`configs/scenes/wiping_board.yaml` 中有两类位置需要区分：
+
+- `scene.primitives[].center_m`：MuJoCo 中可见黑板和边框几何体的位置。
+- `scene.work_surfaces[].center_m` / `scene.wipe_patches[].center_m`：擦拭轨迹和接触法向使用的作业面位置。
+
+对于当前黑板：
+
+```yaml
+board_surface_geom:
+  center_m: [0.050, 0.0, 0.095]
+  half_size_m: [0.0025, 0.035, 0.030]
+board_surface:
+  center_m: [0.0475, 0.0, 0.095]
+  normal: [-1.0, 0.0, 0.0]
+```
+
+这表示黑板主体中心在 `x=0.050`，厚度半宽为 `0.0025`，面向执行臂的前表面在 `x=0.0475`。`normal` 指向自由空间侧。擦拭路径按下面公式生成：
+
+```text
+contact_origin = center_m + contact_offset_m * normal
+approach_point = contact_origin + approach_offset_m * normal
+```
+
+因此当 `normal: [-1, 0, 0]`、`contact_offset_m: -0.0025`、`approach_offset_m: 0.005` 时，接触点会进入黑板 `2.5 mm`，接近点会退到自由空间侧 `2.5 mm`。
+
+通过 `wiping_path` 生成的 scenario 会把 `work_surfaces[].center_m` 作为作业面平面点传入控制器。接触误差使用该平面的 signed distance，而不是 MuJoCo box 最近面的距离；这样即使末端越过黑板厚度中面，法向误差方向也不会因为最近面切换而反向。

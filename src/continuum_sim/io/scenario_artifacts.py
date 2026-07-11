@@ -318,6 +318,30 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
         arrays["target_force_n"] = np.asarray(recorder.target_force_n)
         arrays["estimated_force_n"] = np.asarray(recorder.estimated_force_n)
         arrays["force_error_n"] = np.asarray(recorder.force_error_n)
+        arrays["measured_force_n"] = np.asarray(
+            getattr(recorder, "measured_force_n", ()),
+            dtype=float,
+        )
+        arrays["normal_force_source"] = np.asarray(
+            getattr(recorder, "normal_force_source", ()),
+            dtype=str,
+        )
+        arrays["admittance_position_m"] = np.asarray(
+            getattr(recorder, "admittance_position_m", ()),
+            dtype=float,
+        )
+        arrays["admittance_velocity_m_s"] = np.asarray(
+            getattr(recorder, "admittance_velocity_m_s", ()),
+            dtype=float,
+        )
+        arrays["dynamic_normal_correction_m"] = np.asarray(
+            getattr(recorder, "dynamic_normal_correction_m", ()),
+            dtype=float,
+        )
+        arrays["wiping_dynamic_active"] = np.asarray(
+            getattr(recorder, "wiping_dynamic_active", ()),
+            dtype=bool,
+        )
         arrays["task_phase"] = np.asarray(recorder.task_phase, dtype=str)
         for arm_name in sorted(result.states[-1].arms):
             prefix = f"arm_{arm_name}"

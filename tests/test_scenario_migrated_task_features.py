@@ -18,6 +18,8 @@ from continuum_sim.tasks.trajectory_generation import (
     prepend_tracking_approach,
 )
 from continuum_sim.application.scenario import load_scenario_config
+from continuum_sim.control.scenario_controllers import WipingController
+from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
 from continuum_sim.tasks.wiping_path import WipingPathSpec, build_wiping_plan
 
 
@@ -65,6 +67,56 @@ def test_tracking_control_config_loads_scenario_overrides() -> None:
     assert config.task.tracking_control.approach_samples == 20
     assert config.task.tracking_control.feedforward_speed_mps > 0.0
     assert config.task.tracking_control.decouple_arm_singularity is True
+
+
+def test_wiping_controller_accepts_tracking_control_parameters() -> None:
+    assembly = load_robot_assembly_config("configs/robots/assemblies/single_spatial.yaml")
+    solver_config = WholeBodyControllerConfig(tendon_regularization_weight=0.5)
+
+    controller = WipingController(
+        assembly,
+        np.array([[0.045, 0.0, 0.095]], dtype=float),
+        waypoint_tolerance_m=0.003,
+        scene_query=None,
+        surface_normal_world=np.array([-1.0, 0.0, 0.0], dtype=float),
+        target_contact_distance_m=-0.0025,
+        contact_tolerance_m=0.002,
+        executor_position_gain=1.5,
+        feedforward_speed_mps=0.002,
+        max_target_speed_mps=0.015,
+        solver_config=solver_config,
+    )
+
+    assert controller._tracking.feedforward_speed_mps == 0.002
+    assert controller._tracking._controller.config.executor_position_gain == 1.5
+    assert controller._tracking._controller.config.max_target_speed_mps == 0.015
+    assert (
+        controller._tracking._controller.solver.config.tendon_regularization_weight
+        == 0.5
+    )
+
+
+def test_dynamic_wiping_scenario_loads_force_strategy_and_dynamics_path() -> None:
+    config = load_scenario_config("configs/scenarios/single_mujoco_wiping.yaml")
+
+    assert config.task.wiping_control_type == "dynamic_adaptive_impedance"
+    assert config.task.force_strategy.type == "dynamic_adaptive_impedance"
+    assert config.task.dynamics_config_path is not None
+    assert config.task.dynamics_config_path.name == "pcc_reduced.yaml"
+    assert config.task.tracking_control.executor_position_gain == 1.5
+    assert config.task.tracking_control.max_target_speed_mps == 0.015
+    assert config.task.tracking_control.tendon_regularization_weight == 0.5
+
+
+def test_admittance_wiping_scenario_loads_admittance_strategy() -> None:
+    config = load_scenario_config(
+        "configs/scenarios/single_mujoco_wiping_admittance.yaml"
+    )
+
+    assert config.task.wiping_control_type == "contact_triggered_admittance"
+    assert config.task.force_strategy.type == "contact_triggered_admittance"
+    assert config.task.admittance.target_normal_force_n == 1.5
+    assert config.task.admittance.stable_steps_required == 3
 
 
 def test_waypoint_scheduler_supports_time_and_tolerance_modes() -> None:
@@ -132,6 +184,10 @@ def test_wiping_path_builds_raster_waypoints_from_structured_surface() -> None:
     assert plan.waypoints_world.shape == (13, 3)
     assert plan.phases[0] == "approach"
     assert plan.phases.count("contact") == 12
+    surface = scene.work_surface("board_surface")
+    assert_allclose(plan.surface_point_world, surface.center_m)
+    assert surface.signed_distance(plan.waypoints_world[0]) > 0.0
+    assert surface.signed_distance(plan.waypoints_world[1]) < 0.0
 
 
 def test_engine_cleaning_plan_uses_engine_surface_patch_region() -> None:

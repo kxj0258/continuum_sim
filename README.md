@@ -37,7 +37,7 @@ src/continuum_sim/control  跟踪、导航、擦拭、发动机导航控制器
 src/continuum_sim/model    机器人参数、装配、tendon、bending-space 模型
 src/continuum_sim/runtime  后端无关仿真循环和 hooks
 src/continuum_sim/io       运行产物、图表、metadata、视频导出
-docs/                      架构、配置、调试和阶段性说明
+docs/                      架构、配置、调试和主线迁移说明
 ```
 
 ## 常用场景
@@ -59,6 +59,7 @@ python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_navigation.yaml
 python scripts/run_scenario.py configs/scenarios/dual_mujoco_navigation.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_wiping.yaml
+python scripts/run_scenario.py configs/scenarios/single_mujoco_wiping_admittance.yaml
 python scripts/run_scenario.py configs/scenarios/dual_mujoco_wiping.yaml
 python scripts/run_scenario.py configs/scenarios/single_engine_cleaning.yaml
 python scripts/run_scenario.py configs/scenarios/dual_engine_navigation.yaml
@@ -115,6 +116,7 @@ output/runs/<scenario>_<timestamp>/
 - [docs/configuration_reference.md](docs/configuration_reference.md)：场景、MuJoCo、任务配置字段。
 - [docs/debugging_guide.md](docs/debugging_guide.md)：调试 hooks、运行产物和手动检查建议。
 - [docs/coordinate_conventions.md](docs/coordinate_conventions.md)：坐标系约定。
+- [docs/mainline_migration_plan.md](docs/mainline_migration_plan.md)：动力学、导纳控制和实验功能迁移方案。
 
 ## 手动验证建议
 

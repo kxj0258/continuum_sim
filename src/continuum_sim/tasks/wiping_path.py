@@ -45,6 +45,7 @@ class WipingPathPlan:
     phases: tuple[str, ...]
     waypoint_indices: np.ndarray
     surface_normal_world: np.ndarray
+    surface_point_world: np.ndarray
 
 
 def build_wiping_plan(
@@ -97,6 +98,7 @@ def build_wiping_plan(
         phases=tuple(phases),
         waypoint_indices=np.asarray(waypoint_indices, dtype=int),
         surface_normal_world=surface.normal.copy(),
+        surface_point_world=surface.center_m.copy(),
     )
 
 

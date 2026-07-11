@@ -18,6 +18,15 @@ from continuum_sim.control.scenario_controllers import (
     WipingController,
     ZeroSystemController,
 )
+from continuum_sim.control.contact_triggered_admittance import (
+    ContactTriggeredAdmittanceConfig,
+)
+from continuum_sim.control.wiping_force_strategies import (
+    ContactDistanceStrategy,
+    ContactTriggeredAdmittanceStrategy,
+    DynamicAdaptiveImpedanceStrategy,
+    KinematicHybridForceStrategy,
+)
 from continuum_sim.control.staged_engine_navigation import (
     StagedEngineNavigationController,
 )
@@ -151,12 +160,14 @@ class SimulationApplication:
                 advance_steps=config.task.advance_steps,
             )
         elif config.task.type in ("wiping", "engine_cleaning"):
+            tracking = config.task.tracking_control
             controller = WipingController(
                 assembly,
                 task_plan["waypoints_world"],
                 waypoint_tolerance_m=config.task.waypoint_tolerance_m,
                 scene_query=scene_query,
                 surface_normal_world=task_plan["surface_normal_world"],
+                surface_point_world=task_plan["surface_point_world"],
                 target_contact_distance_m=config.task.target_contact_distance_m,
                 contact_tolerance_m=config.task.contact_tolerance_m,
                 target_advance_mode=config.task.target_advance_mode,
@@ -169,6 +180,28 @@ class SimulationApplication:
                 normal_force_gain=config.task.normal_force_gain,
                 force_proxy_stiffness_n_m=config.task.force_proxy_stiffness_n_m,
                 max_contact_force_n=config.task.max_contact_force_n,
+                force_strategy=_build_wiping_force_strategy(config, assembly),
+                executor_position_gain=tracking.executor_position_gain,
+                observer_position_gain=tracking.observer_position_gain,
+                feedforward_speed_mps=tracking.feedforward_speed_mps,
+                max_target_speed_mps=tracking.max_target_speed_mps,
+                solver_config=WholeBodyControllerConfig(
+                    executor_tracking_weight=tracking.executor_tracking_weight,
+                    observer_tracking_weight=tracking.observer_tracking_weight,
+                    executor_collision_avoidance_weight=(
+                        tracking.executor_collision_avoidance_weight
+                    ),
+                    base_regularization_weight=tracking.base_regularization_weight,
+                    tendon_regularization_weight=tracking.tendon_regularization_weight,
+                    singularity=SingularityConfig(
+                        rank_tolerance=tracking.rank_tolerance,
+                        minimum_singular_value=tracking.minimum_singular_value,
+                        nominal_damping=tracking.nominal_damping,
+                        maximum_damping=tracking.maximum_damping,
+                        minimum_velocity_scale=tracking.minimum_velocity_scale,
+                    ),
+                    decouple_arm_singularity=tracking.decouple_arm_singularity,
+                ),
             )
         else:
             tracking = config.task.tracking_control
@@ -326,6 +359,47 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
     )
 
 
+def _build_wiping_force_strategy(config, assembly):
+    strategy_type = config.task.force_strategy.type
+    if strategy_type == "contact_distance":
+        return ContactDistanceStrategy()
+    if strategy_type == "kinematic_hybrid":
+        return KinematicHybridForceStrategy()
+    if strategy_type == "contact_triggered_admittance":
+        admittance = config.task.admittance
+        return ContactTriggeredAdmittanceStrategy(
+            ContactTriggeredAdmittanceConfig(
+                target_normal_force_n=admittance.target_normal_force_n,
+                contact_force_threshold_n=admittance.contact_force_threshold_n,
+                tangent_tolerance_m=admittance.tangent_tolerance_m,
+                force_tolerance_n=admittance.force_tolerance_n,
+                stable_steps_required=admittance.stable_steps_required,
+                max_steps_per_target=admittance.max_steps_per_target,
+                position_gain=admittance.position_gain,
+                kp_force=admittance.kp_force,
+                ki_force=admittance.ki_force,
+                admittance_mass=admittance.admittance_mass,
+                admittance_damping=admittance.admittance_damping,
+                admittance_stiffness=admittance.admittance_stiffness,
+                admittance_clip_m=admittance.admittance_clip_m,
+                force_deadband_n=admittance.force_deadband_n,
+                force_filter_alpha=admittance.force_filter_alpha,
+                max_tangent_velocity_m_s=admittance.max_tangent_velocity_m_s,
+                max_normal_velocity_m_s=admittance.max_normal_velocity_m_s,
+            )
+        )
+    if strategy_type == "dynamic_adaptive_impedance":
+        return DynamicAdaptiveImpedanceStrategy(
+            assembly,
+            dynamics_config_path=(
+                None
+                if config.task.dynamics_config_path is None
+                else str(config.task.dynamics_config_path)
+            ),
+        )
+    raise ValueError(f"Unsupported wiping force strategy {strategy_type!r}.")
+
+
 def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
     task = config.task
     if task.type in ("idle", "engine_navigation"):
@@ -333,11 +407,13 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
         phases: tuple[str, ...] = ()
         target_force = task.target_force_n
         normal = task.surface_normal_world
+        surface_point = None
     elif task.trajectory is not None:
         waypoints = generate_trajectory_waypoints(task.trajectory, assembly)
         phases = task.waypoint_phases
         target_force = task.target_force_n
         normal = task.surface_normal_world
+        surface_point = None
     elif task.mission is not None:
         if structured_scene is None:
             raise ValueError("scenario.task.mission requires scenario.scene.structured_config_path.")
@@ -345,6 +421,7 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
         phases = task.waypoint_phases
         target_force = task.target_force_n
         normal = task.surface_normal_world
+        surface_point = None
     elif task.wiping_path is not None:
         if structured_scene is None:
             raise ValueError("scenario.task.wiping_path requires scenario.scene.structured_config_path.")
@@ -353,6 +430,7 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
         phases = plan.phases
         target_force = task.target_force_n
         normal = plan.surface_normal_world
+        surface_point = plan.surface_point_world
     elif task.engine_cleaning is not None:
         if engine_scene is None:
             raise ValueError("scenario.task.engine_cleaning requires scenario.scene.engine_config_path.")
@@ -361,11 +439,13 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
         phases = plan.phases
         target_force = plan.target_force_n
         normal = plan.normals_world[0]
+        surface_point = None
     else:
         waypoints = task.waypoints_world
         phases = task.waypoint_phases
         target_force = task.target_force_n
         normal = task.surface_normal_world
+        surface_point = None
     if task.type == "tracking":
         tracking_plan = prepend_tracking_approach(
             waypoints,
@@ -393,6 +473,7 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
         "phases": phases,
         "target_force_n": target_force,
         "surface_normal_world": normal,
+        "surface_point_world": surface_point,
         "approach_mask": approach_mask,
         "source_waypoint_index": source_waypoint_index,
     }

@@ -11,6 +11,11 @@ from continuum_sim.control.coordinated_tracking import (
     CoordinatedTrackingTarget,
 )
 from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
+from continuum_sim.control.wiping_force_strategies import (
+    WipingForceContext,
+    WipingForceStrategy,
+    default_wiping_force_strategy,
+)
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
 from continuum_sim.scenes.engine_query import EngineSceneQueryProtocol
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
@@ -146,7 +151,12 @@ class WaypointTrackingController:
     def done(self) -> bool:
         return self.scheduler.done
 
-    def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
+    def compute_command(
+        self,
+        state: RobotSystemState,
+        *,
+        advance: bool = True,
+    ) -> RobotSystemCommand:
         position = state.arms[self._executor_name].tip_pose_world.position
         achieved_index = self.active_index
         achieved_error = float(
@@ -162,7 +172,7 @@ class WaypointTrackingController:
                 False,
             )
         )
-        if not scheduler_paused:
+        if advance and not scheduler_paused:
             self.scheduler.update(error_norm_m=achieved_error)
         waypoint_advanced = self.done or self.active_index != achieved_index
         target = self._target()
@@ -325,6 +335,7 @@ class WipingController:
         surface_normal_world: np.ndarray,
         target_contact_distance_m: float,
         contact_tolerance_m: float,
+        surface_point_world: np.ndarray | None = None,
         target_advance_mode: str = "tolerance",
         controller_dt_s: float = 0.02,
         advance_time_s: float | None = None,
@@ -335,6 +346,12 @@ class WipingController:
         normal_force_gain: float = 0.0,
         force_proxy_stiffness_n_m: float = 600.0,
         max_contact_force_n: float | None = None,
+        force_strategy: WipingForceStrategy | None = None,
+        executor_position_gain: float = 4.0,
+        observer_position_gain: float = 5.0,
+        feedforward_speed_mps: float = 0.0,
+        max_target_speed_mps: float | None = None,
+        solver_config: WholeBodyControllerConfig = WholeBodyControllerConfig(),
     ) -> None:
         self._tracking = WaypointTrackingController(
             assembly,
@@ -347,9 +364,19 @@ class WipingController:
             # Contact regulation intentionally replaces generic clearance
             # avoidance for the executor at the wiping surface.
             scene_query=None,
+            executor_position_gain=executor_position_gain,
+            observer_position_gain=observer_position_gain,
+            feedforward_speed_mps=feedforward_speed_mps,
+            max_target_speed_mps=max_target_speed_mps,
+            solver_config=solver_config,
         )
         self.scene_query = scene_query
         self.surface_normal_world = np.asarray(surface_normal_world, dtype=float)
+        self.surface_point_world = (
+            None
+            if surface_point_world is None
+            else np.asarray(surface_point_world, dtype=float)
+        )
         self.target_contact_distance_m = target_contact_distance_m
         self.contact_tolerance_m = contact_tolerance_m
         self.phases = tuple(phases)
@@ -365,6 +392,11 @@ class WipingController:
         self.normal_force_gain = float(normal_force_gain)
         self.force_proxy_stiffness_n_m = float(force_proxy_stiffness_n_m)
         self.max_contact_force_n = max_contact_force_n
+        self.force_strategy = (
+            default_wiping_force_strategy(control_type)
+            if force_strategy is None
+            else force_strategy
+        )
         self.force_limit_exceeded = False
         self.phase = "approach"
 
@@ -376,7 +408,14 @@ class WipingController:
         executor = next(arm for arm in state.arms.values() if arm.role == "executor")
         distance = float("nan")
         query = None
-        if self.scene_query is not None:
+        if self.surface_point_world is not None:
+            distance = float(
+                np.dot(
+                    executor.tip_pose_world.position - self.surface_point_world,
+                    self.surface_normal_world,
+                )
+            )
+        elif self.scene_query is not None:
             query = self.scene_query.nearest_distance(executor.tip_pose_world.position)
             distance = float(query.distance_m)
         if self.phases:
@@ -410,35 +449,54 @@ class WipingController:
             else target_force - estimated_force
         )
         original_waypoint = self._tracking.waypoints_world[waypoint_index].copy()
-        if self.phase == "contact" and np.isfinite(contact_error) and query is not None:
-            normal_correction = contact_error
-            if (
-                self.control_type in ("hybrid_force_position", "dynamic_adaptive_impedance")
-                and target_force > 0.0
-                and np.isfinite(force_error)
-            ):
-                normal_correction += self.normal_force_gain * (
-                    force_error / max(self.force_proxy_stiffness_n_m, 1.0e-12)
-                )
+        strategy_result = self.force_strategy.compute(
+            WipingForceContext(
+                executor=executor,
+                waypoints_world=self._tracking.waypoints_world,
+                waypoint_index=waypoint_index,
+                phase=self.phase,
+                surface_normal_world=self.surface_normal_world,
+                query_normal_world=None,
+                contact_error_m=contact_error,
+                estimated_force_n=estimated_force,
+                target_force_n=target_force,
+                normal_force_gain=self.normal_force_gain,
+                force_proxy_stiffness_n_m=self.force_proxy_stiffness_n_m,
+                contact_tolerance_m=self.contact_tolerance_m,
+                controller_dt_s=self._tracking.scheduler.controller_dt_s,
+            )
+        )
+        if self.phase == "contact":
             self._tracking.waypoints_world[waypoint_index] = (
-                original_waypoint + normal_correction * query.normal
+                strategy_result.corrected_waypoint
             )
         try:
-            command = self._tracking.compute_command(state)
+            command = self._tracking.compute_command(
+                state,
+                advance=not strategy_result.controls_waypoint_advance,
+            )
         finally:
             self._tracking.waypoints_world[waypoint_index] = original_waypoint
+        if strategy_result.waypoint_advanced:
+            self._tracking.scheduler.advance()
         return RobotSystemCommand(
             base_twist_world=command.base_twist_world,
             arms=command.arms,
             metadata={
                 **command.metadata,
+                **strategy_result.metadata,
                 "task_type": "wiping",
                 "wiping_phase": self.phase,
                 "wiping_control_type": self.control_type,
                 "wiping_dynamic_requested": (
                     self.control_type == "dynamic_adaptive_impedance"
                 ),
-                "wiping_dynamic_system_controller_active": False,
+                "wiping_dynamic_system_controller_active": bool(
+                    strategy_result.metadata.get(
+                        "wiping_dynamic_system_controller_active",
+                        False,
+                    )
+                ),
                 "target_normal_force_n": float(self.target_force_n[waypoint_index]),
                 "estimated_normal_force_n": estimated_force,
                 "force_error_n": force_error,
@@ -451,6 +509,10 @@ class WipingController:
                 "contact_established": bool(
                     np.isfinite(contact_error)
                     and abs(contact_error) <= self.contact_tolerance_m
+                ),
+                "waypoint_advanced": bool(
+                    command.metadata.get("waypoint_advanced", False)
+                    or strategy_result.waypoint_advanced
                 ),
             },
         )

@@ -8,7 +8,10 @@ from pathlib import Path
 import numpy as np
 
 from continuum_sim.config import load_yaml
-from continuum_sim.kinematics.differential import finite_difference_position_jacobian
+from continuum_sim.kinematics.analytic_pcc import (
+    analytic_centerline_point_jacobian,
+    analytic_position_jacobian,
+)
 from continuum_sim.kinematics.pcc import forward_kinematics
 from continuum_sim.model.robot_params import PCC_VALUES_PER_SEGMENT, ThreeSegmentRobotParams
 
@@ -136,7 +139,7 @@ def contact_generalized_force(
     force = np.asarray(force_xyz_n, dtype=float)
     if force.shape != (3,):
         raise ValueError(f"force_xyz_n must have shape (3,), got {force.shape}.")
-    return finite_difference_position_jacobian(_q_vector(q, params, "q"), params).T @ force
+    return analytic_position_jacobian(_q_vector(q, params, "q"), params).T @ force
 
 
 def step_dynamics(
@@ -175,22 +178,13 @@ def _centerline_point_jacobian(
     samples_per_segment: int,
     step: float,
 ) -> np.ndarray:
-    jacobian = np.zeros((3, params.q_size), dtype=float)
-    for index in range(params.q_size):
-        offset = np.zeros(params.q_size, dtype=float)
-        offset[index] = step
-        point_plus = forward_kinematics(
-            q + offset,
-            params,
-            samples_per_segment=samples_per_segment,
-        ).centerline[point_index]
-        point_minus = forward_kinematics(
-            q - offset,
-            params,
-            samples_per_segment=samples_per_segment,
-        ).centerline[point_index]
-        jacobian[:, index] = (point_plus - point_minus) / (2.0 * step)
-    return jacobian
+    del step
+    return analytic_centerline_point_jacobian(
+        q,
+        point_index,
+        params,
+        samples_per_segment=samples_per_segment,
+    )
 
 
 def _segment_vector(values: object, params: ThreeSegmentRobotParams, name: str) -> np.ndarray:

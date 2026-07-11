@@ -1,12 +1,12 @@
 schema_version: 1
 scenario:
-  name: single_mujoco_wiping
+  name: single_mujoco_wiping_admittance
   assembly_config_path: ../robots/assemblies/single_spatial.yaml
   backend:
     type: mujoco
     mujoco_config_path: ../mujoco_dual.yaml
     source_xml_path: ../../assets/mujoco/dual_three_segment_arm_tendon_with_visuals_mobile_base.xml
-    generated_xml_path: ../../output/generated/scenario_single_wiping.xml
+    generated_xml_path: ../../output/generated/scenario_single_wiping_admittance.xml
     retain_arm: executor
   scene:
     structured_config_path: ../scenes/wiping_board.yaml
@@ -14,10 +14,9 @@ scenario:
     type: wiping
     waypoint_tolerance_m: 0.003
     target_advance_mode: tolerance
-    wiping_control_type: dynamic_adaptive_impedance
-    dynamics_config_path: ../dynamics/pcc_reduced.yaml
+    wiping_control_type: contact_triggered_admittance
     force_strategy:
-      type: dynamic_adaptive_impedance
+      type: contact_triggered_admittance
     feedback_mode: mujoco_actual
     normal_force_gain: 0.075
     target_normal_force_n: 1.5
@@ -26,6 +25,24 @@ scenario:
     contact_tolerance_m: 0.002
     max_contact_force_n: 5.0
     contact_loss_tolerance_steps: 500
+    admittance:
+      target_normal_force_n: 1.5
+      contact_force_threshold_n: 0.1
+      tangent_tolerance_m: 0.001
+      force_tolerance_n: 0.08
+      stable_steps_required: 3
+      max_steps_per_target: 80
+      position_gain: 10.0
+      kp_force: 0.5
+      ki_force: 0.012
+      admittance_mass: 1.0
+      admittance_damping: 20.0
+      admittance_stiffness: 5.0
+      admittance_clip_m: 0.012
+      force_deadband_n: 0.03
+      force_filter_alpha: 0.1
+      max_tangent_velocity_m_s: 0.012
+      max_normal_velocity_m_s: 0.010
     tracking_control:
       executor_position_gain: 1.5
       feedforward_speed_mps: 0.0

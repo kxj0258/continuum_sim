@@ -27,9 +27,20 @@ TASK_TYPES = (
     "engine_cleaning",
     "engine_navigation",
 )
-WIPING_CONTROL_TYPES = ("contact_distance", "hybrid_force_position", "dynamic_adaptive_impedance")
+WIPING_CONTROL_TYPES = (
+    "contact_distance",
+    "hybrid_force_position",
+    "dynamic_adaptive_impedance",
+    "contact_triggered_admittance",
+)
 MUJOCO_FEEDBACK_MODES = ("pcc_command", "mujoco_actual")
 VIDEO_MODES = ("replay", "live_mujoco")
+WIPING_FORCE_STRATEGY_TYPES = (
+    "contact_distance",
+    "kinematic_hybrid",
+    "dynamic_adaptive_impedance",
+    "contact_triggered_admittance",
+)
 
 
 @dataclass(frozen=True)
@@ -112,6 +123,32 @@ class ScenarioTrackingControlConfig:
 
 
 @dataclass(frozen=True)
+class ScenarioForceStrategyConfig:
+    type: str = "contact_distance"
+
+
+@dataclass(frozen=True)
+class ScenarioAdmittanceConfig:
+    target_normal_force_n: float = 0.0
+    contact_force_threshold_n: float = 0.1
+    tangent_tolerance_m: float = 1.0e-3
+    force_tolerance_n: float = 0.08
+    stable_steps_required: int = 1
+    max_steps_per_target: int = 100
+    position_gain: float = 10.0
+    kp_force: float = 0.5
+    ki_force: float = 0.012
+    admittance_mass: float = 1.0
+    admittance_damping: float = 20.0
+    admittance_stiffness: float = 5.0
+    admittance_clip_m: float = 0.012
+    force_deadband_n: float = 0.03
+    force_filter_alpha: float = 0.1
+    max_tangent_velocity_m_s: float = 0.012
+    max_normal_velocity_m_s: float = 0.010
+
+
+@dataclass(frozen=True)
 class ScenarioTaskConfig:
     type: str
     waypoints_world: np.ndarray = field(
@@ -146,6 +183,13 @@ class ScenarioTaskConfig:
     force_proxy_stiffness_n_m: float = 600.0
     max_contact_force_n: float | None = None
     contact_loss_tolerance_steps: int = 20
+    dynamics_config_path: Path | None = None
+    force_strategy: ScenarioForceStrategyConfig = field(
+        default_factory=ScenarioForceStrategyConfig
+    )
+    admittance: ScenarioAdmittanceConfig = field(
+        default_factory=ScenarioAdmittanceConfig
+    )
     engine_navigation: EngineNavigationSpec | None = None
     tracking_control: ScenarioTrackingControlConfig = field(
         default_factory=ScenarioTrackingControlConfig
@@ -295,6 +339,7 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     wiping_control_type = str(task_values.get("wiping_control_type", "contact_distance"))
     if wiping_control_type not in WIPING_CONTROL_TYPES:
         raise ValueError(f"scenario.task.wiping_control_type must be one of {WIPING_CONTROL_TYPES}.")
+    force_strategy = _load_force_strategy_config(task_values, wiping_control_type)
     feedback_mode = str(task_values.get("feedback_mode", "mujoco_actual"))
     if feedback_mode not in MUJOCO_FEEDBACK_MODES:
         raise ValueError(f"scenario.task.feedback_mode must be one of {MUJOCO_FEEDBACK_MODES}.")
@@ -380,6 +425,12 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             contact_loss_tolerance_steps=int(
                 task_values.get("contact_loss_tolerance_steps", 20)
             ),
+            dynamics_config_path=_optional_path(
+                config_path,
+                task_values.get("dynamics_config_path"),
+            ),
+            force_strategy=force_strategy,
+            admittance=_load_admittance_config(task_values),
             tracking_control=tracking_control,
         ),
         runtime=ScenarioRuntimeConfig(
@@ -487,6 +538,60 @@ def _load_tracking_control_config(
         decouple_arm_singularity=bool(
             values.get("decouple_arm_singularity", False)
         ),
+    )
+
+
+def _load_force_strategy_config(
+    task_values: dict[str, Any],
+    wiping_control_type: str,
+) -> ScenarioForceStrategyConfig:
+    values = task_values.get("force_strategy")
+    if values is None:
+        strategy_type = {
+            "contact_distance": "contact_distance",
+            "hybrid_force_position": "kinematic_hybrid",
+            "dynamic_adaptive_impedance": "dynamic_adaptive_impedance",
+            "contact_triggered_admittance": "contact_triggered_admittance",
+        }[wiping_control_type]
+    else:
+        mapping = _mapping(values, "scenario.task.force_strategy")
+        strategy_type = str(mapping.get("type", "contact_distance"))
+    if strategy_type not in WIPING_FORCE_STRATEGY_TYPES:
+        raise ValueError(
+            "scenario.task.force_strategy.type must be one of "
+            f"{WIPING_FORCE_STRATEGY_TYPES}."
+        )
+    return ScenarioForceStrategyConfig(type=strategy_type)
+
+
+def _load_admittance_config(task_values: dict[str, Any]) -> ScenarioAdmittanceConfig:
+    values = _mapping(
+        task_values.get("admittance", {}),
+        "scenario.task.admittance",
+    )
+    return ScenarioAdmittanceConfig(
+        target_normal_force_n=float(
+            values.get(
+                "target_normal_force_n",
+                task_values.get("target_normal_force_n", 0.0),
+            )
+        ),
+        contact_force_threshold_n=float(values.get("contact_force_threshold_n", 0.1)),
+        tangent_tolerance_m=float(values.get("tangent_tolerance_m", 1.0e-3)),
+        force_tolerance_n=float(values.get("force_tolerance_n", 0.08)),
+        stable_steps_required=int(values.get("stable_steps_required", 1)),
+        max_steps_per_target=int(values.get("max_steps_per_target", 100)),
+        position_gain=float(values.get("position_gain", 10.0)),
+        kp_force=float(values.get("kp_force", 0.5)),
+        ki_force=float(values.get("ki_force", 0.012)),
+        admittance_mass=float(values.get("admittance_mass", 1.0)),
+        admittance_damping=float(values.get("admittance_damping", 20.0)),
+        admittance_stiffness=float(values.get("admittance_stiffness", 5.0)),
+        admittance_clip_m=float(values.get("admittance_clip_m", 0.012)),
+        force_deadband_n=float(values.get("force_deadband_n", 0.03)),
+        force_filter_alpha=float(values.get("force_filter_alpha", 0.1)),
+        max_tangent_velocity_m_s=float(values.get("max_tangent_velocity_m_s", 0.012)),
+        max_normal_velocity_m_s=float(values.get("max_normal_velocity_m_s", 0.010)),
     )
 
 

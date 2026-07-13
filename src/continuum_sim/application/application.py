@@ -172,8 +172,13 @@ class SimulationApplication:
                 max_target_speed_mps=_tracking_target_speed_limit(tracking),
                 solver_config=_tracking_solver_config(tracking),
                 enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
+                control_type=config.task.navigation_control_type,
+                cbf_gain=config.task.navigation_cbf_gain,
+                cbf_influence_distance_m=(
+                    config.task.navigation_cbf_influence_distance_m
+                ),
             )
-        elif config.task.type in ("wiping", "engine_cleaning"):
+        elif config.task.type == "wiping":
             tracking = config.task.tracking_control
             controller = WipingController(
                 assembly,
@@ -201,6 +206,23 @@ class SimulationApplication:
                 max_target_speed_mps=_tracking_target_speed_limit(tracking),
                 solver_config=_tracking_solver_config(tracking),
                 enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
+            )
+        elif config.task.type == "engine_cleaning":
+            controller = EngineCleaningSystemController(
+                assembly,
+                task_plan["waypoints_world"],
+                task_plan["normals_world"],
+                task_plan["phases"],
+                task_plan["target_force_n"],
+                task_plan["standoff_distance_m"],
+                scene_query=scene_query,
+                gains=(
+                    config.task.engine_cleaning_control
+                    if config.task.engine_cleaning_control is not None
+                    else _default_engine_cleaning_gains(config)
+                ),
+                controller_dt_s=config.runtime.controller_dt_s,
+                observer_roi_world=config.task.observer_roi_world,
             )
         else:
             tracking = config.task.tracking_control
@@ -472,9 +494,11 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
             raise ValueError("scenario.task.engine_cleaning requires scenario.scene.engine_config_path.")
         plan = build_engine_cleaning_plan(task.engine_cleaning, engine_scene)
         waypoints = plan.waypoints_world
+        normals = plan.normals_world
         phases = plan.phases
         target_force = plan.target_force_n
         normal = plan.normals_world[0]
+        standoff_distance = plan.standoff_distance_m
         surface_point = None
     else:
         waypoints = task.waypoints_world
@@ -517,6 +541,8 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
         "target_force_n": target_force,
         "surface_normal_world": normal,
         "surface_point_world": surface_point,
+        "normals_world": normals,
+        "standoff_distance_m": standoff_distance,
         "approach_mask": approach_mask,
         "source_waypoint_index": source_waypoint_index,
     }

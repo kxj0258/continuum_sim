@@ -44,6 +44,9 @@ class EngineNavigationLocalTrackingSpec:
     rejoin_tolerance_m: float | None = None
     max_steps_per_waypoint: int | None = None
     transition_samples: int = 20
+    executor_position_gain: float = 3.0
+    max_target_speed_mps: float | None = None
+    enforce_tendon_rate_limits: bool = False
 
 
 @dataclass(frozen=True)
@@ -438,6 +441,20 @@ def _load_local_tracking(raw_value: object) -> EngineNavigationLocalTrackingSpec
             "engine_navigation.local_tracking.transition_samples must be "
             "at least 2."
         )
+    executor_position_gain = float(raw_value.get("executor_position_gain", 3.0))
+    if not np.isfinite(executor_position_gain) or executor_position_gain <= 0.0:
+        raise ValueError(
+            "engine_navigation.local_tracking.executor_position_gain must be "
+            "positive and finite."
+        )
+    max_target_speed_mps = _optional_float(raw_value.get("max_target_speed_mps"))
+    if max_target_speed_mps is not None and (
+        not np.isfinite(max_target_speed_mps) or max_target_speed_mps <= 0.0
+    ):
+        raise ValueError(
+            "engine_navigation.local_tracking.max_target_speed_mps must be "
+            "positive and finite when provided."
+        )
     return EngineNavigationLocalTrackingSpec(
         advance_mode=mode,
         advance_time_s=advance_time_s,
@@ -446,6 +463,11 @@ def _load_local_tracking(raw_value: object) -> EngineNavigationLocalTrackingSpec
         rejoin_tolerance_m=rejoin_tolerance_m,
         max_steps_per_waypoint=max_steps_per_waypoint,
         transition_samples=transition_samples,
+        executor_position_gain=executor_position_gain,
+        max_target_speed_mps=max_target_speed_mps,
+        enforce_tendon_rate_limits=bool(
+            raw_value.get("enforce_tendon_rate_limits", False)
+        ),
     )
 
 

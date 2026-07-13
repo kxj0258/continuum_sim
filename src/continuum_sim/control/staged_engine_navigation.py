@@ -366,17 +366,17 @@ class StagedEngineNavigationController:
                 else None
             ),
             scene_query=self.scene_query,
-            executor_position_gain=3.0,
+            executor_position_gain=tracking.executor_position_gain,
             observer_position_gain=observer.position_gain,
             feedforward_speed_mps=0.0,
-            max_target_speed_mps=None,
+            max_target_speed_mps=tracking.max_target_speed_mps,
             enforce_backend_tendon_limits=False,
             observer_executor_offset_world=observer.executor_offset_world_m,
             observer_roi_blend=observer.roi_blend,
             coordinated_config=CoordinatedTrackingConfig(
-                executor_position_gain=3.0,
+                executor_position_gain=tracking.executor_position_gain,
                 observer_position_gain=observer.position_gain,
-                max_target_speed_mps=None,
+                max_target_speed_mps=tracking.max_target_speed_mps,
                 inter_arm_min_distance_m=observer.inter_arm_safe_distance_m,
                 inter_arm_influence_distance_m=(
                     observer.inter_arm_influence_distance_m
@@ -404,7 +404,7 @@ class StagedEngineNavigationController:
                 decouple_arm_singularity=True,
                 singularity_strategy="svd_projection",
                 enforce_base_velocity_limits=False,
-                enforce_tendon_rate_limits=False,
+                enforce_tendon_rate_limits=tracking.enforce_tendon_rate_limits,
             ),
         )
 

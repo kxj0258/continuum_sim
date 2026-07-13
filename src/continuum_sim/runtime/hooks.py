@@ -783,6 +783,8 @@ class LiveDiagnosticsPanelHook:
         self._info_text = None
         self._time: list[float] = []
         self._tracking_error: list[float] = []
+        self._tip_target_error: list[float] = []
+        self._tip_error_xyz: list[np.ndarray] = []
         self._base_error: list[float] = []
         self._clearance: list[float] = []
         self._contact_distance: list[float] = []
@@ -852,6 +854,7 @@ class LiveDiagnosticsPanelHook:
         for values in (
             self._time,
             self._tracking_error,
+            self._tip_target_error,
             self._base_error,
             self._clearance,
             self._contact_distance,
@@ -862,6 +865,7 @@ class LiveDiagnosticsPanelHook:
             self._tendon_error,
         ):
             values.clear()
+        self._tip_error_xyz.clear()
         self._phase = ""
         self._waypoint_index = -1
 
@@ -872,7 +876,19 @@ class LiveDiagnosticsPanelHook:
     ) -> None:
         metadata = {} if command is None else command.metadata
         self._time.append(float(state.time_s))
-        self._tracking_error.append(float(metadata.get("executor_error_m", np.nan)))
+        tip_error_vector = _tip_target_error_vector(state, metadata)
+        if tip_error_vector is None:
+            tip_error_norm = np.nan
+            tip_error_vector = np.full(3, np.nan, dtype=float)
+        else:
+            tip_error_norm = float(np.linalg.norm(tip_error_vector))
+        self._tip_target_error.append(tip_error_norm)
+        self._tip_error_xyz.append(tip_error_vector)
+        self._tracking_error.append(
+            tip_error_norm
+            if np.isfinite(tip_error_norm)
+            else float(metadata.get("executor_error_m", np.nan))
+        )
         self._base_error.append(float(metadata.get("base_position_error_m", np.nan)))
         self._clearance.append(float(metadata.get("min_clearance_m", np.nan)))
         self._contact_distance.append(float(metadata.get("contact_distance_m", np.nan)))
@@ -915,6 +931,7 @@ class LiveDiagnosticsPanelHook:
         for values in (
             self._time,
             self._tracking_error,
+            self._tip_target_error,
             self._base_error,
             self._clearance,
             self._contact_distance,
@@ -925,6 +942,7 @@ class LiveDiagnosticsPanelHook:
             self._tendon_error,
         ):
             del values[:extra]
+        del self._tip_error_xyz[:extra]
 
     def _draw(self) -> None:
         if self._axes is None or self._figure is None:
@@ -947,7 +965,16 @@ class LiveDiagnosticsPanelHook:
             transform=axes[3].transAxes,
         )
 
-        axes[0].plot(time_s, 1000.0 * np.asarray(self._tracking_error), label="tip error")
+        axes[0].plot(
+            time_s,
+            1000.0 * np.asarray(self._tracking_error),
+            label="tip target error",
+        )
+        tip_error_xyz = np.asarray(self._tip_error_xyz, dtype=float)
+        if tip_error_xyz.ndim == 2 and tip_error_xyz.shape[1] == 3:
+            axes[0].plot(time_s, 1000.0 * tip_error_xyz[:, 0], label="tip err x", alpha=0.55)
+            axes[0].plot(time_s, 1000.0 * tip_error_xyz[:, 1], label="tip err y", alpha=0.55)
+            axes[0].plot(time_s, 1000.0 * tip_error_xyz[:, 2], label="tip err z", alpha=0.55)
         axes[0].plot(time_s, 1000.0 * np.asarray(self._base_error), label="base error")
         axes[0].set(title="Task error", xlabel="time [s]", ylabel="error [mm]")
         axes[0].legend(loc="upper right", fontsize=8)
@@ -962,7 +989,11 @@ class LiveDiagnosticsPanelHook:
         axes[1].set(title="Safety/contact", xlabel="time [s]")
         axes[1].legend(loc="upper right", fontsize=8)
 
-        axes[2].semilogy(time_s, _finite_positive(self._condition), label="condition")
+        condition = _finite_positive(self._condition)
+        if np.any(np.isfinite(condition)):
+            axes[2].semilogy(time_s, condition, label="condition")
+        else:
+            axes[2].plot(time_s, condition, label="condition")
         axes[2].plot(time_s, np.asarray(self._velocity_scale), label="velocity scale")
         axes[2].plot(time_s, np.asarray(self._saturation_scale), label="limit scale")
         axes[2].plot(
@@ -979,6 +1010,7 @@ class LiveDiagnosticsPanelHook:
             f"waypoint_index: {self._waypoint_index}",
             "",
             f"tracking_error_m: {_last_value(self._tracking_error): .5f}",
+            f"tip_err_xyz_m: {_last_vector(self._tip_error_xyz)}",
             f"base_error_m: {_last_value(self._base_error): .5f}",
             f"min_clearance_m: {_last_value(self._clearance): .5f}",
             f"contact_distance_m: {_last_value(self._contact_distance): .5f}",
@@ -1004,6 +1036,30 @@ def _last_value(values: list[float]) -> float:
     if not values:
         return float("nan")
     return float(values[-1])
+
+
+def _last_vector(values: list[np.ndarray]) -> str:
+    if not values:
+        return "[nan, nan, nan]"
+    vector = np.asarray(values[-1], dtype=float)
+    if vector.shape != (3,):
+        return "[nan, nan, nan]"
+    return "[" + ", ".join(f"{float(value): .5f}" for value in vector) + "]"
+
+
+def _tip_target_error_vector(
+    state: RobotSystemState,
+    metadata: dict[str, object],
+) -> np.ndarray | None:
+    executor = _executor_arm(state)
+    if executor is None:
+        return None
+    target = _metadata_point(metadata, "executor_target_world")
+    if target is None:
+        target = _metadata_point(metadata, "engine_navigation_active_target_m")
+    if target is None:
+        return None
+    return target - executor.tip_pose_world.position
 
 
 def _safe_panel_call(panel: object, method_name: str) -> None:

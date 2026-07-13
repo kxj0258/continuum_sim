@@ -21,6 +21,21 @@ from continuum_sim.control.engine_cleaning_types import (
     EngineCleaningFeedback,
 )
 from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
+from continuum_sim.control.wiping_force_strategies import (
+    WipingForceContext,
+    WipingForceStrategy,
+    default_wiping_force_strategy,
+)
+from continuum_sim.dynamics import (
+    PCCDynamicsConfig,
+    PCCDynamicsState,
+    contact_generalized_force,
+    damping_matrix,
+    mass_matrix,
+    stiffness_matrix,
+    step_dynamics,
+)
+from continuum_sim.kinematics.differential import finite_difference_position_jacobian
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
 from continuum_sim.model.robot_params import PCC_VALUES_PER_SEGMENT
 from continuum_sim.scenes.engine_query import EngineSceneQueryProtocol
@@ -464,6 +479,15 @@ class NavigationController:
         controller_dt_s: float = 0.02,
         advance_time_s: float | None = None,
         advance_steps: int | None = None,
+        executor_position_gain: float = 4.0,
+        observer_position_gain: float = 5.0,
+        feedforward_speed_mps: float = 0.0,
+        max_target_speed_mps: float | None = None,
+        solver_config: WholeBodyControllerConfig = WholeBodyControllerConfig(),
+        enforce_backend_tendon_limits: bool = False,
+        control_type: str = "whole_body",
+        cbf_gain: float = 4.0,
+        cbf_influence_distance_m: float | None = None,
     ) -> None:
         if scene_query is None:
             raise ValueError("NavigationController requires a scene query.")
@@ -650,6 +674,15 @@ class WipingController:
         normal_force_gain: float = 0.0,
         force_proxy_stiffness_n_m: float = 600.0,
         max_contact_force_n: float | None = None,
+        force_strategy: WipingForceStrategy | None = None,
+        executor_position_gain: float = 4.0,
+        observer_position_gain: float = 5.0,
+        feedforward_speed_mps: float = 0.0,
+        max_target_speed_mps: float | None = None,
+        solver_config: WholeBodyControllerConfig = WholeBodyControllerConfig(),
+        enforce_backend_tendon_limits: bool = False,
+        dynamics_config: PCCDynamicsConfig | None = None,
+        admittance_config: ContactTriggeredAdmittanceConfig | None = None,
     ) -> None:
         self.control_type = control_type
         self._tracking = WaypointTrackingController(
@@ -765,19 +798,27 @@ class WipingController:
             if not np.isfinite(estimated_force)
             else target_force - estimated_force
         )
+        strategy_result = self.force_strategy.compute(
+            WipingForceContext(
+                executor=executor,
+                waypoints_world=self._tracking.waypoints_world,
+                waypoint_index=waypoint_index,
+                phase=self.phase,
+                surface_normal_world=self.surface_normal_world,
+                query_normal_world=None if query is None else query.normal,
+                contact_error_m=contact_error,
+                estimated_force_n=estimated_force,
+                target_force_n=target_force,
+                normal_force_gain=self.normal_force_gain,
+                force_proxy_stiffness_n_m=self.force_proxy_stiffness_n_m,
+                contact_tolerance_m=self.contact_tolerance_m,
+                controller_dt_s=self.controller_dt_s,
+            )
+        )
         original_waypoint = self._tracking.waypoints_world[waypoint_index].copy()
-        if self.phase == "contact" and np.isfinite(contact_error) and query is not None:
-            normal_correction = contact_error
-            if (
-                self.control_type in ("hybrid_force_position", "dynamic_adaptive_impedance")
-                and target_force > 0.0
-                and np.isfinite(force_error)
-            ):
-                normal_correction += self.normal_force_gain * (
-                    force_error / max(self.force_proxy_stiffness_n_m, 1.0e-12)
-                )
+        if self.phase == "contact":
             self._tracking.waypoints_world[waypoint_index] = (
-                original_waypoint + normal_correction * query.normal
+                strategy_result.corrected_waypoint
             )
         try:
             command = self._tracking.compute_command(

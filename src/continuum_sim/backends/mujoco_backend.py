@@ -123,7 +123,11 @@ class MujocoBackend:
         self.data.ctrl[:] = self._absolute_control_for_model(control_array)
         self.update_follower_poses()
         for _ in range(n_substeps):
+            if base_pose_rpy is not None:
+                self.set_mobile_base_pose_rpy(base_pose_rpy)
             self._mujoco.mj_step(self.model, self.data)
+            if base_pose_rpy is not None:
+                self.set_mobile_base_pose_rpy(base_pose_rpy)
             self.update_follower_poses()
             self._mujoco.mj_forward(self.model, self.data)
         return self.get_state()

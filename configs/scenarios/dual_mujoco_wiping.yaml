@@ -14,7 +14,7 @@ scenario:
     waypoint_tolerance_m: 0.003
     observer_roi_world: [0.0375, 0.000, 0.095]
     surface_normal_world: [-1.0, 0.0, 0.0]
-    target_contact_distance_m: -0.0025
+    target_contact_distance_m: 0.0
     contact_tolerance_m: 0.002
     tracking_control:
       executor_position_gain: 1.5

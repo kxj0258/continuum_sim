@@ -35,6 +35,7 @@ WIPING_CONTROL_TYPES = (
     "dynamic_adaptive_impedance",
     "contact_triggered_admittance",
 )
+NAVIGATION_CONTROL_TYPES = ("whole_body", "navigation_cbf_qp")
 MUJOCO_FEEDBACK_MODES = ("pcc_command", "mujoco_actual")
 VIDEO_MODES = ("replay", "live_mujoco")
 WIPING_FORCE_STRATEGY_TYPES = (
@@ -251,7 +252,7 @@ class ScenarioHookConfig:
     show_live_force_panel: bool = False
     live_force_panel_stride: int = 1
     live_force_panel_history_points: int = 300
-    show_live_diagnostics_panel: bool = False
+    show_live_diagnostics_panel: bool = True
     live_diagnostics_panel_stride: int = 5
     live_diagnostics_panel_history_points: int = 300
 
@@ -372,6 +373,12 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     target_advance_mode = str(task_values.get("target_advance_mode", "tolerance"))
     if target_advance_mode not in WAYPOINT_ADVANCE_MODES:
         raise ValueError(f"scenario.task.target_advance_mode must be one of {WAYPOINT_ADVANCE_MODES}.")
+    navigation_control_type = str(task_values.get("navigation_control_type", "whole_body"))
+    if navigation_control_type not in NAVIGATION_CONTROL_TYPES:
+        raise ValueError(
+            "scenario.task.navigation_control_type must be one of "
+            f"{NAVIGATION_CONTROL_TYPES}."
+        )
     wiping_control_type = str(task_values.get("wiping_control_type", "contact_distance"))
     if wiping_control_type not in WIPING_CONTROL_TYPES:
         raise ValueError(f"scenario.task.wiping_control_type must be one of {WIPING_CONTROL_TYPES}.")
@@ -501,7 +508,7 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
                 hook_values.get("live_force_panel_history_points", 300)
             ),
             show_live_diagnostics_panel=bool(
-                hook_values.get("show_live_diagnostics_panel", False)
+                hook_values.get("show_live_diagnostics_panel", task_type != "idle")
             ),
             live_diagnostics_panel_stride=int(
                 hook_values.get("live_diagnostics_panel_stride", 5)

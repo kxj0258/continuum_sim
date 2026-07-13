@@ -17,10 +17,14 @@ scenario:
     target_contact_distance_m: 0.0
     contact_tolerance_m: 0.002
     tracking_control:
+      approach_samples: 30
+      tracking_mode: time
+      trajectory_duration_s: 20.0
       executor_position_gain: 1.5
       observer_position_gain: 3.0
       feedforward_speed_mps: 0.0
       max_target_speed_mps: 0.015
+      enforce_target_speed_limit: true
       tendon_regularization_weight: 0.5
       nominal_damping: 0.001
       maximum_damping: 0.05
@@ -44,4 +48,12 @@ scenario:
     show_live_tendon_panel: true
     live_tendon_panel_stride: 5
     viewer: mujoco
-    keep_viewer_open: true
+    keep_viewer_open: false
+  artifacts:
+    enabled: true
+    save_npz: true
+    save_plots: true
+    save_gif: true
+    video_mode: live_mujoco
+    video_fps: 10
+    video_stride: 10

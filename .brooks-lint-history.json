@@ -1,0 +1,13 @@
+[
+  {
+    "date": "2026-07-13",
+    "mode": "Architecture Audit",
+    "score": 75,
+    "findings": {
+      "critical": 0,
+      "warning": 5,
+      "suggestion": 0
+    },
+    "scope": "continuum_sim control pipeline: application, tasks, control, system, backends, runtime, scenario configs, and six run artifacts"
+  }
+]

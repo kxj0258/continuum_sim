@@ -32,4 +32,12 @@ scenario:
     show_live_tendon_panel: true
     live_tendon_panel_stride: 5
     viewer: mujoco
-    keep_viewer_open: true
+    keep_viewer_open: false
+  artifacts:
+    enabled: true
+    save_npz: true
+    save_plots: true
+    save_gif: true
+    video_mode: live_mujoco
+    video_fps: 10
+    video_stride: 10

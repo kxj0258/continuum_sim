@@ -23,3 +23,7 @@ scenario:
     live_tendon_panel_stride: 10
     viewer: mujoco
     keep_viewer_open: false
+  artifacts:
+    enabled: false
+    save_gif: false
+    video_mode: live_mujoco

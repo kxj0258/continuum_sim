@@ -82,7 +82,7 @@ scenario:
     show_live_diagnostics_panel: true
     live_diagnostics_panel_stride: 5
     viewer: mujoco
-    keep_viewer_open: true
+    keep_viewer_open: false
   artifacts:
     enabled: true
     save_npz: true

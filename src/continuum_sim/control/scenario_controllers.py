@@ -675,6 +675,9 @@ class WipingController:
         force_proxy_stiffness_n_m: float = 600.0,
         max_contact_force_n: float | None = None,
         force_strategy: WipingForceStrategy | None = None,
+        tracking_mode: str = "waypoint",
+        trajectory_duration_s: float | None = None,
+        approach_samples: int = 0,
         executor_position_gain: float = 4.0,
         observer_position_gain: float = 5.0,
         feedforward_speed_mps: float = 0.0,
@@ -685,25 +688,17 @@ class WipingController:
         admittance_config: ContactTriggeredAdmittanceConfig | None = None,
     ) -> None:
         self.control_type = control_type
-        self._tracking = WaypointTrackingController(
-            assembly,
-            waypoints_world,
-            waypoint_tolerance_m=waypoint_tolerance_m,
-            target_advance_mode=target_advance_mode,
-            controller_dt_s=controller_dt_s,
-            advance_time_s=advance_time_s,
-            advance_steps=advance_steps,
-            advance_enabled=(control_type != "contact_triggered_admittance"),
-            # Contact regulation intentionally replaces generic clearance
-            # avoidance for the executor at the wiping surface.
-            scene_query=None,
-            executor_position_gain=executor_position_gain,
-            observer_position_gain=observer_position_gain,
-            feedforward_speed_mps=feedforward_speed_mps,
-            max_target_speed_mps=max_target_speed_mps,
-            solver_config=solver_config,
-            enforce_backend_tendon_limits=enforce_backend_tendon_limits,
-        )
+        self._tracking_mode = str(tracking_mode)
+        if self._tracking_mode not in ("waypoint", "time"):
+            raise ValueError("Wiping tracking_mode must be 'waypoint' or 'time'.")
+        if self._tracking_mode == "time" and (
+            trajectory_duration_s is None
+            or not np.isfinite(trajectory_duration_s)
+            or trajectory_duration_s <= 0.0
+        ):
+            raise ValueError(
+                "Wiping time tracking requires a positive trajectory_duration_s."
+            )
         self.assembly = assembly
         self.scene_query = scene_query
         self.surface_normal_world = np.asarray(surface_normal_world, dtype=float)
@@ -715,6 +710,25 @@ class WipingController:
         self.target_contact_distance_m = target_contact_distance_m
         self.contact_tolerance_m = contact_tolerance_m
         self.phases = tuple(phases)
+        self._original_waypoints_world = np.asarray(waypoints_world, dtype=float).copy()
+        self._approach_samples = int(approach_samples)
+        self._runtime_approach_initialized = False
+        self._tracking_kwargs = {
+            "waypoint_tolerance_m": waypoint_tolerance_m,
+            "target_advance_mode": target_advance_mode,
+            "controller_dt_s": controller_dt_s,
+            "advance_time_s": advance_time_s,
+            "advance_steps": advance_steps,
+            "advance_enabled": (control_type != "contact_triggered_admittance"),
+            "executor_position_gain": executor_position_gain,
+            "observer_position_gain": observer_position_gain,
+            "feedforward_speed_mps": feedforward_speed_mps,
+            "max_target_speed_mps": max_target_speed_mps,
+            "solver_config": solver_config,
+            "enforce_backend_tendon_limits": enforce_backend_tendon_limits,
+            "trajectory_duration_s": trajectory_duration_s,
+        }
+        self._tracking = self._make_tracking_controller(self._original_waypoints_world)
         force = (
             np.zeros(self._tracking.waypoints_world.shape[0], dtype=float)
             if target_force_n is None
@@ -723,6 +737,8 @@ class WipingController:
         if force.shape != (self._tracking.waypoints_world.shape[0],):
             raise ValueError("target_force_n must match waypoint count.")
         self.target_force_n = force
+        self._original_target_force_n = force.copy()
+        self._original_phases = self.phases
         self.normal_force_gain = float(normal_force_gain)
         self.force_proxy_stiffness_n_m = float(force_proxy_stiffness_n_m)
         self.max_contact_force_n = max_contact_force_n
@@ -752,9 +768,10 @@ class WipingController:
 
     @property
     def done(self) -> bool:
-        return self._tracking.done or self.force_limit_exceeded
+        return self._tracking.done
 
     def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
+        self._ensure_runtime_approach(state)
         executor = next(arm for arm in state.arms.values() if arm.role == "executor")
         distance = float("nan")
         query = None
@@ -821,10 +838,13 @@ class WipingController:
                 strategy_result.corrected_waypoint
             )
         try:
-            command = self._tracking.compute_command(
-                state,
-                advance=not strategy_result.controls_waypoint_advance,
-            )
+            if self._tracking_mode == "time":
+                command = self._tracking.compute_command(state)
+            else:
+                command = self._tracking.compute_command(
+                    state,
+                    advance=not strategy_result.controls_waypoint_advance,
+                )
         finally:
             self._tracking.waypoints_world[waypoint_index] = original_waypoint
         return RobotSystemCommand(
@@ -859,6 +879,88 @@ class WipingController:
                 ),
             },
         )
+
+    def _make_tracking_controller(
+        self,
+        waypoints_world: np.ndarray,
+    ) -> WaypointTrackingController | TimedTrajectoryTrackingController:
+        kwargs = self._tracking_kwargs
+        if self._tracking_mode == "time":
+            return TimedTrajectoryTrackingController(
+                self.assembly,
+                waypoints_world,
+                trajectory_duration_s=float(kwargs["trajectory_duration_s"]),
+                waypoint_tolerance_m=float(kwargs["waypoint_tolerance_m"]),
+                scene_query=None,
+                executor_position_gain=float(kwargs["executor_position_gain"]),
+                observer_position_gain=float(kwargs["observer_position_gain"]),
+                max_target_speed_mps=kwargs["max_target_speed_mps"],
+                solver_config=kwargs["solver_config"],
+                enforce_backend_tendon_limits=bool(
+                    kwargs["enforce_backend_tendon_limits"]
+                ),
+            )
+        return WaypointTrackingController(
+            self.assembly,
+            waypoints_world,
+            waypoint_tolerance_m=float(kwargs["waypoint_tolerance_m"]),
+            target_advance_mode=str(kwargs["target_advance_mode"]),
+            controller_dt_s=float(kwargs["controller_dt_s"]),
+            advance_time_s=kwargs["advance_time_s"],
+            advance_steps=kwargs["advance_steps"],
+            advance_enabled=bool(kwargs["advance_enabled"]),
+            # Contact regulation intentionally replaces generic clearance
+            # avoidance for the executor at the wiping surface.
+            scene_query=None,
+            executor_position_gain=float(kwargs["executor_position_gain"]),
+            observer_position_gain=float(kwargs["observer_position_gain"]),
+            feedforward_speed_mps=float(kwargs["feedforward_speed_mps"]),
+            max_target_speed_mps=kwargs["max_target_speed_mps"],
+            solver_config=kwargs["solver_config"],
+            enforce_backend_tendon_limits=bool(
+                kwargs["enforce_backend_tendon_limits"]
+            ),
+        )
+
+    def _ensure_runtime_approach(self, state: RobotSystemState) -> None:
+        if self._runtime_approach_initialized:
+            return
+        self._runtime_approach_initialized = True
+        if self._approach_samples < 2:
+            return
+        executor = next(arm for arm in state.arms.values() if arm.role == "executor")
+        start = executor.tip_pose_world.position.copy()
+        end = self._original_waypoints_world[0].copy()
+        s = np.linspace(0.0, 1.0, self._approach_samples)
+        alpha = 3.0 * s**2 - 2.0 * s**3
+        approach = start[None, :] + alpha[:, None] * (end - start)[None, :]
+        waypoints = np.vstack((approach, self._original_waypoints_world[1:]))
+        self._tracking = self._make_tracking_controller(waypoints)
+        approach_force = np.zeros(self._approach_samples, dtype=float)
+        self.target_force_n = np.concatenate(
+            (approach_force, self._original_target_force_n[1:])
+        )
+        if self._original_phases:
+            self.phases = (
+                *("approach" for _ in range(self._approach_samples)),
+                *self._original_phases[1:],
+            )
+        else:
+            trailing = waypoints.shape[0] - self._approach_samples
+            if trailing <= 0:
+                self.phases = tuple("approach" for _ in range(waypoints.shape[0]))
+            else:
+                self.phases = (
+                    *("approach" for _ in range(self._approach_samples)),
+                    *(
+                        "contact"
+                        for _ in range(max(0, trailing - 1))
+                    ),
+                    "retreat",
+                )
+        self._executor_bending_model = self._tracking._controller.solver.layout.bending_models[
+            self._executor_name
+        ]
 
     def _with_dynamic_executor_command(
         self,

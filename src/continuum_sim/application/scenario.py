@@ -218,7 +218,6 @@ class ScenarioTaskConfig:
     force_proxy_stiffness_n_m: float = 600.0
     max_contact_force_n: float | None = None
     contact_loss_tolerance_steps: int = 20
-    dynamics_config_path: Path | None = None
     force_strategy: ScenarioForceStrategyConfig = field(
         default_factory=ScenarioForceStrategyConfig
     )
@@ -476,10 +475,6 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             max_contact_force_n=_optional_float(task_values.get("max_contact_force_n")),
             contact_loss_tolerance_steps=int(
                 task_values.get("contact_loss_tolerance_steps", 20)
-            ),
-            dynamics_config_path=_optional_path(
-                config_path,
-                task_values.get("dynamics_config_path"),
             ),
             force_strategy=force_strategy,
             admittance=_load_admittance_config(task_values),

@@ -479,6 +479,8 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             force_strategy=force_strategy,
             admittance=_load_admittance_config(task_values),
             tracking_control=tracking_control,
+            contact_admittance=contact_admittance,
+            engine_cleaning_control=engine_cleaning_control,
         ),
         runtime=ScenarioRuntimeConfig(
             controller_dt_s=float(runtime_values.get("controller_dt_s", 0.02)),
@@ -652,6 +654,85 @@ def _load_admittance_config(task_values: dict[str, Any]) -> ScenarioAdmittanceCo
         max_tangent_velocity_m_s=float(values.get("max_tangent_velocity_m_s", 0.012)),
         max_normal_velocity_m_s=float(values.get("max_normal_velocity_m_s", 0.010)),
         enforce_velocity_limits=bool(values.get("enforce_velocity_limits", False)),
+    )
+
+
+def _load_contact_admittance_config(
+    task_values: dict[str, Any],
+) -> ContactTriggeredAdmittanceConfig | None:
+    values = task_values.get("contact_admittance")
+    if values is None:
+        return None
+    mapping = _mapping(values, "scenario.task.contact_admittance")
+    return ContactTriggeredAdmittanceConfig(
+        target_normal_force_n=float(
+            mapping.get(
+                "target_normal_force_n",
+                task_values.get("target_normal_force_n", 0.0),
+            )
+        ),
+        contact_force_threshold_n=float(
+            mapping.get("contact_force_threshold_n", 0.1)
+        ),
+        tangent_tolerance_m=float(mapping.get("tangent_tolerance_m", 1.0e-3)),
+        force_tolerance_n=float(mapping.get("force_tolerance_n", 0.08)),
+        stable_steps_required=int(mapping.get("stable_steps_required", 1)),
+        max_steps_per_target=int(mapping.get("max_steps_per_target", 100)),
+        position_gain=float(mapping.get("position_gain", 10.0)),
+        kp_force=float(mapping.get("kp_force", 0.5)),
+        ki_force=float(mapping.get("ki_force", 0.012)),
+        admittance_mass=float(mapping.get("admittance_mass", 1.0)),
+        admittance_damping=float(mapping.get("admittance_damping", 20.0)),
+        admittance_stiffness=float(mapping.get("admittance_stiffness", 5.0)),
+        admittance_clip_m=float(mapping.get("admittance_clip_m", 0.012)),
+        force_deadband_n=float(mapping.get("force_deadband_n", 0.03)),
+        force_filter_alpha=float(mapping.get("force_filter_alpha", 0.1)),
+        max_tangent_velocity_m_s=float(
+            mapping.get("max_tangent_velocity_m_s", 0.012)
+        ),
+        max_normal_velocity_m_s=float(
+            mapping.get("max_normal_velocity_m_s", 0.010)
+        ),
+        enforce_velocity_limits=bool(mapping.get("enforce_velocity_limits", False)),
+    )
+
+
+def _load_engine_cleaning_control_config(
+    task_values: dict[str, Any],
+) -> EngineCleaningControllerGains | None:
+    values = task_values.get("engine_cleaning_control")
+    if values is None:
+        return None
+    mapping = _mapping(values, "scenario.task.engine_cleaning_control")
+    return EngineCleaningControllerGains(
+        tangential_position_gain=float(mapping.get("tangential_position_gain", 8.0)),
+        normal_position_gain=float(mapping.get("normal_position_gain", 3.0)),
+        normal_force_gain=float(
+            mapping.get(
+                "normal_force_gain",
+                max(float(task_values.get("normal_force_gain", 0.0)), 0.001),
+            )
+        ),
+        approach_position_gain=float(mapping.get("approach_position_gain", 5.0)),
+        retreat_position_gain=float(mapping.get("retreat_position_gain", 5.0)),
+        max_tcp_speed_mps=float(mapping.get("max_tcp_speed_mps", 0.03)),
+        max_normal_speed_mps=float(mapping.get("max_normal_speed_mps", 0.01)),
+        waypoint_tolerance_m=float(
+            mapping.get(
+                "waypoint_tolerance_m",
+                task_values.get("waypoint_tolerance_m", 0.001),
+            )
+        ),
+        max_contact_force_n=float(
+            mapping.get(
+                "max_contact_force_n",
+                task_values.get("max_contact_force_n", 5.0),
+            )
+        ),
+        force_deadband_n=float(mapping.get("force_deadband_n", 0.05)),
+        min_clearance_m=float(
+            mapping.get("min_clearance_m", task_values.get("min_clearance_m", 0.0))
+        ),
     )
 
 

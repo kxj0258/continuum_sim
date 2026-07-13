@@ -17,6 +17,7 @@ from continuum_sim.backends.analytic_system_backend import AnalyticSystemBackend
 from continuum_sim.backends.mujoco_system_backend import MujocoSystemBackend
 from continuum_sim.config import load_mujoco_config
 from continuum_sim.control.scenario_controllers import (
+    EngineCleaningSystemController,
     NavigationController,
     TimedTrajectoryTrackingController,
     WaypointTrackingController,
@@ -37,6 +38,7 @@ from continuum_sim.control.staged_engine_navigation import (
 )
 from continuum_sim.control.coordinated_tracking import CoordinatedTrackingConfig
 from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
+from continuum_sim.dynamics import load_pcc_dynamics_config
 from continuum_sim.kinematics.whole_body import SingularityConfig
 from continuum_sim.model.robot_assembly import load_robot_assembly_config
 from continuum_sim.runtime.hooks import (
@@ -492,6 +494,13 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
     else:
         approach_mask = np.zeros(waypoints.shape[0], dtype=bool)
         source_waypoint_index = np.arange(waypoints.shape[0], dtype=int)
+    if "normals" not in locals() or normals.shape[0] != waypoints.shape[0]:
+        normals = np.tile(normal, (waypoints.shape[0], 1))
+    if (
+        "standoff_distance" not in locals()
+        or standoff_distance.shape != (waypoints.shape[0],)
+    ):
+        standoff_distance = np.zeros(waypoints.shape[0], dtype=float)
     if phases and len(phases) != waypoints.shape[0]:
         raise ValueError("scenario.task.waypoint_phases must match waypoint count.")
     if target_force.size == 0:
@@ -511,3 +520,33 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
         "approach_mask": approach_mask,
         "source_waypoint_index": source_waypoint_index,
     }
+
+
+def _load_task_dynamics_config(config, assembly):
+    if config.task.dynamics_config_path is None:
+        return None
+    executor_names = [arm.name for arm in assembly.enabled_arms if arm.role == "executor"]
+    if len(executor_names) != 1:
+        raise ValueError("Task dynamics requires exactly one executor arm.")
+    params = assembly.arms[executor_names[0]].spatial_arm.params
+    return load_pcc_dynamics_config(config.task.dynamics_config_path, params)
+
+
+def _default_engine_cleaning_gains(config) -> EngineCleaningControllerGains:
+    return EngineCleaningControllerGains(
+        tangential_position_gain=8.0,
+        normal_position_gain=3.0,
+        normal_force_gain=max(config.task.normal_force_gain, 0.001),
+        approach_position_gain=5.0,
+        retreat_position_gain=5.0,
+        max_tcp_speed_mps=0.03,
+        max_normal_speed_mps=0.01,
+        waypoint_tolerance_m=config.task.waypoint_tolerance_m,
+        max_contact_force_n=(
+            5.0
+            if config.task.max_contact_force_n is None
+            else config.task.max_contact_force_n
+        ),
+        force_deadband_n=0.05,
+        min_clearance_m=config.task.min_clearance_m,
+    )

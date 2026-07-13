@@ -35,7 +35,10 @@ continuum_sim.tasks
   轨迹、导航任务、擦拭路径、发动机导航计划解析
 
 continuum_sim.control
-  路点跟踪、导航、擦拭、发动机清洗、分阶段发动机导航
+  路点跟踪、导航、擦拭、发动机清洗、分阶段发动机导航和实验控制器
+
+continuum_sim.dynamics
+  实验性 PCC 降阶动力学；当前主要由旧 wiping runtime 使用
 
 continuum_sim.backends
   analytic 和 MuJoCo 系统后端
@@ -93,6 +96,11 @@ source_xml_path
 
 发动机导航使用 `StagedEngineNavigationController`，按预进入、插入、局部执行臂路径、回归和终止阶段推进，
 并通过 metadata 暴露活动目标、底座路径、执行臂路径、observer ROI 等叠加层和运行产物需要的数据。
+
+需要注意：`control` 目录中还保留了旧 motor-space 差分 IK、navigation CBF-QP、
+contact-triggered admittance、engine-cleaning task-space scaffold 和 dynamic adaptive impedance。
+这些模块并不都作为 scenario 主入口的一等控制器启用。当前状态和迁移建议见
+`docs/current_status.md`。
 
 ## Hooks 与调试数据
 

@@ -10,6 +10,8 @@ import numpy as np
 
 from continuum_sim.config import load_yaml
 from continuum_sim.config_validation import resolve_path
+from continuum_sim.control.contact_triggered_admittance import ContactTriggeredAdmittanceConfig
+from continuum_sim.control.engine_cleaning_types import EngineCleaningControllerGains
 from continuum_sim.control.waypoint_scheduler import WAYPOINT_ADVANCE_MODES
 from continuum_sim.tasks.engine_cleaning_path import EngineCleaningPathSpec
 from continuum_sim.tasks.engine_navigation import EngineNavigationSpec
@@ -192,6 +194,9 @@ class ScenarioTaskConfig:
     advance_steps: int | None = None
     min_clearance_m: float = 0.01
     terminate_on_clearance_violation: bool = True
+    navigation_control_type: str = "whole_body"
+    navigation_cbf_gain: float = 4.0
+    navigation_cbf_influence_distance_m: float | None = None
     surface_normal_world: np.ndarray = field(
         default_factory=lambda: np.array([0.0, 0.0, 1.0], dtype=float)
     )
@@ -206,6 +211,7 @@ class ScenarioTaskConfig:
         default_factory=lambda: np.zeros(0, dtype=float)
     )
     wiping_control_type: str = "contact_distance"
+    dynamics_config_path: Path | None = None
     feedback_mode: str = "mujoco_actual"
     normal_force_gain: float = 0.0
     target_normal_force_n: float = 0.0
@@ -220,6 +226,8 @@ class ScenarioTaskConfig:
         default_factory=ScenarioAdmittanceConfig
     )
     engine_navigation: EngineNavigationSpec | None = None
+    contact_admittance: ContactTriggeredAdmittanceConfig | None = None
+    engine_cleaning_control: EngineCleaningControllerGains | None = None
     tracking_control: ScenarioTrackingControlConfig = field(
         default_factory=ScenarioTrackingControlConfig
     )
@@ -373,6 +381,12 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     if feedback_mode not in MUJOCO_FEEDBACK_MODES:
         raise ValueError(f"scenario.task.feedback_mode must be one of {MUJOCO_FEEDBACK_MODES}.")
     tracking_control = _load_tracking_control_config(task_values)
+    contact_admittance = _load_contact_admittance_config(task_values)
+    if wiping_control_type == "contact_triggered_admittance" and contact_admittance is None:
+        contact_admittance = ContactTriggeredAdmittanceConfig(
+            target_normal_force_n=float(task_values.get("target_normal_force_n", 0.0))
+        )
+    engine_cleaning_control = _load_engine_cleaning_control_config(task_values)
     viewer = str(hook_values.get("viewer", "none"))
     if viewer not in ("none", "matplotlib", "mujoco"):
         raise ValueError("scenario.hooks.viewer must be none, matplotlib, or mujoco.")
@@ -431,6 +445,11 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             terminate_on_clearance_violation=bool(
                 task_values.get("terminate_on_clearance_violation", True)
             ),
+            navigation_control_type=navigation_control_type,
+            navigation_cbf_gain=float(task_values.get("navigation_cbf_gain", 4.0)),
+            navigation_cbf_influence_distance_m=_optional_float(
+                task_values.get("navigation_cbf_influence_distance_m")
+            ),
             surface_normal_world=surface_normal,
             target_contact_distance_m=float(
                 task_values.get("target_contact_distance_m", 0.0)
@@ -444,6 +463,10 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             waypoint_phases=tuple(str(value) for value in task_values.get("waypoint_phases", ())),
             target_force_n=np.asarray(task_values.get("target_force_n", []), dtype=float),
             wiping_control_type=wiping_control_type,
+            dynamics_config_path=_optional_path(
+                config_path,
+                task_values.get("dynamics_config_path"),
+            ),
             feedback_mode=feedback_mode,
             normal_force_gain=float(task_values.get("normal_force_gain", 0.0)),
             target_normal_force_n=float(task_values.get("target_normal_force_n", 0.0)),

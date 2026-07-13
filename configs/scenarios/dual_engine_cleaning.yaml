@@ -1,21 +1,20 @@
 schema_version: 1
 scenario:
-  name: single_engine_cleaning
-  assembly_config_path: ../robots/assemblies/single_spatial_mobile.yaml
+  name: dual_engine_cleaning
+  assembly_config_path: ../robots/assemblies/dual_spatial_mobile.yaml
   low_level_control_path: ../control/spatial_low_level.yaml
   backend:
     type: mujoco
     mujoco_config_path: ../mujoco_dual.yaml
     source_xml_path: ../../assets/mujoco/dual_three_segment_arm_tendon_with_visuals_mobile_base.xml
-    generated_xml_path: ../../output/generated/scenario_single_engine_cleaning.xml
-    retain_arm: executor
+    generated_xml_path: ../../output/generated/scenario_dual_engine_cleaning.xml
   scene:
     engine_config_path: ../scenes/engine_cleaning.yaml
   task:
     type: engine_cleaning
     waypoint_tolerance_m: 0.002
     target_advance_mode: tolerance
-    wiping_control_type: hybrid_force_position
+    observer_roi_world: [0.114155, 0.530382, 0.010]
     target_contact_distance_m: 0.0
     contact_tolerance_m: 0.003
     target_normal_force_n: 1.2
@@ -43,7 +42,7 @@ scenario:
   runtime:
     controller_dt_s: 0.02
     n_substeps: 20
-    max_steps: 2000
+    max_steps: 4000
   hooks:
     recorder: true
     tendon_debug: true

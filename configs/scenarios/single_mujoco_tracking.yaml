@@ -2,6 +2,7 @@ schema_version: 1
 scenario:
   name: single_mujoco_tracking
   assembly_config_path: ../robots/assemblies/single_spatial.yaml
+  low_level_control_path: ../control/spatial_low_level.yaml
   backend:
     type: mujoco
     mujoco_config_path: ../mujoco_dual.yaml
@@ -18,25 +19,6 @@ scenario:
       approach_samples: 40
       tracking_mode: time
       trajectory_duration_s: 80.0
-      executor_position_gain: 1.0
-      observer_position_gain: 1.0
-      feedforward_speed_mps: 0.0
-      max_target_speed_mps:
-      enforce_target_speed_limit: false
-      enforce_solver_velocity_limits: false
-      enforce_backend_tendon_limits: false
-      executor_tracking_weight: 100.0
-      observer_tracking_weight: 40.0
-      executor_collision_avoidance_weight: 80.0
-      base_regularization_weight: 1.0
-      tendon_regularization_weight: 0.8
-      singularity_strategy: svd_projection
-      rank_tolerance: 1.0e-9
-      minimum_singular_value: 1.0e-5
-      nominal_damping: 1.0e-3
-      maximum_damping: 0.1
-      minimum_velocity_scale: 0.05
-      decouple_arm_singularity: true
     trajectory:
       type: square
       samples: 80

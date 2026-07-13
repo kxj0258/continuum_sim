@@ -1,13 +1,10 @@
 schema_version: 1
 scenario:
-  name: dual_mujoco_wiping
+  name: dual_analytic_wiping
   assembly_config_path: ../robots/assemblies/dual_spatial.yaml
   low_level_control_path: ../control/spatial_low_level.yaml
   backend:
-    type: mujoco
-    mujoco_config_path: ../mujoco_dual.yaml
-    source_xml_path: ../../assets/mujoco/dual_three_segment_arm_tendon_with_visuals_mobile_base.xml
-    generated_xml_path: ../../output/generated/scenario_dual_wiping.xml
+    type: analytic
   scene:
     structured_config_path: ../scenes/wiping_board.yaml
   task:
@@ -17,6 +14,8 @@ scenario:
     surface_normal_world: [-1.0, 0.0, 0.0]
     target_contact_distance_m: 0.0
     contact_tolerance_m: 0.002
+    force_strategy:
+      type: contact_distance
     tracking_control:
       approach_samples: 30
       tracking_mode: time
@@ -30,21 +29,15 @@ scenario:
       - [0.0425, -0.020, 0.0950]
   runtime:
     controller_dt_s: 0.02
-    n_substeps: 20
+    n_substeps: 1
     max_steps: 2000
   hooks:
     recorder: true
-    tendon_debug: true
-    tendon_debug_stride: 5
-    show_live_tendon_panel: true
-    live_tendon_panel_stride: 5
-    viewer: mujoco
-    keep_viewer_open: false
+    tendon_debug: false
+    viewer: matplotlib
+    keep_viewer_open: true
   artifacts:
     enabled: true
     save_npz: true
     save_plots: true
     save_gif: true
-    video_mode: live_mujoco
-    video_fps: 10
-    video_stride: 10

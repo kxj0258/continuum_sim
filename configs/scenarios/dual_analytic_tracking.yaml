@@ -2,6 +2,7 @@ schema_version: 1
 scenario:
   name: dual_analytic_tracking
   assembly_config_path: ../robots/assemblies/dual_spatial.yaml
+  low_level_control_path: ../control/spatial_low_level.yaml
   backend:
     type: analytic
   scene: {}
@@ -24,4 +25,3 @@ scenario:
     tendon_debug_stride: 5
     viewer: matplotlib
     keep_viewer_open: true
-

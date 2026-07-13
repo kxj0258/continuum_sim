@@ -45,6 +45,12 @@ class StagedEngineNavigationController:
         min_clearance_m: float,
         terminate_on_clearance_violation: bool,
         controller_dt_s: float = 0.02,
+        low_level_coordinated_config: CoordinatedTrackingConfig = (
+            CoordinatedTrackingConfig()
+        ),
+        low_level_solver_config: WholeBodyControllerConfig = (
+            WholeBodyControllerConfig()
+        ),
     ) -> None:
         if assembly.base.control_mode == "fixed":
             raise ValueError("Staged engine navigation requires a mobile base.")
@@ -72,6 +78,8 @@ class StagedEngineNavigationController:
         self._controller_dt_s = float(controller_dt_s)
         self._local_tracking = spec.local_tracking
         self._observer_control = spec.observer_control
+        self._low_level_coordinated_config = low_level_coordinated_config
+        self._low_level_solver_config = low_level_solver_config
         self._local_paths = (
             plan.local_path_plans
             if plan.local_path_plans
@@ -366,17 +374,23 @@ class StagedEngineNavigationController:
                 else None
             ),
             scene_query=self.scene_query,
-            executor_position_gain=tracking.executor_position_gain,
-            observer_position_gain=observer.position_gain,
+            executor_position_gain=(
+                self._low_level_coordinated_config.executor_position_gain
+            ),
+            observer_position_gain=(
+                self._low_level_coordinated_config.observer_position_gain
+            ),
             feedforward_speed_mps=0.0,
-            max_target_speed_mps=tracking.max_target_speed_mps,
-            enforce_backend_tendon_limits=False,
+            max_target_speed_mps=(
+                self._low_level_coordinated_config.max_target_speed_mps
+            ),
+            enforce_backend_tendon_limits=(
+                self._low_level_coordinated_config.enforce_backend_tendon_limits
+            ),
             observer_executor_offset_world=observer.executor_offset_world_m,
             observer_roi_blend=observer.roi_blend,
-            coordinated_config=CoordinatedTrackingConfig(
-                executor_position_gain=tracking.executor_position_gain,
-                observer_position_gain=observer.position_gain,
-                max_target_speed_mps=tracking.max_target_speed_mps,
+            coordinated_config=replace(
+                self._low_level_coordinated_config,
                 inter_arm_min_distance_m=observer.inter_arm_safe_distance_m,
                 inter_arm_influence_distance_m=(
                     observer.inter_arm_influence_distance_m
@@ -396,15 +410,12 @@ class StagedEngineNavigationController:
                     observer.centerline_samples_per_segment
                 ),
             ),
-            solver_config=WholeBodyControllerConfig(
+            solver_config=replace(
+                self._low_level_solver_config,
                 observer_tracking_weight=observer.observer_tracking_weight,
                 observer_collision_avoidance_weight=(
                     observer.observer_collision_weight
                 ),
-                decouple_arm_singularity=True,
-                singularity_strategy="svd_projection",
-                enforce_base_velocity_limits=False,
-                enforce_tendon_rate_limits=tracking.enforce_tendon_rate_limits,
             ),
         )
 
@@ -413,8 +424,10 @@ class StagedEngineNavigationController:
             return float("inf")
         return float(
             min(
-                self.scene_query.nearest_distance(
-                    arm.tip_pose_world.position
+                self.scene_query.nearest_centerline_clearance(
+                    arm.centerline_world
+                    if arm.centerline_world is not None
+                    else np.asarray([arm.tip_pose_world.position])
                 ).distance_m
                 for arm in state.arms.values()
             )

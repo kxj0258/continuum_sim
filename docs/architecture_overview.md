@@ -58,6 +58,7 @@ continuum_sim.io
 一个场景配置应该回答这些问题：
 
 - 使用哪个机器人装配：`assembly_config_path`
+- 使用哪个共享底层控制 profile：`low_level_control_path`
 - 使用哪个后端：`backend.type`
 - 是否需要 MuJoCo XML 注入：`source_xml_path`、`generated_xml_path`
 - 使用哪个场景查询：`scene.engine_config_path` 或 `scene.structured_config_path`
@@ -83,19 +84,32 @@ source_xml_path
 
 ## 控制路径
 
-常规跟踪、导航、擦拭控制链路：
+主线控制链路：
 
 ```text
-任务目标
-  -> 控制器计算底座速度和机械臂 bending rate
-  -> ControlLayout 映射相容 bending 命令
+tracking / navigation / wiping / cleaning / engine-navigation 上层策略
+  -> TaskStep(SystemTaskIntent, TaskStatus)
+  -> UnifiedLowLevelController
+  -> CoordinatedTrackingController（Cartesian servo / observer / avoidance）
+  -> WholeBodyController（解析 Jacobian / SVD / 正则化）
+  -> ControlLayout 映射 base twist 和相容 tendon-rate
   -> 后端应用底座位姿和 tendon 目标
   -> RobotSystemState 回报末端位姿、tendon 状态、metadata
   -> hooks 记录诊断数据和运行产物
 ```
 
+`SystemTaskIntent` 是上层到下层的稳定边界。位置模式携带目标位置和速度前馈；速度模式由底层把
+位置伺服锚定到当前 TCP，只执行速度意图。Engine cleaning 使用后者，因此 task-space cleaning
+controller 的闭环速度不会再与通用位置 P 重复叠加。
+
+共享低层参数只在 `configs/control/spatial_low_level.yaml` 定义，包含笛卡尔增益、速度上限、
+whole-body 权重、奇异性策略、阻尼和 tendon/backend 限制开关。任务 YAML 保留路径、时序、
+waypoint 推进、clearance、接触/力目标和阶段状态。旧配置可用 `task.tracking_control` 覆盖 profile，
+该能力仅用于兼容，不建议新场景复制底层参数。
+
 发动机导航使用 `StagedEngineNavigationController`，按预进入、插入、局部执行臂路径、回归和终止阶段推进，
 并通过 metadata 暴露活动目标、底座路径、执行臂路径、observer ROI 等叠加层和运行产物需要的数据。
+局部执行臂路径同样进入 `UnifiedLowLevelController`；单臂和双臂场景共用该状态机，observer 为可选角色。
 
 需要注意：`control` 目录中还保留了旧 motor-space 差分 IK、navigation CBF-QP、
 contact-triggered admittance、engine-cleaning task-space scaffold 和 dynamic adaptive impedance。

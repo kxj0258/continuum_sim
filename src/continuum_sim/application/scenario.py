@@ -281,6 +281,7 @@ class ScenarioConfig:
     runtime: ScenarioRuntimeConfig
     hooks: ScenarioHookConfig
     artifacts: ScenarioArtifactConfig
+    low_level_control_path: Path | None = None
 
 
 def load_scenario_config(path: str | Path) -> ScenarioConfig:
@@ -289,6 +290,13 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     config_path = Path(path).resolve()
     raw = load_yaml(config_path)
     values = _mapping(raw.get("scenario"), "scenario")
+    low_level_control_path = _optional_path(
+        config_path,
+        values.get("low_level_control_path"),
+    )
+    low_level_control_values = _load_low_level_control_values(
+        low_level_control_path
+    )
     backend_values = _mapping(values.get("backend"), "scenario.backend")
     backend_type = str(backend_values.get("type", "analytic"))
     if backend_type not in BACKEND_TYPES:
@@ -386,7 +394,10 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     feedback_mode = str(task_values.get("feedback_mode", "mujoco_actual"))
     if feedback_mode not in MUJOCO_FEEDBACK_MODES:
         raise ValueError(f"scenario.task.feedback_mode must be one of {MUJOCO_FEEDBACK_MODES}.")
-    tracking_control = _load_tracking_control_config(task_values)
+    tracking_control = _load_tracking_control_config(
+        task_values,
+        low_level_control_values,
+    )
     contact_admittance = _load_contact_admittance_config(task_values)
     if wiping_control_type == "contact_triggered_admittance" and contact_admittance is None:
         contact_admittance = ContactTriggeredAdmittanceConfig(
@@ -403,6 +414,7 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             config_path,
             _required(values, "assembly_config_path", "scenario"),
         ),
+        low_level_control_path=low_level_control_path,
         backend=ScenarioBackendConfig(
             type=backend_type,
             mujoco_config_path=_optional_path(
@@ -566,11 +578,16 @@ def _waypoint_source(task_values: dict[str, Any]) -> str:
 
 def _load_tracking_control_config(
     task_values: dict[str, Any],
+    low_level_values: dict[str, Any] | None = None,
 ) -> ScenarioTrackingControlConfig:
-    values = _mapping(
+    task_control_values = _mapping(
         task_values.get("tracking_control", {}),
         "scenario.task.tracking_control",
     )
+    values = {
+        **({} if low_level_values is None else low_level_values),
+        **task_control_values,
+    }
     return ScenarioTrackingControlConfig(
         approach_samples=int(values.get("approach_samples", 0)),
         tracking_mode=str(values.get("tracking_mode", "waypoint")),
@@ -661,6 +678,16 @@ def _load_admittance_config(task_values: dict[str, Any]) -> ScenarioAdmittanceCo
         max_tangent_velocity_m_s=float(values.get("max_tangent_velocity_m_s", 0.012)),
         max_normal_velocity_m_s=float(values.get("max_normal_velocity_m_s", 0.010)),
         enforce_velocity_limits=bool(values.get("enforce_velocity_limits", False)),
+    )
+
+
+def _load_low_level_control_values(path: Path | None) -> dict[str, Any]:
+    if path is None:
+        return {}
+    raw = load_yaml(path)
+    return _mapping(
+        raw.get("low_level_control"),
+        "low_level_control",
     )
 
 

@@ -50,6 +50,11 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
     config_dir.mkdir()
     shutil.copy2(config.path, config_dir / "scenario.yaml")
     shutil.copy2(config.assembly_config_path, config_dir / "assembly.yaml")
+    if config.low_level_control_path is not None:
+        shutil.copy2(
+            config.low_level_control_path,
+            config_dir / "low_level_control.yaml",
+        )
     if config.backend.mujoco_config_path is not None:
         shutil.copy2(config.backend.mujoco_config_path, config_dir / "mujoco.yaml")
     scene_xml = _copy_scene_model(application, run_dir / "model") if settings.save_model else None
@@ -69,6 +74,7 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
         "samples": len(result.states),
         "commands": len(result.commands),
         "stopped_early": result.stopped_early,
+        "stop_reason": result.metadata.get("stop_reason", ""),
         "metrics": _metrics(arrays),
         "npz_keys": sorted(arrays) if settings.save_npz else [],
         "plots": plot_files,

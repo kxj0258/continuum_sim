@@ -2,6 +2,7 @@ schema_version: 1
 scenario:
   name: single_spatial_engine_tracking
   assembly_config_path: ../robots/assemblies/single_spatial.yaml
+  low_level_control_path: ../control/spatial_low_level.yaml
   backend:
     type: mujoco
     mujoco_config_path: ../mujoco_dual.yaml

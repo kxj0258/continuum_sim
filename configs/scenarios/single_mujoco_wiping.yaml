@@ -2,6 +2,7 @@ schema_version: 1
 scenario:
   name: single_mujoco_wiping
   assembly_config_path: ../robots/assemblies/single_spatial.yaml
+  low_level_control_path: ../control/spatial_low_level.yaml
   backend:
     type: mujoco
     mujoco_config_path: ../mujoco_dual.yaml
@@ -14,6 +15,9 @@ scenario:
     type: wiping
     waypoint_tolerance_m: 0.003
     target_advance_mode: tolerance
+    # Optional admittance mode: set this and force_strategy.type to
+    # contact_triggered_admittance. The parameters remain below so the
+    # strategy can be switched without maintaining a second scenario file.
     wiping_control_type: dynamic_adaptive_impedance
     dynamics_config_path: ../dynamics/pcc_reduced.yaml
     force_strategy:
@@ -26,19 +30,29 @@ scenario:
     contact_tolerance_m: 0.002
     max_contact_force_n: 5.0
     contact_loss_tolerance_steps: 500
+    admittance:
+      target_normal_force_n: 1.5
+      contact_force_threshold_n: 0.1
+      tangent_tolerance_m: 0.001
+      force_tolerance_n: 0.08
+      stable_steps_required: 3
+      max_steps_per_target: 80
+      position_gain: 10.0
+      kp_force: 0.5
+      ki_force: 0.012
+      admittance_mass: 1.0
+      admittance_damping: 20.0
+      admittance_stiffness: 5.0
+      admittance_clip_m: 0.012
+      force_deadband_n: 0.03
+      force_filter_alpha: 0.1
+      max_tangent_velocity_m_s: 0.012
+      max_normal_velocity_m_s: 0.010
+      enforce_velocity_limits: false
     tracking_control:
       approach_samples: 30
       tracking_mode: time
       trajectory_duration_s: 35.0
-      executor_position_gain: 1.5
-      feedforward_speed_mps: 0.0
-      max_target_speed_mps: 0.015
-      enforce_target_speed_limit: true
-      tendon_regularization_weight: 0.5
-      nominal_damping: 0.001
-      maximum_damping: 0.05
-      minimum_velocity_scale: 0.05
-      decouple_arm_singularity: true
     wiping_path:
       surface_id: board_surface
       patch_id: center_patch

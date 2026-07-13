@@ -7,6 +7,9 @@
 - 设计“统一底层控制 + 独立上层控制器”的优化方向。
 - 读取现有运行结果，分析总体误差和 single_mujoco_tracking 局部 z 稳态偏差。
 - 不运行任何测试、验证、lint、format、build、install 或仿真命令。
+- 保持现有 `scripts/run_scenario.py <scenario.yaml>` 命令入口稳定。
+- 统一底层控制参数、控制求解、tendon rate/position 驱动与 MuJoCo backend 接口。
+- tracking/navigation/wiping/cleaning/engine navigation 保留独立上层任务策略，但输出统一命令协议。
 
 ## Research Findings
 - 用户提供的 tracking 误差约 3–8 mm；wiping、navigation、cleaning 误差更大且全部报告 stopped_early。
@@ -62,12 +65,22 @@
 - `SimulationStopReason` 区分 completed、duration_elapsed、clearance_violation、force_limit、viewer_closed、max_steps。
 - recorder 独立记录 state、intent、command、status，采用同一周期语义并保存终止样本。
 
+## Architecture B Implementation
+- 上层/底层边界已实现为 `TaskStep(SystemTaskIntent, TaskStatus)`。
+- `UnifiedLowLevelController` 统一进入 coordinated tracking、whole-body solver 和 compatible tendon-rate 链路。
+- Engine cleaning 使用 velocity intent，避免 task-space 速度闭环与通用位置 P 重复叠加。
+- `configs/control/spatial_low_level.yaml` 成为主线场景共享低层参数源；场景级 tracking_control 只保留调度字段。
+- time trajectory active index 和 waypoint advance 开关已按实际控制语义修正。
+- MuJoCo arm state 已填充 centerline，navigation clearance 不再退化为 tip-only。
+- contact-triggered admittance 作为 `single_mujoco_wiping.yaml` 的可选策略保留，重复场景文件已删除。
+
 ## Technical Decisions
 | Decision | Rationale |
 |----------|-----------|
 | 先追踪运行产物中的停止原因和误差分量，再提出优化 | 避免把表现症状误判成控制器根因 |
 | 架构建议聚焦控制命令协议和反馈快照边界 | 统一底层不应抹平 navigation/wiping/cleaning 的任务策略差异 |
 | 采用渐进式 adapter 迁移 | 先修复诊断和命令协议，再逐个迁移 task，可降低一次性改写控制语义的风险 |
+| 推荐以强类型 TaskIntent 为上层统一输出 | 能同时承载位置、速度前馈、接触力、observer/base 目标，又避免 metadata 隐式协议 |
 
 ## Issues Encountered
 | Issue | Resolution |

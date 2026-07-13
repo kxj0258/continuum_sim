@@ -25,6 +25,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"states: {len(result.states)}")
     print(f"commands: {len(result.commands)}")
     print(f"stopped_early: {result.stopped_early}")
+    print(f"stop_reason: {result.metadata.get('stop_reason', '')}")
     if application.last_artifacts is not None:
         print(f"run_dir: {application.last_artifacts.run_dir}")
     recorder = application.hooks_by_name.get("recorder")

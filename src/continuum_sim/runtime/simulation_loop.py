@@ -86,10 +86,20 @@ class SimulationLoop:
         for hook in self.hooks:
             hook.on_reset(initial)
         stopped_early = False
+        stop_reason = "max_steps"
         for step_index in range(self.config.max_steps):
             current = states[-1]
-            if any(hook.should_stop(current, step_index) for hook in self.hooks):
+            stopping_hook = next(
+                (
+                    hook
+                    for hook in self.hooks
+                    if hook.should_stop(current, step_index)
+                ),
+                None,
+            )
+            if stopping_hook is not None:
                 stopped_early = True
+                stop_reason = _hook_stop_reason(stopping_hook)
                 break
             command = self.controller.compute_command(current)
             next_state = self.backend.step_system(
@@ -107,4 +117,25 @@ class SimulationLoop:
             states=tuple(states),
             commands=tuple(commands),
             stopped_early=stopped_early,
+            metadata={"stop_reason": stop_reason},
         )
+
+
+def _hook_stop_reason(hook: object) -> str:
+    explicit = getattr(hook, "stop_reason", None)
+    if callable(explicit):
+        explicit = explicit()
+    if explicit:
+        return str(explicit)
+    controller = getattr(hook, "controller", None)
+    if controller is not None:
+        reason = getattr(controller, "terminal_reason", "")
+        if callable(reason):
+            reason = reason()
+        return str(reason or "controller_complete")
+    hook_name = type(hook).__name__
+    if hook_name == "MujocoViewerHook":
+        return "viewer_closed"
+    if hook_name == "MatplotlibSystemViewerHook":
+        return "viewer_closed"
+    return hook_name

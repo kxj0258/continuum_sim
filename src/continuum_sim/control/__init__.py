@@ -75,6 +75,16 @@ from continuum_sim.control.tendon_rate_control import (
 from continuum_sim.control.staged_engine_navigation import (
     StagedEngineNavigationController,
 )
+from continuum_sim.control.task_intent import (
+    CartesianTaskIntent,
+    ContactTaskIntent,
+    ObserverTaskIntent,
+    SafetyTaskIntent,
+    SystemTaskIntent,
+    TaskStatus,
+    TaskStep,
+)
+from continuum_sim.control.unified_low_level import UnifiedLowLevelController
 from continuum_sim.control.whole_body_controller import (
     WholeBodyController,
     WholeBodyControllerConfig,
@@ -85,10 +95,12 @@ from continuum_sim.control.whole_body_controller import (
 __all__ = [
     "AdaptiveImpedanceConfig",
     "CBFQPConfig",
+    "CartesianTaskIntent",
     "ContactMeasurement",
     "ContactTriggeredAdmittanceCommand",
     "ContactTriggeredAdmittanceConfig",
     "ContactTriggeredAdmittanceTracker",
+    "ContactTaskIntent",
     "CoordinatedTrackingConfig",
     "CoordinatedTrackingController",
     "CompatibleTendonRateIntegrator",
@@ -103,11 +115,17 @@ __all__ = [
     "MobileBaseCommand",
     "MobileBasePoseController",
     "MobileBaseState",
+    "ObserverTaskIntent",
+    "SafetyTaskIntent",
     "StagedEngineNavigationController",
+    "SystemTaskIntent",
+    "TaskStatus",
+    "TaskStep",
     "TendonRateIntegrator",
     "TendonRateLimits",
     "TendonRateStep",
     "TrackingResult",
+    "UnifiedLowLevelController",
     "WholeBodyCommand",
     "WholeBodyController",
     "WholeBodyControllerConfig",

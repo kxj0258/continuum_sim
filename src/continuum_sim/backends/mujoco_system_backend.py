@@ -227,14 +227,26 @@ class MujocoSystemBackend:
         for arm in self.assembly.enabled_arms:
             tendon_slice = self.layout.tendon_slice(arm.name)
             tip_name, segment_names = self._site_names(arm.name, dual=dual)
+            tip_pose_matrix = self._site_pose(tip_name)
+            segment_pose_matrices = np.asarray(
+                [self._site_pose(name) for name in segment_names],
+                dtype=float,
+            )
+            mount_position_world = self._base_state.pose.compose(
+                arm.mount_pose
+            ).position
+            centerline_world = np.vstack(
+                (
+                    mount_position_world,
+                    segment_pose_matrices[:, :3, 3],
+                    tip_pose_matrix[:3, 3],
+                )
+            )
             arms[arm.name] = ArmSystemState(
                 name=arm.name,
                 role=arm.role,
-                tip_pose_world=Pose6D.from_matrix(self._site_pose(tip_name)),
-                segment_poses_world=np.asarray(
-                    [self._site_pose(name) for name in segment_names],
-                    dtype=float,
-                ),
+                tip_pose_world=Pose6D.from_matrix(tip_pose_matrix),
+                segment_poses_world=segment_pose_matrices,
                 tendon_displacement_m=tendon_displacement[tendon_slice],
                 tendon_velocity_mps=(
                     tendon_velocity[tendon_slice]
@@ -247,6 +259,7 @@ class MujocoSystemBackend:
                     if actuator_force.size
                     else np.zeros_like(tendon_displacement[tendon_slice])
                 ),
+                centerline_world=centerline_world,
                 metadata={
                     "attachment": arm.attachment,
                     "bending": self.layout.bending_models[arm.name].estimate(

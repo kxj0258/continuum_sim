@@ -295,9 +295,10 @@ def resolve_engine_navigation_plan(
         raise ValueError("engine_navigation requires a non-fixed mobile base.")
     executors = [arm for arm in assembly.enabled_arms if arm.role == "executor"]
     observers = [arm for arm in assembly.enabled_arms if arm.role == "observer"]
-    if len(executors) != 1 or len(observers) != 1:
+    if len(executors) != 1 or len(observers) > 1:
         raise ValueError(
-            "engine_navigation requires exactly one enabled executor and observer."
+            "engine_navigation requires exactly one enabled executor and at "
+            "most one observer."
         )
 
     region = _named_region(scene, spec.entry_region)

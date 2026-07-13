@@ -12,8 +12,6 @@ from continuum_sim.control.contact_triggered_admittance import (
 from continuum_sim.control.waypoint_scheduler import WaypointScheduler
 from continuum_sim.control.coordinated_tracking import (
     CoordinatedTrackingConfig,
-    CoordinatedTrackingController,
-    CoordinatedTrackingTarget,
 )
 from continuum_sim.control.engine_cleaning_controller import EngineCleaningController
 from continuum_sim.control.engine_cleaning_types import (
@@ -21,6 +19,14 @@ from continuum_sim.control.engine_cleaning_types import (
     EngineCleaningFeedback,
 )
 from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
+from continuum_sim.control.task_intent import (
+    CartesianTaskIntent,
+    ObserverTaskIntent,
+    SystemTaskIntent,
+    TaskStatus,
+    TaskStep,
+)
+from continuum_sim.control.unified_low_level import UnifiedLowLevelController
 from continuum_sim.control.wiping_force_strategies import (
     WipingForceContext,
     WipingForceStrategy,
@@ -154,19 +160,19 @@ class WaypointTrackingController:
         self._executor_name = _single_role_name(assembly, "executor")
         self.advance_enabled = bool(advance_enabled)
         self.executor_velocity_override_world: np.ndarray | None = None
-        self._controller = CoordinatedTrackingController(
+        low_level_config = (
+            CoordinatedTrackingConfig(
+                executor_position_gain=executor_position_gain,
+                observer_position_gain=observer_position_gain,
+                max_target_speed_mps=max_target_speed_mps,
+                enforce_backend_tendon_limits=enforce_backend_tendon_limits,
+            )
+            if coordinated_config is None
+            else coordinated_config
+        )
+        self._controller = UnifiedLowLevelController(
             assembly,
-            self._target(),
-            config=(
-                CoordinatedTrackingConfig(
-                    executor_position_gain=executor_position_gain,
-                    observer_position_gain=observer_position_gain,
-                    max_target_speed_mps=max_target_speed_mps,
-                    enforce_backend_tendon_limits=enforce_backend_tendon_limits,
-                )
-                if coordinated_config is None
-                else coordinated_config
-            ),
+            coordinated_config=low_level_config,
             solver_config=solver_config,
             scene_query=scene_query,
         )
@@ -182,6 +188,10 @@ class WaypointTrackingController:
     @property
     def done(self) -> bool:
         return self.scheduler.done
+
+    @property
+    def terminal_reason(self) -> str:
+        return "completed" if self.done else ""
 
     def compute_command(
         self,
@@ -204,12 +214,11 @@ class WaypointTrackingController:
                 False,
             )
         )
-        if not scheduler_paused:
+        if advance and self.advance_enabled and not scheduler_paused:
             self.scheduler.update(error_norm_m=achieved_error)
         waypoint_advanced = self.done or self.active_index != achieved_index
-        target = self._target()
-        self._controller.set_target(target)
-        command = self._controller.compute_command(state)
+        step = self._task_step()
+        command = self._controller.compute_command(state, step)
         controller_metadata = command.metadata
         if self.done:
             command = RobotSystemCommand.zeros(
@@ -219,7 +228,9 @@ class WaypointTrackingController:
                 }
             )
         command_error = float(
-            np.linalg.norm(target.executor_position_world - position)
+            np.linalg.norm(
+                step.intent.executor.target_position_world - position
+            )
         )
         return RobotSystemCommand(
             base_twist_world=command.base_twist_world,
@@ -233,10 +244,12 @@ class WaypointTrackingController:
                 ),
                 "target_advance_mode": self.scheduler.mode,
                 "waypoint_scheduler_paused": scheduler_paused,
-                "executor_target_world": target.executor_position_world.copy(),
+                "executor_target_world": (
+                    step.intent.executor.target_position_world.copy()
+                ),
                 "executor_error_m": command_error,
                 "executor_feedforward_velocity_world": (
-                    target.executor_velocity_world.copy()
+                    step.intent.executor.feedforward_velocity_world.copy()
                 ),
                 "achieved_waypoint_index": (
                     achieved_index if waypoint_advanced else -1
@@ -252,20 +265,40 @@ class WaypointTrackingController:
             },
         )
 
-    def _target(self) -> CoordinatedTrackingTarget:
-        return CoordinatedTrackingTarget(
-            executor_position_world=self.waypoints_world[self.active_index],
-            executor_velocity_world=(
-                self.executor_velocity_override_world.copy()
-                if self.executor_velocity_override_world is not None
-                else self._feedforward_velocity()
+    def _task_step(self) -> TaskStep:
+        velocity_override = self.executor_velocity_override_world
+        return TaskStep(
+            intent=SystemTaskIntent(
+                executor=CartesianTaskIntent(
+                    target_position_world=self.waypoints_world[self.active_index],
+                    feedforward_velocity_world=(
+                        velocity_override.copy()
+                        if velocity_override is not None
+                        else self._feedforward_velocity()
+                    ),
+                    control_mode=(
+                        "velocity" if velocity_override is not None else "position"
+                    ),
+                ),
+                observer=ObserverTaskIntent(
+                    roi_position_world=self.observer_roi_world,
+                    executor_offset_world=self.observer_executor_offset_world,
+                    roi_blend=self.observer_roi_blend,
+                ),
             ),
-            observer_roi_position_world=self.observer_roi_world,
-            observer_executor_offset_world=self.observer_executor_offset_world,
-            observer_roi_blend=self.observer_roi_blend,
+            status=TaskStatus(
+                task_type="tracking",
+                phase=("complete" if self.done else "tracking"),
+                active_index=self.active_index,
+                complete=self.done,
+                stop_reason=("completed" if self.done else ""),
+            ),
         )
 
     def _feedforward_velocity(self) -> np.ndarray:
+        return self._path_feedforward_velocity()
+
+    def _path_feedforward_velocity(self) -> np.ndarray:
         if (
             self.done
             or self.feedforward_speed_mps <= 0.0
@@ -345,11 +378,12 @@ class TimedTrajectoryTrackingController:
         self.observer_roi_blend = float(observer_roi_blend)
         self._executor_name = _single_role_name(assembly, "executor")
         self._start_time_s: float | None = None
+        self._elapsed_s = 0.0
+        self._active_index = 0
         self._done = False
-        self._controller = CoordinatedTrackingController(
+        self._controller = UnifiedLowLevelController(
             assembly,
-            self._target_at(0.0)[0],
-            config=CoordinatedTrackingConfig(
+            coordinated_config=CoordinatedTrackingConfig(
                 executor_position_gain=executor_position_gain,
                 observer_position_gain=observer_position_gain,
                 max_target_speed_mps=max_target_speed_mps,
@@ -365,24 +399,36 @@ class TimedTrajectoryTrackingController:
 
     @property
     def active_index(self) -> int:
-        return int(self._target_at(self._elapsed_or_zero())[1])
+        return self._active_index
 
     @property
     def done(self) -> bool:
         return self._done
 
+    @property
+    def terminal_reason(self) -> str:
+        return "duration_elapsed" if self.done else ""
+
     def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
         if self._start_time_s is None:
             self._start_time_s = float(state.time_s)
         elapsed = max(0.0, float(state.time_s) - self._start_time_s)
-        target, source_index, local_fraction = self._target_at(elapsed)
-        self._controller.set_target(target)
-        command = self._controller.compute_command(state)
+        complete = (not self.loop) and elapsed >= self.trajectory_duration_s
+        step, source_index, local_fraction = self._target_at(
+            elapsed,
+            complete=complete,
+        )
+        self._elapsed_s = elapsed
+        self._active_index = int(source_index)
+        self._done = complete
+        command = self._controller.compute_command(state, step)
         controller_metadata = command.metadata
         position = state.arms[self._executor_name].tip_pose_world.position
-        error = float(np.linalg.norm(target.executor_position_world - position))
-        complete = (not self.loop) and elapsed >= self.trajectory_duration_s
-        self._done = complete
+        error = float(
+            np.linalg.norm(
+                step.intent.executor.target_position_world - position
+            )
+        )
         if complete:
             command = RobotSystemCommand.zeros(
                 {
@@ -402,10 +448,12 @@ class TimedTrajectoryTrackingController:
                 "waypoint_index": int(source_index),
                 "source_waypoint_index": int(self.source_waypoint_index[source_index]),
                 "trajectory_local_fraction": float(local_fraction),
-                "executor_target_world": target.executor_position_world.copy(),
+                "executor_target_world": (
+                    step.intent.executor.target_position_world.copy()
+                ),
                 "executor_error_m": error,
                 "executor_feedforward_velocity_world": (
-                    target.executor_velocity_world.copy()
+                    step.intent.executor.feedforward_velocity_world.copy()
                 ),
                 "achieved_waypoint_index": -1,
                 "achieved_waypoint_error_m": np.nan,
@@ -415,15 +463,33 @@ class TimedTrajectoryTrackingController:
             },
         )
 
-    def _target_at(self, elapsed_s: float) -> tuple[CoordinatedTrackingTarget, int, float]:
+    def _target_at(
+        self,
+        elapsed_s: float,
+        *,
+        complete: bool = False,
+    ) -> tuple[TaskStep, int, float]:
         position, velocity, source_index, fraction = self._sample_trajectory(elapsed_s)
         return (
-            CoordinatedTrackingTarget(
-                executor_position_world=position,
-                executor_velocity_world=velocity,
-                observer_roi_position_world=self.observer_roi_world,
-                observer_executor_offset_world=self.observer_executor_offset_world,
-                observer_roi_blend=self.observer_roi_blend,
+            TaskStep(
+                intent=SystemTaskIntent(
+                    executor=CartesianTaskIntent(
+                        target_position_world=position,
+                        feedforward_velocity_world=velocity,
+                    ),
+                    observer=ObserverTaskIntent(
+                        roi_position_world=self.observer_roi_world,
+                        executor_offset_world=self.observer_executor_offset_world,
+                        roi_blend=self.observer_roi_blend,
+                    ),
+                ),
+                status=TaskStatus(
+                    task_type="tracking",
+                    phase=("complete" if complete else "tracking"),
+                    active_index=int(source_index),
+                    complete=complete,
+                    stop_reason=("duration_elapsed" if complete else ""),
+                ),
             ),
             source_index,
             fraction,
@@ -454,13 +520,11 @@ class TimedTrajectoryTrackingController:
         following = self.waypoints_world[next_index]
         position = current + fraction * (following - current)
         velocity = (following - current) / segment_dt
+        active_index = next_index if fraction > np.finfo(float).eps else index
         if (not self.loop) and elapsed_s >= self.trajectory_duration_s:
             velocity = np.zeros(3, dtype=float)
-        return position, velocity, index, fraction
-
-    def _elapsed_or_zero(self) -> float:
-        return 0.0
-
+            active_index = count - 1
+        return position, velocity, active_index, fraction
 
 class NavigationController:
     """Waypoint tracking with explicit clearance reporting and termination."""
@@ -526,6 +590,12 @@ class NavigationController:
         return self._tracking.done or (
             self.terminate_on_clearance_violation and self.clearance_violated
         )
+
+    @property
+    def terminal_reason(self) -> str:
+        if self.terminate_on_clearance_violation and self.clearance_violated:
+            return "clearance_violation"
+        return self._tracking.terminal_reason
 
     def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
         queries = [
@@ -769,6 +839,10 @@ class WipingController:
     @property
     def done(self) -> bool:
         return self._tracking.done
+
+    @property
+    def terminal_reason(self) -> str:
+        return self._tracking.terminal_reason
 
     def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
         self._ensure_runtime_approach(state)
@@ -1041,17 +1115,30 @@ class EngineCleaningSystemController:
         gains: EngineCleaningControllerGains,
         controller_dt_s: float,
         observer_roi_world: np.ndarray | None = None,
+        executor_position_gain: float = 4.0,
+        observer_position_gain: float = 5.0,
+        max_target_speed_mps: float | None = None,
+        solver_config: WholeBodyControllerConfig = WholeBodyControllerConfig(),
+        enforce_backend_tendon_limits: bool = False,
     ) -> None:
         self.assembly = assembly
         self.scene_query = scene_query
         self._executor_name = _single_role_name(assembly, "executor")
-        self._tracking = WaypointTrackingController(
+        self._waypoints_world = np.asarray(waypoints_world, dtype=float).copy()
+        self._observer_roi_world = (
+            None
+            if observer_roi_world is None
+            else np.asarray(observer_roi_world, dtype=float).copy()
+        )
+        self._low_level = UnifiedLowLevelController(
             assembly,
-            waypoints_world,
-            waypoint_tolerance_m=gains.waypoint_tolerance_m,
-            observer_roi_world=observer_roi_world,
-            controller_dt_s=controller_dt_s,
-            advance_enabled=False,
+            coordinated_config=CoordinatedTrackingConfig(
+                executor_position_gain=executor_position_gain,
+                observer_position_gain=observer_position_gain,
+                max_target_speed_mps=max_target_speed_mps,
+                enforce_backend_tendon_limits=enforce_backend_tendon_limits,
+            ),
+            solver_config=solver_config,
             scene_query=None,
         )
         self._controller = EngineCleaningController(
@@ -1068,6 +1155,12 @@ class EngineCleaningSystemController:
     @property
     def done(self) -> bool:
         return self._controller.is_done() or self._controller.safety_stop
+
+    @property
+    def terminal_reason(self) -> str:
+        if self._controller.safety_stop:
+            return str(self._controller.stop_reason or "safety_stop")
+        return "completed" if self._controller.is_done() else ""
 
     def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
         executor = state.arms[self._executor_name]
@@ -1088,14 +1181,36 @@ class EngineCleaningSystemController:
                 timestamp_s=state.time_s,
             )
         )
-        self._tracking.scheduler.active_index = cleaning_command.active_waypoint_index
-        self._tracking.executor_velocity_override_world = (
-            cleaning_command.desired_tcp_velocity_world
+        active_index = int(
+            np.clip(
+                cleaning_command.active_waypoint_index,
+                0,
+                self._waypoints_world.shape[0] - 1,
+            )
         )
-        try:
-            command = self._tracking.compute_command(state)
-        finally:
-            self._tracking.executor_velocity_override_world = None
+        step = TaskStep(
+            intent=SystemTaskIntent(
+                executor=CartesianTaskIntent(
+                    target_position_world=self._waypoints_world[active_index],
+                    feedforward_velocity_world=(
+                        cleaning_command.desired_tcp_velocity_world
+                    ),
+                    control_mode="velocity",
+                ),
+                observer=ObserverTaskIntent(
+                    roi_position_world=self._observer_roi_world,
+                ),
+            ),
+            status=TaskStatus(
+                task_type="engine_cleaning",
+                phase=cleaning_command.phase,
+                active_index=active_index,
+                complete=self.done,
+                stop_reason=cleaning_command.stop_reason or "",
+            ),
+        )
+        command = self._low_level.compute_command(state, step)
+        controller_metadata = command.metadata
         if self.done:
             command = RobotSystemCommand.zeros(
                 {
@@ -1107,7 +1222,7 @@ class EngineCleaningSystemController:
             base_twist_world=command.base_twist_world,
             arms=command.arms,
             metadata={
-                **command.metadata,
+                **controller_metadata,
                 **cleaning_command.metadata,
                 "task_type": "engine_cleaning",
                 "engine_cleaning_controller": "task_space",

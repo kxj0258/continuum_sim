@@ -4,7 +4,7 @@
 基于源码、YAML 与用户现有运行产物，说明各控制任务的上下层控制流程、输入输出和参数，并给出统一底层控制架构与误差根因建议。
 
 ## Current Phase
-Phase 5
+Phase 7 (complete)
 
 ## Phases
 
@@ -37,6 +37,25 @@ Phase 5
 - [x] 明确未运行任何测试或验证
 - **Status:** complete
 
+### Phase 6: 统一控制架构设计
+- [x] 提交现有工作区作为重构前基线
+- [x] 恢复现有控制链与已知问题上下文
+- [x] 对比 2–3 种统一架构方案
+- [x] 给出推荐架构、任务命令、任务流程与参数归属
+- [x] 用户确认采用方案 B
+- **Status:** complete
+
+### Phase 7: 方案 B 实现
+- [x] 新增强类型 TaskIntent / TaskStatus / TaskStep
+- [x] 新增 UnifiedLowLevelController 并迁移 waypoint/time/cleaning 控制链
+- [x] 统一 low-level YAML profile 并接入场景加载
+- [x] 修正 waypoint advance 与 timed active index
+- [x] 为 MuJoCo 状态补充 centerline clearance 数据
+- [x] 新增 dual analytic navigation/wiping、dual cleaning、single engine navigation
+- [x] 将 admittance 合并为 single MuJoCo wiping 的可选策略
+- [x] 完成文档与静态交接整理
+- **Status:** complete
+
 ## Key Questions
 1. 各场景实际实例化了哪个任务控制器、跟踪器和执行器控制器？
 2. 上层目标如何变成 tendon length/rate 或 base command？
@@ -49,6 +68,7 @@ Phase 5
 |----------|-----------|
 | 仅做静态读取和现有产物分析 | 用户明确禁止自动运行任何测试、验证或仿真命令 |
 | 将截图现象视为待证实观察 | 单张透视图无法独立证明局部 z 误差或其根因 |
+| 先提交再开展新架构设计 | 用户明确要求先建立可回退的 Git 基线 |
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
@@ -58,4 +78,5 @@ Phase 5
 
 ## Notes
 - 不运行 pytest、脚本验证、lint、format、build、install 或仿真。
-- 不修改控制代码；本轮交付以分析与架构建议为主。
+- 本轮按已确认的方案 B 修改控制代码、配置和文档。
+- 当前基线提交：`205bba7 feat: stabilize scenario control and MuJoCo artifacts`。

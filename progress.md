@@ -43,3 +43,29 @@
 | What's the goal? | 用现有证据完整解释控制系统并提出渐进优化方案 |
 | What have I learned? | See findings.md |
 | What have I done? | See above |
+
+### Phase 6: 统一控制架构设计
+- **Status:** complete
+- Actions taken:
+  - 提交重构前工作区：`205bba7 feat: stabilize scenario control and MuJoCo artifacts`。
+  - 重新加载 brainstorming 与 Brooks architecture audit 约束。
+  - 开始整理统一 TaskIntent、shared low-level pipeline 与任务配置归属。
+- Files created/modified:
+  - `task_plan.md`（更新）
+  - `findings.md`（更新）
+  - `progress.md`（更新）
+
+### Phase 7: 方案 B 实现
+- **Status:** complete
+- Actions taken:
+  - 写入统一架构设计和实施计划文档。
+  - 新增 `TaskStep(SystemTaskIntent, TaskStatus)` 强类型上层输出协议。
+  - 新增共享 `UnifiedLowLevelController`，复用 coordinated tracking 与 whole-body solver。
+  - 将 engine cleaning 改为 velocity intent，消除通用位置 P 的重复叠加。
+  - 修正 waypoint advance 开关和 time trajectory active index。
+  - 新增共享 `configs/control/spatial_low_level.yaml` 并接入场景加载。
+  - 补齐请求的场景和 single mobile assembly，合并 admittance 配置。
+  - 为 MuJoCo arm state 补充中心线点，供导航 clearance 使用。
+  - 增加统一 stop reason 输出，并在运行产物中归档共享低层 profile。
+- Verification:
+  - 按用户约束未运行测试、lint、format、build、install、验证脚本或仿真。

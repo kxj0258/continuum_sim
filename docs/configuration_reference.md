@@ -14,6 +14,43 @@ python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml
 scenario YAML 负责组合 assembly、backend、scene、task、runtime、hooks 和 artifacts。
 旧 `configs/main_config*.yaml` 索引入口已不再作为运行入口维护。
 
+## Scenario 统一底层控制 profile
+
+主线场景通过以下字段引用统一底层参数：
+
+```yaml
+scenario:
+  assembly_config_path: ../robots/assemblies/single_spatial.yaml
+  low_level_control_path: ../control/spatial_low_level.yaml
+```
+
+`configs/control/spatial_low_level.yaml` 的 `low_level_control` 支持：
+
+| 字段 | 作用 |
+|------|------|
+| `executor_position_gain` / `observer_position_gain` | 共享笛卡尔位置闭环增益。 |
+| `feedforward_speed_mps` | waypoint 模式沿下一段的默认前馈速度。 |
+| `max_target_speed_mps` / `enforce_target_speed_limit` | 末端目标速度上限及开关。 |
+| `*_tracking_weight` / `*_collision_avoidance_weight` | whole-body 任务优先级。 |
+| `base_regularization_weight` / `tendon_regularization_weight` | base 与 tendon 速度正则化。 |
+| `singularity_strategy` | `svd_projection` 或 `damping_scale`。 |
+| `rank_tolerance` / `minimum_singular_value` | 秩判定和弱方向阈值。 |
+| `nominal_damping` / `maximum_damping` / `minimum_velocity_scale` | 奇异性阻尼参数。 |
+| `decouple_arm_singularity` | 是否按机械臂解耦奇异保护。 |
+| `enforce_solver_velocity_limits` | whole-body base/tendon 速度限幅开关。 |
+| `enforce_backend_tendon_limits` | backend tendon rate/displacement/lead 保护开关。 |
+
+`task.tracking_control` 现在主要保存上层调度字段：
+
+| 字段 | 作用 |
+|------|------|
+| `approach_samples` | 运行时 prepend 的平滑 approach 样本数。 |
+| `tracking_mode` | `waypoint` 或 `time`。 |
+| `trajectory_duration_s` | time 模式总时长。 |
+
+加载顺序为“代码默认值 < low-level profile < task.tracking_control”。最后一层只为旧场景兼容；
+新场景应修改共享 profile，避免每个任务形成不同的底层控制器。
+
 ## 旧索引配置：`configs/main_config.yaml`
 
 | 字段                     | 类型 | 说明                          |
@@ -660,6 +697,10 @@ task:
     admittance_clip_m: 0.012
 ```
 
+`contact_triggered_admittance` 保留为有意义的可选力控策略，但不再使用独立的
+`single_mujoco_wiping_admittance.yaml`。请在 `single_mujoco_wiping.yaml` 中同时切换
+`wiping_control_type` 与 `force_strategy.type`；该文件已经保留完整 `task.admittance` 参数块。
+
 运行产物会额外记录：
 
 ```text
@@ -673,16 +714,17 @@ wiping_dynamic_active
 
 ### Wiping 轨迹与跟踪调参
 
-scenario 主线中的 `wiping` 任务现在复用 `task.tracking_control`，字段含义与 tracking/navigation 主线一致。常用调参项如下：
+scenario 主线中的 `wiping` 任务复用统一底层。任务时序保留在 `task.tracking_control`，底层调参位于
+`configs/control/spatial_low_level.yaml`：
 
 | 字段 | 建议用途 |
 | ---- | -------- |
-| `tracking_control.executor_position_gain` | 末端位置误差到目标速度的比例增益。连续体擦拭建议先用 `1.0` 到 `2.0` 的保守值。 |
-| `tracking_control.feedforward_speed_mps` | 沿下一 waypoint 的前馈速度。擦拭接触调试阶段建议先设为 `0.0`。 |
-| `tracking_control.max_target_speed_mps` | 末端目标速度上限。用于抑制厘米级 waypoint 跳变导致的超调。 |
-| `tracking_control.tendon_regularization_weight` | tendon 速度正则权重。增大后动作更慢、更稳。 |
-| `tracking_control.nominal_damping` / `maximum_damping` | 奇异或病态映射附近的阻尼。连续体接触任务建议显式配置。 |
-| `tracking_control.decouple_arm_singularity` | 固定底座单臂任务建议打开，使单臂奇异保护更直接。 |
+| `low_level_control.executor_position_gain` | 末端位置误差到目标速度的共享比例增益。 |
+| `low_level_control.feedforward_speed_mps` | waypoint 模式沿下一 waypoint 的前馈速度。 |
+| `low_level_control.max_target_speed_mps` | 所有任务共用的末端目标速度上限。 |
+| `low_level_control.tendon_regularization_weight` | tendon 速度正则权重。增大后动作更慢、更稳。 |
+| `low_level_control.nominal_damping` / `maximum_damping` | 奇异或病态映射附近的阻尼。 |
+| `low_level_control.decouple_arm_singularity` | 是否对单臂奇异性进行解耦保护。 |
 
 `configs/scenes/wiping_board.yaml` 中有两类位置需要区分：
 

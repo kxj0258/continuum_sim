@@ -2,6 +2,7 @@ schema_version: 1
 scenario:
   name: single_analytic_wiping_path
   assembly_config_path: ../robots/assemblies/single_spatial.yaml
+  low_level_control_path: ../control/spatial_low_level.yaml
   backend:
     type: analytic
   scene: {}

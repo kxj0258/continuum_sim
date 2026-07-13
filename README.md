@@ -8,20 +8,35 @@
 python scripts/run_scenario.py configs/scenarios/<scenario>.yaml
 ```
 
-常用场景：
+任务场景命令：
 
 ```powershell
-# 单臂 MuJoCo 轨迹跟踪
+# Tracking：analytic / MuJoCo / engine scene
+python scripts/run_scenario.py configs/scenarios/single_analytic_tracking.yaml
+python scripts/run_scenario.py configs/scenarios/dual_analytic_tracking.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_tracking.yaml
+python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml
+python scripts/run_scenario.py configs/scenarios/single_engine_tracking.yaml
+python scripts/run_scenario.py configs/scenarios/dual_engine_tracking.yaml
 
-# 单臂 / 双臂擦拭
+# Navigation：analytic / MuJoCo
+python scripts/run_scenario.py configs/scenarios/single_analytic_navigation.yaml
+python scripts/run_scenario.py configs/scenarios/dual_analytic_navigation.yaml
+python scripts/run_scenario.py configs/scenarios/single_mujoco_navigation.yaml
+python scripts/run_scenario.py configs/scenarios/dual_mujoco_navigation.yaml
+
+# Wiping：analytic / MuJoCo
+python scripts/run_scenario.py configs/scenarios/single_analytic_wiping.yaml
+python scripts/run_scenario.py configs/scenarios/dual_analytic_wiping.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_wiping.yaml
-python scripts/run_scenario.py configs/scenarios/single_mujoco_wiping_admittance.yaml
 python scripts/run_scenario.py configs/scenarios/dual_mujoco_wiping.yaml
 
-# 导航与发动机清洗
-python scripts/run_scenario.py configs/scenarios/single_mujoco_navigation.yaml
+# Engine cleaning
 python scripts/run_scenario.py configs/scenarios/single_engine_cleaning.yaml
+python scripts/run_scenario.py configs/scenarios/dual_engine_cleaning.yaml
+
+# Engine navigation
+python scripts/run_scenario.py configs/scenarios/single_engine_navigation.yaml
 python scripts/run_scenario.py configs/scenarios/dual_engine_navigation.yaml
 ```
 
@@ -60,8 +75,8 @@ xdot_projected = U_valid U_valid^T xdot_des
 
 这会丢弃 Jacobian 弱可控方向上的目标速度分量，而不是继续使用 damping/velocity-scale 硬追。
 
-- 默认关闭控制层速度限幅：
-  - 目标末端速度限幅关闭。
+- 共享底层 profile 使用保守的末端目标速度限幅：
+  - 目标末端速度上限为 `0.015 m/s`。
   - whole-body solver 的 base/tendon rate 限幅关闭。
   - backend tendon target 的 rate/displacement/target-lead 保护关闭。
   - staged engine navigation 的基座 pose controller 速度裁剪关闭。
@@ -75,16 +90,17 @@ tendon_target_next = actual_tendon_length + dt * compatible_tendon_rate
 
 该模式避免 tendon target 自由积分后长期漂离实际 tendon length。
 
-如果需要恢复旧保护，可在场景 YAML 中显式打开：
+底层参数统一定义在 `configs/control/spatial_low_level.yaml`。场景通过
+`scenario.low_level_control_path` 引用它；`task.tracking_control` 只应保留
+`approach_samples`、`tracking_mode`、`trajectory_duration_s` 等上层调度参数。
+旧场景仍允许显式覆盖底层字段，但新场景不建议这样做。
+
+如果需要启用 solver/backend 的物理限幅，可在共享 profile 中打开：
 
 ```yaml
-task:
-  tracking_control:
-    singularity_strategy: damping_scale
-    enforce_target_speed_limit: true
-    enforce_solver_velocity_limits: true
-    enforce_backend_tendon_limits: true
-    max_target_speed_mps: 0.015
+low_level_control:
+  enforce_solver_velocity_limits: true
+  enforce_backend_tendon_limits: true
 ```
 
 接触导纳速度裁剪可通过：
@@ -93,6 +109,44 @@ task:
 task:
   admittance:
     enforce_velocity_limits: true
+```
+
+## 统一上层 / 底层控制架构
+
+所有 scenario 主线任务保持同一个运行和驱动接口：
+
+```text
+独立上层任务控制器
+  -> TaskStep(SystemTaskIntent, TaskStatus)
+  -> UnifiedLowLevelController
+  -> Cartesian servo + observer coordination
+  -> WholeBodyController(Jacobian / SVD / regularization)
+  -> RobotSystemCommand(base twist + compatible tendon rates)
+  -> analytic backend 或 MuJoCo actual-anchored tendon targets
+```
+
+各任务的上层控制过程如下：
+
+- `tracking`：轨迹生成器或 waypoint scheduler 输出目标位置和速度前馈；共享底层只计算一次位置闭环。
+- `navigation`：上层增加路径推进、完整中心线 clearance 和可选 CBF-QP；未触发安全终止时复用同一底层运动控制。
+- `wiping`：上层管理 approach/contact/retreat，并由选定的 force strategy 修正接触阶段目标；修正后的位置 intent 交给共享底层。
+- `engine_cleaning`：上层 task-space cleaning controller 根据 waypoint、接触距离和法向力输出 TCP velocity intent；底层把位置伺服锚定到当前 TCP，避免旧实现的双重 P 控制。
+- `engine_navigation`：上层依次执行 base approach、base insertion、局部 executor path、rejoin 和 complete；局部机械臂路径仍通过统一 intent 和共享底层求解。
+
+`CartesianTaskIntent` 的 `position` 模式表示“位置目标 + 速度前馈”，`velocity`
+模式表示“直接速度目标”。`TaskStatus` 统一记录任务类型、阶段、活动索引、完成状态和停止原因。
+
+## Wiping 导纳可选策略
+
+导纳控制仍然有意义：接触建立后，它根据法向力误差调节法向位移，适合接触刚度不确定或需要减小冲击的实验。为避免两份场景漂移，已删除独立的
+`single_mujoco_wiping_admittance.yaml`；完整参数保留在
+`single_mujoco_wiping.yaml` 的 `task.admittance` 中。启用时只需把同一文件中的两项都改为：
+
+```yaml
+task:
+  wiping_control_type: contact_triggered_admittance
+  force_strategy:
+    type: contact_triggered_admittance
 ```
 
 ## 时间轨迹跟踪
@@ -203,11 +257,15 @@ output/runs/<scenario>_<timestamp>/
 
 ```powershell
 python scripts/compare_analytic_mujoco_tip.py
+python scripts/run_scenario.py configs/scenarios/dual_analytic_navigation.yaml
+python scripts/run_scenario.py configs/scenarios/dual_analytic_wiping.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_tracking.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_navigation.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_wiping.yaml
 python scripts/run_scenario.py configs/scenarios/dual_mujoco_wiping.yaml
 python scripts/run_scenario.py configs/scenarios/single_engine_cleaning.yaml
+python scripts/run_scenario.py configs/scenarios/dual_engine_cleaning.yaml
+python scripts/run_scenario.py configs/scenarios/single_engine_navigation.yaml
 python scripts/run_scenario.py configs/scenarios/dual_engine_navigation.yaml
 ```
 

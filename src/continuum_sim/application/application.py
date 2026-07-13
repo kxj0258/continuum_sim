@@ -138,6 +138,7 @@ class SimulationApplication:
                 engine_scene,
                 assembly,
             )
+            tracking = config.task.tracking_control
             controller = StagedEngineNavigationController(
                 assembly,
                 plan,
@@ -149,6 +150,10 @@ class SimulationApplication:
                     config.task.terminate_on_clearance_violation
                 ),
                 controller_dt_s=config.runtime.controller_dt_s,
+                low_level_coordinated_config=(
+                    _tracking_coordinated_config(tracking)
+                ),
+                low_level_solver_config=_tracking_solver_config(tracking),
             )
         elif config.task.type == "navigation":
             tracking = config.task.tracking_control
@@ -211,6 +216,7 @@ class SimulationApplication:
                 enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
             )
         elif config.task.type == "engine_cleaning":
+            tracking = config.task.tracking_control
             controller = EngineCleaningSystemController(
                 assembly,
                 task_plan["waypoints_world"],
@@ -226,6 +232,13 @@ class SimulationApplication:
                 ),
                 controller_dt_s=config.runtime.controller_dt_s,
                 observer_roi_world=config.task.observer_roi_world,
+                executor_position_gain=tracking.executor_position_gain,
+                observer_position_gain=tracking.observer_position_gain,
+                max_target_speed_mps=_tracking_target_speed_limit(tracking),
+                solver_config=_tracking_solver_config(tracking),
+                enforce_backend_tendon_limits=(
+                    tracking.enforce_backend_tendon_limits
+                ),
             )
         else:
             tracking = config.task.tracking_control
@@ -450,6 +463,17 @@ def _tracking_solver_config(
         singularity_strategy=tracking.singularity_strategy,
         enforce_base_velocity_limits=tracking.enforce_solver_velocity_limits,
         enforce_tendon_rate_limits=tracking.enforce_solver_velocity_limits,
+    )
+
+
+def _tracking_coordinated_config(
+    tracking: ScenarioTrackingControlConfig,
+) -> CoordinatedTrackingConfig:
+    return CoordinatedTrackingConfig(
+        executor_position_gain=tracking.executor_position_gain,
+        observer_position_gain=tracking.observer_position_gain,
+        max_target_speed_mps=_tracking_target_speed_limit(tracking),
+        enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
     )
 
 

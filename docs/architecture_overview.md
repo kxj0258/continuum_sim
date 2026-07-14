@@ -90,8 +90,9 @@ source_xml_path
 tracking / navigation / wiping / cleaning / engine-navigation 上层策略
   -> TaskStep(SystemTaskIntent, TaskStatus)
   -> UnifiedLowLevelController
-  -> CoordinatedTrackingController（Cartesian servo / observer / avoidance）
-  -> WholeBodyController（解析 Jacobian / SVD / 正则化）
+  -> CoordinatedTrackingController（共享 Cartesian servo / observer 上层策略）
+  -> executor active-subspace solve + observer active-subspace solve
+  -> WholeBodyController（每臂独立 Jacobian / SVD / 正则化 / 限幅）
   -> ControlLayout 映射 base twist 和相容 tendon-rate
   -> 后端应用底座位姿和 tendon 目标
   -> RobotSystemState 回报末端位姿、tendon 状态、metadata
@@ -101,6 +102,10 @@ tracking / navigation / wiping / cleaning / engine-navigation 上层策略
 `SystemTaskIntent` 是上层到下层的稳定边界。位置模式携带目标位置和速度前馈；速度模式由底层把
 位置伺服锚定到当前 TCP，只执行速度意图。Engine cleaning 使用后者，因此 task-space cleaning
 controller 的闭环速度不会再与通用位置 P 重复叠加。
+
+双臂控制不再把两臂任务堆叠到一次全局 SVD。executor solve 允许 base 和 executor，自身数学路径与
+single 保持一致；observer solve 只允许 observer tendon。observer 的 collision-only 策略从实际中心线
+最近点构造排斥速度，在 influence distance 外输出零速度，并且不能触发 executor freeze 或全局 hard stop。
 
 共享低层参数只在 `configs/control/spatial_low_level.yaml` 定义，包含笛卡尔增益、速度上限、
 whole-body 权重、奇异性策略、阻尼和 tendon/backend 限制开关。任务 YAML 保留路径、时序、
@@ -126,6 +131,10 @@ contact-triggered admittance、engine-cleaning task-space scaffold 和 dynamic a
 - `MujocoLiveVideoRecorderHook`：仿真过程中直接采集 MuJoCo 帧。
 - `MujocoViewerHook`、`MatplotlibSystemViewerHook`：交互式查看。
 - 实时面板：tendon、擦拭力、诊断数据。
+
+运行产物按 `time_s`（state）和 `command_time_s`（command）分别对齐，逐臂保存 tendon target/actual、
+requested/applied rate、实际速度和 actuator force；双臂命令 metadata 还保存 observer mode、最近点、
+臂间距离、阈值和避碰速度，用于同步控制图。
 
 新增调试字段时，优先放入控制器命令 metadata，再由 recorder/hooks 消费。这样不会把具体任务逻辑
 塞进 IO 或 viewer 代码里。

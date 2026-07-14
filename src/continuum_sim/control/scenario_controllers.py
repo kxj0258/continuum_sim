@@ -78,6 +78,7 @@ class WaypointTrackingController:
         *,
         waypoint_tolerance_m: float = 1.0e-3,
         observer_roi_world: np.ndarray | None = None,
+        observer_control_mode: str = "tracking",
         loop: bool = False,
         target_advance_mode: str = "tolerance",
         controller_dt_s: float = 0.02,
@@ -113,6 +114,7 @@ class WaypointTrackingController:
         )
         if self.observer_roi_world is not None and self.observer_roi_world.shape != (3,):
             raise ValueError("observer_roi_world must have shape (3,).")
+        self.observer_control_mode = str(observer_control_mode)
         self.observer_executor_offset_world = np.asarray(
             (
                 [0.0, -0.04, 0.02]
@@ -204,17 +206,7 @@ class WaypointTrackingController:
         achieved_error = float(
             np.linalg.norm(self.waypoints_world[achieved_index] - position)
         )
-        scheduler_paused = bool(
-            self._controller.last_diagnostics.get(
-                "inter_arm_executor_frozen",
-                False,
-            )
-            or self._controller.last_diagnostics.get(
-                "inter_arm_hard_stop",
-                False,
-            )
-        )
-        if advance and self.advance_enabled and not scheduler_paused:
+        if advance and self.advance_enabled:
             self.scheduler.update(error_norm_m=achieved_error)
         waypoint_advanced = self.done or self.active_index != achieved_index
         step = self._task_step()
@@ -281,6 +273,7 @@ class WaypointTrackingController:
                     ),
                 ),
                 observer=ObserverTaskIntent(
+                    control_mode=self.observer_control_mode,
                     roi_position_world=self.observer_roi_world,
                     executor_offset_world=self.observer_executor_offset_world,
                     roi_blend=self.observer_roi_blend,
@@ -326,6 +319,7 @@ class TimedTrajectoryTrackingController:
         trajectory_duration_s: float,
         waypoint_tolerance_m: float = 1.0e-3,
         observer_roi_world: np.ndarray | None = None,
+        observer_control_mode: str = "tracking",
         loop: bool = False,
         scene_query: EngineSceneQueryProtocol | None = None,
         approach_mask: np.ndarray | None = None,
@@ -335,6 +329,7 @@ class TimedTrajectoryTrackingController:
         max_target_speed_mps: float | None = None,
         solver_config: WholeBodyControllerConfig = WholeBodyControllerConfig(),
         enforce_backend_tendon_limits: bool = False,
+        coordinated_config: CoordinatedTrackingConfig | None = None,
         observer_executor_offset_world: np.ndarray | None = None,
         observer_roi_blend: float = 0.25,
     ) -> None:
@@ -367,6 +362,7 @@ class TimedTrajectoryTrackingController:
             if observer_roi_world is None
             else np.asarray(observer_roi_world, dtype=float).copy()
         )
+        self.observer_control_mode = str(observer_control_mode)
         self.observer_executor_offset_world = np.asarray(
             (
                 [0.0, -0.04, 0.02]
@@ -381,14 +377,19 @@ class TimedTrajectoryTrackingController:
         self._elapsed_s = 0.0
         self._active_index = 0
         self._done = False
-        self._controller = UnifiedLowLevelController(
-            assembly,
-            coordinated_config=CoordinatedTrackingConfig(
+        low_level_config = (
+            CoordinatedTrackingConfig(
                 executor_position_gain=executor_position_gain,
                 observer_position_gain=observer_position_gain,
                 max_target_speed_mps=max_target_speed_mps,
                 enforce_backend_tendon_limits=enforce_backend_tendon_limits,
-            ),
+            )
+            if coordinated_config is None
+            else coordinated_config
+        )
+        self._controller = UnifiedLowLevelController(
+            assembly,
+            coordinated_config=low_level_config,
             solver_config=solver_config,
             scene_query=scene_query,
         )
@@ -478,6 +479,7 @@ class TimedTrajectoryTrackingController:
                         feedforward_velocity_world=velocity,
                     ),
                     observer=ObserverTaskIntent(
+                        control_mode=self.observer_control_mode,
                         roi_position_world=self.observer_roi_world,
                         executor_offset_world=self.observer_executor_offset_world,
                         roi_blend=self.observer_roi_blend,
@@ -539,6 +541,7 @@ class NavigationController:
         min_clearance_m: float,
         terminate_on_clearance_violation: bool,
         observer_roi_world: np.ndarray | None = None,
+        observer_control_mode: str = "tracking",
         target_advance_mode: str = "tolerance",
         controller_dt_s: float = 0.02,
         advance_time_s: float | None = None,
@@ -549,6 +552,7 @@ class NavigationController:
         max_target_speed_mps: float | None = None,
         solver_config: WholeBodyControllerConfig = WholeBodyControllerConfig(),
         enforce_backend_tendon_limits: bool = False,
+        coordinated_config: CoordinatedTrackingConfig | None = None,
         control_type: str = "whole_body",
         cbf_gain: float = 4.0,
         cbf_influence_distance_m: float | None = None,
@@ -560,6 +564,7 @@ class NavigationController:
             waypoints_world,
             waypoint_tolerance_m=waypoint_tolerance_m,
             observer_roi_world=observer_roi_world,
+            observer_control_mode=observer_control_mode,
             target_advance_mode=target_advance_mode,
             controller_dt_s=controller_dt_s,
             advance_time_s=advance_time_s,
@@ -571,6 +576,7 @@ class NavigationController:
             max_target_speed_mps=max_target_speed_mps,
             solver_config=solver_config,
             enforce_backend_tendon_limits=enforce_backend_tendon_limits,
+            coordinated_config=coordinated_config,
         )
         self.scene_query = scene_query
         self.min_clearance_m = min_clearance_m
@@ -748,12 +754,14 @@ class WipingController:
         tracking_mode: str = "waypoint",
         trajectory_duration_s: float | None = None,
         approach_samples: int = 0,
+        observer_control_mode: str = "tracking",
         executor_position_gain: float = 4.0,
         observer_position_gain: float = 5.0,
         feedforward_speed_mps: float = 0.0,
         max_target_speed_mps: float | None = None,
         solver_config: WholeBodyControllerConfig = WholeBodyControllerConfig(),
         enforce_backend_tendon_limits: bool = False,
+        coordinated_config: CoordinatedTrackingConfig | None = None,
         dynamics_config: PCCDynamicsConfig | None = None,
         admittance_config: ContactTriggeredAdmittanceConfig | None = None,
     ) -> None:
@@ -790,12 +798,14 @@ class WipingController:
             "advance_time_s": advance_time_s,
             "advance_steps": advance_steps,
             "advance_enabled": (control_type != "contact_triggered_admittance"),
+            "observer_control_mode": observer_control_mode,
             "executor_position_gain": executor_position_gain,
             "observer_position_gain": observer_position_gain,
             "feedforward_speed_mps": feedforward_speed_mps,
             "max_target_speed_mps": max_target_speed_mps,
             "solver_config": solver_config,
             "enforce_backend_tendon_limits": enforce_backend_tendon_limits,
+            "coordinated_config": coordinated_config,
             "trajectory_duration_s": trajectory_duration_s,
         }
         self._tracking = self._make_tracking_controller(self._original_waypoints_world)
@@ -966,6 +976,7 @@ class WipingController:
                 trajectory_duration_s=float(kwargs["trajectory_duration_s"]),
                 waypoint_tolerance_m=float(kwargs["waypoint_tolerance_m"]),
                 scene_query=None,
+                observer_control_mode=str(kwargs["observer_control_mode"]),
                 executor_position_gain=float(kwargs["executor_position_gain"]),
                 observer_position_gain=float(kwargs["observer_position_gain"]),
                 max_target_speed_mps=kwargs["max_target_speed_mps"],
@@ -973,6 +984,7 @@ class WipingController:
                 enforce_backend_tendon_limits=bool(
                     kwargs["enforce_backend_tendon_limits"]
                 ),
+                coordinated_config=kwargs["coordinated_config"],
             )
         return WaypointTrackingController(
             self.assembly,
@@ -986,6 +998,7 @@ class WipingController:
             # Contact regulation intentionally replaces generic clearance
             # avoidance for the executor at the wiping surface.
             scene_query=None,
+            observer_control_mode=str(kwargs["observer_control_mode"]),
             executor_position_gain=float(kwargs["executor_position_gain"]),
             observer_position_gain=float(kwargs["observer_position_gain"]),
             feedforward_speed_mps=float(kwargs["feedforward_speed_mps"]),
@@ -994,6 +1007,7 @@ class WipingController:
             enforce_backend_tendon_limits=bool(
                 kwargs["enforce_backend_tendon_limits"]
             ),
+            coordinated_config=kwargs["coordinated_config"],
         )
 
     def _ensure_runtime_approach(self, state: RobotSystemState) -> None:
@@ -1115,11 +1129,13 @@ class EngineCleaningSystemController:
         gains: EngineCleaningControllerGains,
         controller_dt_s: float,
         observer_roi_world: np.ndarray | None = None,
+        observer_control_mode: str = "tracking",
         executor_position_gain: float = 4.0,
         observer_position_gain: float = 5.0,
         max_target_speed_mps: float | None = None,
         solver_config: WholeBodyControllerConfig = WholeBodyControllerConfig(),
         enforce_backend_tendon_limits: bool = False,
+        coordinated_config: CoordinatedTrackingConfig | None = None,
     ) -> None:
         self.assembly = assembly
         self.scene_query = scene_query
@@ -1130,14 +1146,20 @@ class EngineCleaningSystemController:
             if observer_roi_world is None
             else np.asarray(observer_roi_world, dtype=float).copy()
         )
-        self._low_level = UnifiedLowLevelController(
-            assembly,
-            coordinated_config=CoordinatedTrackingConfig(
+        self._observer_control_mode = str(observer_control_mode)
+        low_level_config = (
+            CoordinatedTrackingConfig(
                 executor_position_gain=executor_position_gain,
                 observer_position_gain=observer_position_gain,
                 max_target_speed_mps=max_target_speed_mps,
                 enforce_backend_tendon_limits=enforce_backend_tendon_limits,
-            ),
+            )
+            if coordinated_config is None
+            else coordinated_config
+        )
+        self._low_level = UnifiedLowLevelController(
+            assembly,
+            coordinated_config=low_level_config,
             solver_config=solver_config,
             scene_query=None,
         )
@@ -1198,6 +1220,7 @@ class EngineCleaningSystemController:
                     control_mode="velocity",
                 ),
                 observer=ObserverTaskIntent(
+                    control_mode=self._observer_control_mode,
                     roi_position_world=self._observer_roi_world,
                 ),
             ),

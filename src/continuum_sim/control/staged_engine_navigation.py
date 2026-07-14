@@ -44,6 +44,7 @@ class StagedEngineNavigationController:
         waypoint_tolerance_m: float,
         min_clearance_m: float,
         terminate_on_clearance_violation: bool,
+        observer_control_mode: str = "collision_avoidance",
         controller_dt_s: float = 0.02,
         low_level_coordinated_config: CoordinatedTrackingConfig = (
             CoordinatedTrackingConfig()
@@ -78,6 +79,7 @@ class StagedEngineNavigationController:
         self._controller_dt_s = float(controller_dt_s)
         self._local_tracking = spec.local_tracking
         self._observer_control = spec.observer_control
+        self._observer_control_mode = str(observer_control_mode)
         self._low_level_coordinated_config = low_level_coordinated_config
         self._low_level_solver_config = low_level_solver_config
         self._local_paths = (
@@ -351,6 +353,7 @@ class StagedEngineNavigationController:
                 else self._waypoint_tolerance_m
             ),
             observer_roi_world=observer_roi_world,
+            observer_control_mode=self._observer_control_mode,
             target_advance_mode=(
                 (
                     "time"
@@ -400,12 +403,12 @@ class StagedEngineNavigationController:
                 ),
                 inter_arm_release_margin_m=observer.inter_arm_release_margin_m,
                 inter_arm_avoidance_gain=observer.inter_arm_avoidance_gain,
-                inter_arm_max_avoidance_speed_mps=None,
+                inter_arm_max_avoidance_speed_mps=(
+                    observer.inter_arm_max_avoidance_speed_mps
+                ),
                 observer_collision_priority=True,
                 freeze_executor_inside_safe_distance=False,
-                stop_all_on_critical_distance=(
-                    observer.stop_all_on_critical_distance
-                ),
+                stop_all_on_critical_distance=False,
                 centerline_samples_per_segment=(
                     observer.centerline_samples_per_segment
                 ),

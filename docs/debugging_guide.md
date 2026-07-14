@@ -41,6 +41,18 @@ hooks:
 
 ## 运行产物排查点
 
+双臂 tracking 优先查看 `result.npz` 中的：
+
+- `arm_observer_tendon_target_m` / `arm_observer_tendon_displacement_m`
+- `arm_observer_command_rate_mps` / `arm_observer_applied_rate_mps`
+- `arm_observer_tendon_velocity_mps` / `arm_observer_actuator_force_n`
+- `observer_control_mode` / `observer_collision_active`
+- `inter_arm_distance_m` 与 influence/minimum/critical 阈值
+
+对应同步图为 `arm_observer_synchronized_control.png` 和
+`dual_arm_synchronized_safety.png`。command 信号使用 `command_time_s`，state/actuator 信号使用
+`time_s`，不要把两者按相同数组下标误认为同一时刻。
+
 ```text
 output/runs/<scenario>_<timestamp>/
   metadata.json              场景、后端、运行产物错误和视频错误摘要
@@ -79,8 +91,10 @@ waypoints、local path plots 和 generated XML。
 本仓库不建议在清理或文档任务里自动运行验证。需要人工检查时，可按风险从轻到重选择：
 
 ```powershell
-pytest tests/test_robot_config.py tests/test_scenario_artifacts.py
-pytest tests/test_engine_navigation.py tests/test_staged_engine_navigation.py
+pytest tests/test_tracking_optimization.py tests/test_scenario_migrated_task_features.py
+pytest tests/test_scenario_artifacts.py tests/test_staged_engine_navigation.py
+python scripts/run_scenario.py configs/scenarios/single_mujoco_tracking.yaml
+python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml
 python scripts/run_scenario.py configs/scenarios/single_analytic_smoke.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_smoke.yaml
 python scripts/run_scenario.py configs/scenarios/dual_engine_navigation.yaml

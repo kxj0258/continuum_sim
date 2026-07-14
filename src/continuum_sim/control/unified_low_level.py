@@ -47,6 +47,12 @@ class UnifiedLowLevelController:
         return self._controller.solver
 
     @property
+    def config(self) -> CoordinatedTrackingConfig:
+        """Expose the active shared low-level profile for diagnostics."""
+
+        return self._controller.config
+
+    @property
     def last_diagnostics(self) -> dict[str, object]:
         return self._controller.last_diagnostics
 
@@ -79,6 +85,9 @@ class UnifiedLowLevelController:
                 ),
                 observer_roi_blend=(
                     0.25 if observer is None else observer.roi_blend
+                ),
+                observer_control_mode=(
+                    "disabled" if observer is None else observer.control_mode
                 ),
             )
         )

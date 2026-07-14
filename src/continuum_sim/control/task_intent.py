@@ -9,6 +9,7 @@ import numpy as np
 
 
 CARTESIAN_CONTROL_MODES = ("position", "velocity")
+OBSERVER_CONTROL_MODES = ("tracking", "collision_avoidance", "disabled")
 
 
 @dataclass(frozen=True)
@@ -49,7 +50,9 @@ class CartesianTaskIntent:
 
 @dataclass(frozen=True)
 class ObserverTaskIntent:
-    """Optional observer tracking objective coupled to the executor target."""
+    """Optional observer objective produced by an independent upper controller."""
+
+    control_mode: str = "tracking"
 
     executor_offset_world: np.ndarray = field(
         default_factory=lambda: np.array([0.0, -0.04, 0.02], dtype=float)
@@ -58,6 +61,11 @@ class ObserverTaskIntent:
     roi_blend: float = 0.25
 
     def __post_init__(self) -> None:
+        if self.control_mode not in OBSERVER_CONTROL_MODES:
+            raise ValueError(
+                "observer control_mode must be one of "
+                f"{OBSERVER_CONTROL_MODES}."
+            )
         object.__setattr__(
             self,
             "executor_offset_world",

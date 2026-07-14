@@ -90,7 +90,15 @@ class WholeBodyController:
         self.config = config
         self.layout = ControlLayout.from_assembly(assembly)
 
-    def solve(self, tasks: list[WholeBodyTask] | tuple[WholeBodyTask, ...]) -> WholeBodySolveResult:
+    def solve(
+        self,
+        tasks: list[WholeBodyTask] | tuple[WholeBodyTask, ...],
+        *,
+        active_arm_names: tuple[str, ...] | None = None,
+        include_base: bool = True,
+    ) -> WholeBodySolveResult:
+        active_arms = self._active_arm_names(active_arm_names)
+        active_indices = self._active_indices(active_arms, include_base=include_base)
         if not tasks:
             command = RobotSystemCommand.zeros(
                 {
@@ -137,6 +145,8 @@ class WholeBodyController:
         weighted_jacobian = np.vstack(
             [np.sqrt(task.weight) * task.jacobian for task in tasks]
         )
+        full_weighted_jacobian = weighted_jacobian
+        weighted_jacobian = full_weighted_jacobian[:, active_indices]
         weighted_target = np.concatenate(
             [np.sqrt(task.weight) * task.target_velocity for task in tasks]
         )
@@ -156,22 +166,31 @@ class WholeBodyController:
                 "WholeBodyControllerConfig.singularity_strategy must be "
                 "'damping_scale' or 'svd_projection'."
             )
-        regularization = self._regularization_matrix()
+        regularization = self._regularization_matrix()[..., active_indices]
+        nonzero_regularization = np.any(np.abs(regularization) > 0.0, axis=1)
+        regularization = regularization[nonzero_regularization]
         augmented_jacobian = np.vstack((weighted_jacobian, regularization))
         augmented_target = np.concatenate(
             (weighted_target, np.zeros(regularization.shape[0], dtype=float))
         )
-        protection = self._singularity_protection(weighted_jacobian)
+        protection = self._active_singularity_protection(
+            full_weighted_jacobian,
+            weighted_jacobian,
+            active_indices,
+            active_arms,
+        )
         singularity = protection.global_report
         lhs = (
             augmented_jacobian.T @ augmented_jacobian
             + np.diag(protection.damping**2)
         )
         rhs = augmented_jacobian.T @ augmented_target
-        velocity = np.linalg.solve(lhs, rhs) * protection.velocity_scale
+        active_velocity = np.linalg.solve(lhs, rhs) * protection.velocity_scale
+        velocity = np.zeros(self.layout.size, dtype=float)
+        velocity[active_indices] = active_velocity
         velocity, arm_scales = self._apply_limits(velocity)
         command = self.layout.unflatten(velocity)
-        residual = weighted_jacobian @ velocity - weighted_target
+        residual = full_weighted_jacobian @ velocity - weighted_target
         return WholeBodySolveResult(
             command=command,
             system_velocity=velocity,
@@ -187,7 +206,94 @@ class WholeBodyController:
                 "target_projection_residual_norm": target_projection_residual_norm,
                 "enforce_base_velocity_limits": self.config.enforce_base_velocity_limits,
                 "enforce_tendon_rate_limits": self.config.enforce_tendon_rate_limits,
+                "active_arm_names": active_arms,
+                "include_base": bool(include_base),
             },
+        )
+
+    def _active_arm_names(
+        self,
+        active_arm_names: tuple[str, ...] | None,
+    ) -> tuple[str, ...]:
+        if active_arm_names is None:
+            return tuple(self.layout.arms)
+        names = tuple(active_arm_names)
+        if len(set(names)) != len(names):
+            raise ValueError("active_arm_names must not contain duplicates.")
+        unknown = sorted(set(names) - set(self.layout.arms))
+        if unknown:
+            raise ValueError(f"Unknown active arms: {unknown}.")
+        return names
+
+    def _active_indices(
+        self,
+        active_arm_names: tuple[str, ...],
+        *,
+        include_base: bool,
+    ) -> np.ndarray:
+        indices: list[int] = []
+        if include_base:
+            indices.extend(range(self.layout.base.start, self.layout.base.stop))
+        for name in active_arm_names:
+            arm_slice = self.layout.arms[name]
+            indices.extend(range(arm_slice.start, arm_slice.stop))
+        if not indices:
+            raise ValueError("A solve must include the base or at least one active arm.")
+        return np.asarray(indices, dtype=int)
+
+    def _active_singularity_protection(
+        self,
+        full_weighted_jacobian: np.ndarray,
+        active_weighted_jacobian: np.ndarray,
+        active_indices: np.ndarray,
+        active_arm_names: tuple[str, ...],
+    ) -> SingularityProtection:
+        global_report = analyze_singularity(
+            active_weighted_jacobian,
+            self.config.singularity,
+        )
+        arm_reports = {
+            name: analyze_singularity(
+                full_weighted_jacobian[:, arm_slice],
+                self.config.singularity,
+            )
+            for name, arm_slice in self.layout.arms.items()
+        }
+        if self.config.singularity_strategy == "svd_projection":
+            return SingularityProtection(
+                damping=np.zeros(active_indices.size, dtype=float),
+                velocity_scale=np.ones(active_indices.size, dtype=float),
+                global_report=global_report,
+                arm_reports=arm_reports,
+            )
+        damping = np.full(active_indices.size, global_report.damping, dtype=float)
+        velocity_scale = np.full(
+            active_indices.size,
+            global_report.velocity_scale,
+            dtype=float,
+        )
+        if (
+            self.config.decouple_arm_singularity
+            and self.assembly.base.control_mode == "fixed"
+        ):
+            reduced_index = {
+                int(full_index): offset
+                for offset, full_index in enumerate(active_indices)
+            }
+            for name in active_arm_names:
+                arm_slice = self.layout.arms[name]
+                offsets = [
+                    reduced_index[index]
+                    for index in range(arm_slice.start, arm_slice.stop)
+                ]
+                report = arm_reports[name]
+                damping[offsets] = report.damping
+                velocity_scale[offsets] = report.velocity_scale
+        return SingularityProtection(
+            damping=damping,
+            velocity_scale=velocity_scale,
+            global_report=global_report,
+            arm_reports=arm_reports,
         )
 
     def _singularity_protection(

@@ -9,6 +9,13 @@ scenario:
     structured_config_path: ../scenes/rocket_nozzle_entry.yaml
   task:
     type: navigation
+    observer_control_mode: collision_avoidance
+    observer_control:
+      minimum_distance_m: 0.010
+      influence_distance_m: 0.018
+      critical_distance_m: 0.008
+      release_margin_m: 0.002
+      avoidance_gain: 1.2
     waypoint_tolerance_m: 0.005
     min_clearance_m: 0.010
     terminate_on_clearance_violation: true

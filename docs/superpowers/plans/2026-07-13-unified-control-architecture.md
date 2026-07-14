@@ -63,3 +63,34 @@ Document every requested command, each task flow, the shared lower-level profile
 ### Task 6: Manual handoff only
 
 Do not execute verification. Report modified files, exact behavior changes, risks, and suggested manual commands. Do not claim tests pass and do not commit unless the user asks separately.
+
+### Task 7: Isolate executor and observer control
+
+**Files:**
+- Modify: `src/continuum_sim/control/task_intent.py`
+- Modify: `src/continuum_sim/control/unified_low_level.py`
+- Modify: `src/continuum_sim/control/coordinated_tracking.py`
+- Modify: `src/continuum_sim/control/whole_body_controller.py`
+
+Represent observer collision avoidance as an explicit upper-level intent. Solve executor and observer tasks independently so observer rows and columns never enter the executor solve. Keep executor freeze and observer-triggered global hard stop disabled.
+
+### Task 8: Unify tracking and actuation limits
+
+**Files:**
+- Modify: `configs/scenarios/dual_mujoco_tracking.yaml`
+- Modify: `configs/control/spatial_low_level.yaml`
+- Modify: `src/continuum_sim/application/scenario.py`
+- Modify: `src/continuum_sim/application/application.py`
+
+Make dual executor use the same timed trajectory parameters as single. Apply the shared Cartesian speed limit and tendon-rate/target-lead protections to both arms.
+
+### Task 9: Record and plot synchronized observer diagnostics
+
+**Files:**
+- Modify: `src/continuum_sim/runtime/hooks.py`
+- Modify: `src/continuum_sim/io/scenario_artifacts.py`
+- Modify: `README.md`
+- Modify: `docs/architecture_overview.md`
+- Modify: `docs/configuration_reference.md`
+
+Persist arm targets, requested/applied rates, observer safety state and inter-arm clearance. Add time-aligned target-vs-actual, command-vs-velocity, force/error and clearance plots.

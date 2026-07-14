@@ -77,25 +77,36 @@ xdot_projected = U_valid U_valid^T xdot_des
 
 - 共享底层 profile 使用保守的末端目标速度限幅：
   - 目标末端速度上限为 `0.015 m/s`。
-  - whole-body solver 的 base/tendon rate 限幅关闭。
-  - backend tendon target 的 rate/displacement/target-lead 保护关闭。
+  - whole-body solver 的 base/tendon rate 限幅开启。
+  - backend tendon target 的 rate/displacement/target-lead 保护开启。
   - staged engine navigation 的基座 pose controller 速度裁剪关闭。
   - 接触导纳内部的切向/法向速度裁剪默认关闭。
 
-- MuJoCo system backend 默认使用 `actual_anchored` tendon target 模式：
+- MuJoCo system backend 默认使用 measured-feedback `protected` tendon target 模式：
 
 ```text
-tendon_target_next = actual_tendon_length + dt * compatible_tendon_rate
+tendon_rate_applied = clip_compatible_rate(tendon_rate_requested)
+tendon_target_next = clip(integrated_target,
+                          actual_tendon_length ± target_lead)
 ```
 
-该模式避免 tendon target 自由积分后长期漂离实际 tendon length。
+该模式每个控制周期读取实际 tendon length，并同时限制 rate、位移和目标领先量。关闭 backend
+保护时仍可使用 `actual_anchored`，但不再是共享 profile 的默认行为。
 
-底层参数统一定义在 `configs/control/spatial_low_level.yaml`。场景通过
-`scenario.low_level_control_path` 引用它；`task.tracking_control` 只应保留
-`approach_samples`、`tracking_mode`、`trajectory_duration_s` 等上层调度参数。
-旧场景仍允许显式覆盖底层字段，但新场景不建议这样做。
+底层参数通过 `scenario.low_level_control_path` 引用共享 profile；
+`task.tracking_control` 只保留 `approach_samples`、`tracking_mode`、
+`trajectory_duration_s` 等上层调度参数。当前提供两套明确的底层版本：
 
-如果需要启用 solver/backend 的物理限幅，可在共享 profile 中打开：
+- `configs/control/spatial_low_level.yaml`：通用 protected 版本，启用目标速度、solver 和 backend 保护。
+- `configs/control/mujoco_tracking_low_level.yaml`：MuJoCo tracking 基线版本，完整保留已验证的
+  `1.0` 位置增益、SVD/权重参数，关闭 target/solver/backend 限制并使用
+  MuJoCo `actual_anchored` tendon target 模式。
+
+single/dual 的 MuJoCo tracking、engine tracking、MuJoCo navigation 和 engine cleaning 共 8 个场景
+统一引用 MuJoCo tracking 基线。dual 中 executor 与 observer 共用这套底层参数，但保留各自独立的
+上层任务。
+
+共享 profile 当前显式启用 solver/backend 物理限幅：
 
 ```yaml
 low_level_control:
@@ -119,10 +130,10 @@ task:
 独立上层任务控制器
   -> TaskStep(SystemTaskIntent, TaskStatus)
   -> UnifiedLowLevelController
-  -> Cartesian servo + observer coordination
-  -> WholeBodyController(Jacobian / SVD / regularization)
+  -> shared Cartesian servo + per-arm speed limit
+  -> isolated executor / observer Jacobian-SVD solves
   -> RobotSystemCommand(base twist + compatible tendon rates)
-  -> analytic backend 或 MuJoCo actual-anchored tendon targets
+  -> analytic backend 或 MuJoCo measured-feedback protected tendon targets
 ```
 
 各任务的上层控制过程如下：
@@ -135,6 +146,16 @@ task:
 
 `CartesianTaskIntent` 的 `position` 模式表示“位置目标 + 速度前馈”，`velocity`
 模式表示“直接速度目标”。`TaskStatus` 统一记录任务类型、阶段、活动索引、完成状态和停止原因。
+
+双臂场景中 executor 与 observer 分别求解。executor solve 只包含 base/executor 自由度，observer
+solve 只包含 observer tendon 自由度且不允许使用 base；两个结果只在 `RobotSystemCommand` 组装时合并。
+因此 observer tracking、避碰和奇异性不会进入 executor 的 SVD 矩阵，也不会冻结或 hard-stop executor。
+
+所有 `dual_*.yaml` 场景都显式使用同一套 observer `collision_avoidance` 上层策略：两臂中心线最近
+距离低于 `0.018 m` 时激活，超过 `0.020 m` 时释放，排斥速度按
+`1.2 * (0.018 - distance)` 计算且不设置避碰专用速度上限。`0.010 m` minimum 和 `0.008 m`
+critical 当前用于配置校验与诊断，不是硬性间距、冻结或急停条件。ROI/offset 跟随仍可通过
+`tracking` 模式显式选择，但不用于当前 dual 场景。
 
 ## Wiping 导纳可选策略
 
@@ -151,7 +172,7 @@ task:
 
 ## 时间轨迹跟踪
 
-`single_mujoco_tracking.yaml` 当前使用时间参数化轨迹：
+`single_mujoco_tracking.yaml` 和 `dual_mujoco_tracking.yaml` 当前使用相同的时间参数化轨迹：
 
 ```yaml
 tracking_control:
@@ -174,6 +195,18 @@ tracking_control:
 ```
 
 恢复。
+
+`mujoco_tracking_low_level.yaml` 统一定义 `1.0` 位置增益、SVD 参数、权重和
+`actual_anchored` tendon target 模式，并关闭 Cartesian、solver 和 backend 限幅。所有引用它的 dual
+场景中，两条机械臂共用这些底层参数；observer 的差异只来自独立的上层 intent。继续引用
+`spatial_low_level.yaml` 的其他场景仍使用 `arm_position_gain: 1.5` 和 protected tendon target 模式。
+
+dual 运行产物额外保存 observer target/actual tendon、requested/applied rate、实际速度、逐 tendon
+actuator force、observer mode、最近臂间距离和避碰目标速度，并生成：
+
+- `arm_executor_synchronized_control.png`
+- `arm_observer_synchronized_control.png`
+- `dual_arm_synchronized_safety.png`
 
 ## 项目结构
 
@@ -242,7 +275,7 @@ output/runs/<scenario>_<timestamp>/
 1. 检查 `configs/scenarios/<name>.yaml` 的 `backend`、`task`、`runtime` 和 `hooks`。
 2. 打开 `recorder`、`tendon_debug` 和 `show_live_diagnostics_panel`，观察误差、奇异值、投影残差、tendon target/current。
 3. 查看 `output/runs/<scenario>_<timestamp>/metadata.json`、`result.npz` 和 `plots/`。
-4. 如果 tendon target 和 current 差距异常，优先看 tendon monitor 中的 `target actual_anchored`、actuator force 和 target-current error。
+4. 如果 tendon target 和 current 差距异常，优先看同步图中的 requested/applied rate、target/actual、actuator force 和 limit scale。
 
 更多细节见：
 
@@ -260,6 +293,7 @@ python scripts/compare_analytic_mujoco_tip.py
 python scripts/run_scenario.py configs/scenarios/dual_analytic_navigation.yaml
 python scripts/run_scenario.py configs/scenarios/dual_analytic_wiping.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_tracking.yaml
+python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_navigation.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_wiping.yaml
 python scripts/run_scenario.py configs/scenarios/dual_mujoco_wiping.yaml
@@ -272,5 +306,5 @@ python scripts/run_scenario.py configs/scenarios/dual_engine_navigation.yaml
 如需运行单元测试，可手动执行：
 
 ```powershell
-pytest
+pytest tests/test_tracking_optimization.py tests/test_scenario_migrated_task_features.py tests/test_staged_engine_navigation.py
 ```

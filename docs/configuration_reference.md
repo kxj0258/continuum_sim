@@ -28,7 +28,7 @@ scenario:
 
 | 字段 | 作用 |
 |------|------|
-| `executor_position_gain` / `observer_position_gain` | 共享笛卡尔位置闭环增益。 |
+| `arm_position_gain` | 两臂共享的笛卡尔位置闭环增益。旧的角色字段仅兼容历史配置。 |
 | `feedforward_speed_mps` | waypoint 模式沿下一段的默认前馈速度。 |
 | `max_target_speed_mps` / `enforce_target_speed_limit` | 末端目标速度上限及开关。 |
 | `*_tracking_weight` / `*_collision_avoidance_weight` | whole-body 任务优先级。 |
@@ -50,6 +50,26 @@ scenario:
 
 加载顺序为“代码默认值 < low-level profile < task.tracking_control”。最后一层只为旧场景兼容；
 新场景应修改共享 profile，避免每个任务形成不同的底层控制器。
+
+`single_mujoco_tracking.yaml` 作为历史性能回归基线，不设置 `low_level_control_path`，
+并在 `task.tracking_control` 中保留旧版完整参数。该场景不会随共享 profile 改动。
+
+双臂上层 observer 策略位于 `scenario.task`，不属于共享底层 profile：
+
+```yaml
+observer_control_mode: collision_avoidance
+observer_control:
+  minimum_distance_m: 0.010
+  influence_distance_m: 0.050
+  critical_distance_m: 0.008
+  release_margin_m: 0.005
+  avoidance_gain: 0.4
+  max_avoidance_speed_mps: 0.015
+```
+
+`observer_control_mode` 支持 `tracking`、`collision_avoidance` 和 `disabled`，scenario 默认使用
+`collision_avoidance`。collision-only 模式只驱动
+observer，自影响距离开始平滑回避；`critical_distance_m` 只作为诊断阈值，不会冻结或停止 executor。
 
 ## 旧索引配置：`configs/main_config.yaml`
 
@@ -161,7 +181,8 @@ hooks:
 Spatial-arm assembly configs also accept `spatial_arm.limits.target_lead_m`.
 This positive scalar or per-tendon vector limits how far a tendon-position
 target may lead the measured tendon length. The current default and executor /
-observer configs use `0.0005` m.
+observer configs use the same `[-0.020, 0.020]` m displacement range,
+`0.005` m/s rate limit, and `0.0005` m target lead.
 
 ## `configs/pcc.yaml`
 

@@ -2,7 +2,7 @@ schema_version: 1
 scenario:
   name: dual_engine_cleaning
   assembly_config_path: ../robots/assemblies/dual_spatial_mobile.yaml
-  low_level_control_path: ../control/spatial_low_level.yaml
+  low_level_control_path: ../control/mujoco_tracking_low_level.yaml
   backend:
     type: mujoco
     mujoco_config_path: ../mujoco_dual.yaml
@@ -12,6 +12,13 @@ scenario:
     engine_config_path: ../scenes/engine_cleaning.yaml
   task:
     type: engine_cleaning
+    observer_control_mode: collision_avoidance
+    observer_control:
+      minimum_distance_m: 0.010
+      influence_distance_m: 0.018
+      critical_distance_m: 0.008
+      release_margin_m: 0.002
+      avoidance_gain: 1.2
     waypoint_tolerance_m: 0.002
     target_advance_mode: tolerance
     observer_roi_world: [0.114155, 0.530382, 0.010]

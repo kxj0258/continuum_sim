@@ -12,6 +12,13 @@ scenario:
     structured_config_path: ../scenes/wiping_board.yaml
   task:
     type: wiping
+    observer_control_mode: collision_avoidance
+    observer_control:
+      minimum_distance_m: 0.010
+      influence_distance_m: 0.018
+      critical_distance_m: 0.008
+      release_margin_m: 0.002
+      avoidance_gain: 1.2
     waypoint_tolerance_m: 0.003
     observer_roi_world: [0.0375, 0.000, 0.095]
     surface_normal_world: [-1.0, 0.0, 0.0]

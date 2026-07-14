@@ -2,7 +2,7 @@ schema_version: 1
 scenario:
   name: dual_mujoco_tracking
   assembly_config_path: ../robots/assemblies/dual_spatial.yaml
-  low_level_control_path: ../control/spatial_low_level.yaml
+  low_level_control_path: ../control/mujoco_tracking_low_level.yaml
   backend:
     type: mujoco
     mujoco_config_path: ../mujoco_dual.yaml
@@ -13,10 +13,18 @@ scenario:
     type: tracking
     waypoint_tolerance_m: 0.003
     target_advance_mode: tolerance
-    observer_roi_world: [0.010, 0.000, 0.135]
+    observer_control_mode: collision_avoidance
+    observer_control:
+      minimum_distance_m: 0.010
+      influence_distance_m: 0.018
+      critical_distance_m: 0.008
+      release_margin_m: 0.002
+      avoidance_gain: 1.2
     loop: false
     tracking_control:
       approach_samples: 40
+      tracking_mode: time
+      trajectory_duration_s: 80.0
     trajectory:
       type: square
       samples: 80
@@ -38,6 +46,8 @@ scenario:
     tendon_debug_stride: 5
     show_live_tendon_panel: true
     live_tendon_panel_stride: 5
+    show_live_diagnostics_panel: true
+    live_diagnostics_panel_stride: 5
     viewer: mujoco
     keep_viewer_open: false
   artifacts:

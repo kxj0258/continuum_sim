@@ -82,6 +82,21 @@
 | 采用渐进式 adapter 迁移 | 先修复诊断和命令协议，再逐个迁移 task，可降低一次性改写控制语义的风险 |
 | 推荐以强类型 TaskIntent 为上层统一输出 | 能同时承载位置、速度前馈、接触力、observer/base 目标，又避免 metadata 隐式协议 |
 
+## Phase 8 Findings
+- 当前 `ObserverTaskIntent` 只有 executor offset、ROI 和 blend，没有显式策略类型；所有双臂 tracker 因而默认生成 observer 跟随目标。
+- `CoordinatedTrackingController` 当前把 executor、observer 和 scene avoidance task 堆叠到一个 `WholeBodyController.solve()`，observer Jacobian 虽然清零 executor 列，但仍共享一次全局 SVD/正则化求解。
+- `WholeBodyController` 已经按 arm 维护 layout、bending model、奇异性和 rate limit；最小改动是让 `solve()` 接收 active arm/base 自由度子集，在缩减矩阵上独立求解，再重建完整 command。
+- observer collision task 已使用 observer-only Jacobian，适合拆成独立 observer solve；需要把 activation 固定为 influence distance，并删除 executor freeze/global hard-stop 分支。
+- observer Cartesian tracking 分支没有使用 executor 的 `max_target_speed_mps` 限幅；统一接口应对任意 arm Cartesian velocity 调用同一个 norm clip。
+- `ScenarioTaskConfig` 已有 `observer_roi_world`，但没有 observer 策略字段；tracker 无条件构造 `ObserverTaskIntent`。需要新增显式 `observer_control_mode` 并由 dual tracking 选择 `collision_avoidance`。
+- `ArmSystemState` 已保存逐 tendon `tendon_target_m` 和 `actuator_force_n`，产物层目前未导出；可直接从 state 序列补齐，无需复制到 recorder。
+- MuJoCo backend 的 state metadata 目前只保存 saturation bool/common scale；需要同时保存 requested/applied rate 和 target，才能同步分析 backend 限幅前后命令。
+- command/state 天然相差一个周期：command diagnostics 应使用 `time_s[:-1]`，执行后 tendon target/actual/force 使用完整 `time_s`。
+- 固定底座的 `ControlLayout` 完全省略 base DOF，因此 single/dual executor 的活动子空间都是相同的 6 个 bending DOF；分臂求解可保持相同矩阵尺寸和正则化块。
+- Live tendon snapshot 已包含所有 arm 的 target/actual/velocity/force；本轮只需扩展 live diagnostics 的 observer error、inter-arm distance 和 mode，并在 artifacts 中保存逐 tendon 数组。
+- observer 原配置允许 `±0.050 m` tendon 位移，而 executor 为 `±0.020 m`；两者虽共享 `0.005 m/s` rate 与 `0.0005 m` target lead，但位移范围并未统一。本轮将 observer 收紧到 `±0.020 m`，代价是 observer 的最大可达弯曲范围可能下降。
+- MuJoCo backend 每个周期已经从 tendon sensor 读取实际长度；旧的大偏差并非“完全没有实际反馈”，而是未统一启用 solver/backend 限幅且 observer 上层长期跟随目标造成 target lead/执行器饱和累积。protected 模式现在用实际长度约束积分目标。
+
 ## Issues Encountered
 | Issue | Resolution |
 |-------|------------|

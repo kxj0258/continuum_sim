@@ -5,6 +5,7 @@ from numpy.testing import assert_allclose
 
 from continuum_sim.backends.analytic_system_backend import AnalyticSystemBackend
 from continuum_sim.control.scenario_controllers import WaypointTrackingController
+from continuum_sim.control.task_intent import ObserverTaskIntent
 from continuum_sim.control.whole_body_controller import (
     WholeBodyController,
     WholeBodyControllerConfig,
@@ -109,3 +110,56 @@ def test_fixed_base_singularity_protection_is_decoupled_per_arm() -> None:
     assert protection.arm_reports["observer"].velocity_scale < 0.1
     assert_allclose(protection.velocity_scale[executor], 1.0)
     assert np.max(protection.velocity_scale[observer]) < 0.1
+
+
+def test_dual_executor_command_matches_single_with_collision_only_observer() -> None:
+    single_assembly = load_robot_assembly_config(SINGLE_ASSEMBLY)
+    dual_assembly = load_robot_assembly_config(DUAL_ASSEMBLY)
+    single_state = AnalyticSystemBackend(single_assembly).reset_system()
+    dual_state = AnalyticSystemBackend(dual_assembly).reset_system()
+    target = single_state.arms["executor"].tip_pose_world.position + np.array(
+        [0.006, -0.004, 0.003],
+        dtype=float,
+    )
+    solver = WholeBodyControllerConfig(
+        tendon_regularization_weight=0.5,
+        enforce_tendon_rate_limits=True,
+    )
+    single = WaypointTrackingController(
+        single_assembly,
+        target[None, :],
+        executor_position_gain=1.5,
+        observer_position_gain=1.5,
+        max_target_speed_mps=0.015,
+        solver_config=solver,
+        enforce_backend_tendon_limits=True,
+    )
+    dual = WaypointTrackingController(
+        dual_assembly,
+        target[None, :],
+        observer_control_mode="collision_avoidance",
+        executor_position_gain=1.5,
+        observer_position_gain=1.5,
+        max_target_speed_mps=0.015,
+        solver_config=solver,
+        enforce_backend_tendon_limits=True,
+    )
+
+    single_command = single.compute_command(single_state)
+    dual_command = dual.compute_command(dual_state)
+
+    assert_allclose(
+        dual_command.arms["executor"].tendon_rate_mps,
+        single_command.arms["executor"].tendon_rate_mps,
+    )
+    assert dual_command.metadata["inter_arm_executor_frozen"] is False
+    assert dual_command.metadata["inter_arm_hard_stop"] is False
+    assert dual_command.metadata["observer_control_mode"] == "collision_avoidance"
+    assert np.max(np.abs(dual_command.arms["executor"].tendon_rate_mps)) <= 0.005
+    assert np.max(np.abs(dual_command.arms["observer"].tendon_rate_mps)) <= 0.005
+
+
+def test_observer_intent_accepts_collision_avoidance_mode() -> None:
+    intent = ObserverTaskIntent(control_mode="collision_avoidance")
+
+    assert intent.control_mode == "collision_avoidance"

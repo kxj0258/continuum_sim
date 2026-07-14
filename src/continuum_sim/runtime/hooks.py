@@ -787,13 +787,16 @@ class LiveDiagnosticsPanelHook:
         self._tip_error_xyz: list[np.ndarray] = []
         self._base_error: list[float] = []
         self._clearance: list[float] = []
+        self._inter_arm_distance: list[float] = []
         self._contact_distance: list[float] = []
         self._force_error: list[float] = []
         self._condition: list[float] = []
         self._velocity_scale: list[float] = []
         self._saturation_scale: list[float] = []
         self._tendon_error: list[float] = []
+        self._observer_tendon_error: list[float] = []
         self._phase = ""
+        self._observer_mode = ""
         self._waypoint_index = -1
 
     def on_reset(self, state: RobotSystemState) -> None:
@@ -857,16 +860,19 @@ class LiveDiagnosticsPanelHook:
             self._tip_target_error,
             self._base_error,
             self._clearance,
+            self._inter_arm_distance,
             self._contact_distance,
             self._force_error,
             self._condition,
             self._velocity_scale,
             self._saturation_scale,
             self._tendon_error,
+            self._observer_tendon_error,
         ):
             values.clear()
         self._tip_error_xyz.clear()
         self._phase = ""
+        self._observer_mode = ""
         self._waypoint_index = -1
 
     def _append(
@@ -891,6 +897,9 @@ class LiveDiagnosticsPanelHook:
         )
         self._base_error.append(float(metadata.get("base_position_error_m", np.nan)))
         self._clearance.append(float(metadata.get("min_clearance_m", np.nan)))
+        self._inter_arm_distance.append(
+            float(metadata.get("inter_arm_distance_m", np.nan))
+        )
         self._contact_distance.append(float(metadata.get("contact_distance_m", np.nan)))
         self._force_error.append(float(metadata.get("force_error_n", np.nan)))
         singularity = metadata.get("whole_body_singularity")
@@ -916,12 +925,21 @@ class LiveDiagnosticsPanelHook:
                 float(np.linalg.norm(arm.tendon_target_m - arm.tendon_displacement_m))
             )
         self._tendon_error.append(float(max(tendon_errors)) if tendon_errors else np.nan)
+        observer_errors = [
+            float(np.linalg.norm(arm.tendon_target_m - arm.tendon_displacement_m))
+            for arm in state.arms.values()
+            if arm.role == "observer"
+        ]
+        self._observer_tendon_error.append(
+            observer_errors[0] if observer_errors else np.nan
+        )
         self._phase = str(
             metadata.get(
                 "engine_navigation_phase",
                 metadata.get("wiping_phase", metadata.get("task_type", "")),
             )
         )
+        self._observer_mode = str(metadata.get("observer_control_mode", ""))
         self._waypoint_index = int(metadata.get("waypoint_index", -1))
 
     def _trim(self) -> None:
@@ -934,12 +952,14 @@ class LiveDiagnosticsPanelHook:
             self._tip_target_error,
             self._base_error,
             self._clearance,
+            self._inter_arm_distance,
             self._contact_distance,
             self._force_error,
             self._condition,
             self._velocity_scale,
             self._saturation_scale,
             self._tendon_error,
+            self._observer_tendon_error,
         ):
             del values[:extra]
         del self._tip_error_xyz[:extra]
@@ -982,6 +1002,11 @@ class LiveDiagnosticsPanelHook:
         axes[1].plot(time_s, np.asarray(self._clearance), label="clearance [m]")
         axes[1].plot(
             time_s,
+            1000.0 * np.asarray(self._inter_arm_distance),
+            label="inter-arm distance [mm]",
+        )
+        axes[1].plot(
+            time_s,
             1000.0 * np.asarray(self._contact_distance),
             label="contact distance [mm]",
         )
@@ -1001,24 +1026,32 @@ class LiveDiagnosticsPanelHook:
             1000.0 * np.asarray(self._tendon_error),
             label="tendon target err [mm]",
         )
+        axes[2].plot(
+            time_s,
+            1000.0 * np.asarray(self._observer_tendon_error),
+            label="observer tendon err [mm]",
+        )
         axes[2].set(title="Solver/actuation", xlabel="time [s]")
         axes[2].legend(loc="upper right", fontsize=8)
 
         latest = [
             f"time_s: {self._time[-1]:.3f}" if self._time else "time_s: n/a",
             f"phase: {self._phase}",
+            f"observer_mode: {self._observer_mode}",
             f"waypoint_index: {self._waypoint_index}",
             "",
             f"tracking_error_m: {_last_value(self._tracking_error): .5f}",
             f"tip_err_xyz_m: {_last_vector(self._tip_error_xyz)}",
             f"base_error_m: {_last_value(self._base_error): .5f}",
             f"min_clearance_m: {_last_value(self._clearance): .5f}",
+            f"inter_arm_distance_m: {_last_value(self._inter_arm_distance): .5f}",
             f"contact_distance_m: {_last_value(self._contact_distance): .5f}",
             f"force_error_n: {_last_value(self._force_error): .5f}",
             f"condition: {_last_value(self._condition): .5e}",
             f"velocity_scale: {_last_value(self._velocity_scale): .5f}",
             f"limit_scale: {_last_value(self._saturation_scale): .5f}",
             f"tendon_target_error_m: {_last_value(self._tendon_error): .5e}",
+            f"observer_tendon_error_m: {_last_value(self._observer_tendon_error): .5e}",
         ]
         self._info_text.set_text("\n".join(latest))
         self._figure.tight_layout()

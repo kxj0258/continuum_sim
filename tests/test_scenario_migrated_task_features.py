@@ -64,9 +64,37 @@ def test_tracking_approach_starts_at_straight_tip_and_preserves_path() -> None:
 def test_tracking_control_config_loads_scenario_overrides() -> None:
     config = load_scenario_config("configs/scenarios/dual_mujoco_tracking.yaml")
 
-    assert config.task.tracking_control.approach_samples == 20
-    assert config.task.tracking_control.feedforward_speed_mps > 0.0
+    assert config.task.tracking_control.approach_samples == 40
+    assert config.task.tracking_control.tracking_mode == "time"
+    assert config.task.tracking_control.trajectory_duration_s == 80.0
+    assert config.task.observer_control_mode == "collision_avoidance"
+    assert config.task.observer_control.influence_distance_m == 0.050
+    assert config.task.observer_control.minimum_distance_m == 0.010
+    assert config.task.observer_control.max_avoidance_speed_mps == 0.015
+    assert (
+        config.task.tracking_control.executor_position_gain
+        == config.task.tracking_control.observer_position_gain
+        == 1.5
+    )
+    assembly = load_robot_assembly_config(config.assembly_config_path)
+    executor_limits = assembly.arms["executor"].spatial_arm.limits
+    observer_limits = assembly.arms["observer"].spatial_arm.limits
+    assert_allclose(
+        observer_limits.tendon_displacement_min_m,
+        executor_limits.tendon_displacement_min_m,
+    )
+    assert_allclose(
+        observer_limits.tendon_displacement_max_m,
+        executor_limits.tendon_displacement_max_m,
+    )
+    assert_allclose(
+        observer_limits.max_tendon_rate_mps,
+        executor_limits.max_tendon_rate_mps,
+    )
+    assert_allclose(observer_limits.target_lead_m, executor_limits.target_lead_m)
     assert config.task.tracking_control.decouple_arm_singularity is True
+    assert config.task.tracking_control.enforce_solver_velocity_limits is True
+    assert config.task.tracking_control.enforce_backend_tendon_limits is True
 
 
 def test_wiping_controller_accepts_tracking_control_parameters() -> None:
@@ -108,13 +136,11 @@ def test_dynamic_wiping_scenario_loads_force_strategy_and_dynamics_path() -> Non
     assert config.task.tracking_control.tendon_regularization_weight == 0.5
 
 
-def test_admittance_wiping_scenario_loads_admittance_strategy() -> None:
-    config = load_scenario_config(
-        "configs/scenarios/single_mujoco_wiping_admittance.yaml"
-    )
+def test_wiping_scenario_keeps_optional_admittance_parameters() -> None:
+    config = load_scenario_config("configs/scenarios/single_mujoco_wiping.yaml")
 
-    assert config.task.wiping_control_type == "contact_triggered_admittance"
-    assert config.task.force_strategy.type == "contact_triggered_admittance"
+    assert config.task.wiping_control_type == "dynamic_adaptive_impedance"
+    assert config.task.force_strategy.type == "dynamic_adaptive_impedance"
     assert config.task.admittance.target_normal_force_n == 1.5
     assert config.task.admittance.stable_steps_required == 3
 

@@ -62,8 +62,8 @@ bending-space/tendon-rate 命令。
 后续深化路径：
 
 1. 用实验或 MuJoCo 数据辨识 `configs/dynamics/pcc_reduced.yaml`。
-2. 将 executor 动力学控制变成 `WholeBodyTask` 的一个目标或约束，使它能和
-   observer ROI、双臂避碰、发动机 clearance 目标共同求解。
+2. 将 executor 动力学控制变成 executor active-subspace 中的目标或约束；observer ROI/避碰保持在
+   observer active-subspace，不能重新并入 executor 的 SVD。
 3. 如果需要两臂同时接触，再扩展为 per-arm 动力学状态和多接触 generalized force 聚合。
 
 迁移风险：
@@ -98,7 +98,7 @@ bending-space/tendon-rate 命令。
 - scenario 组合入口：`SimulationApplication.from_yaml(...)`。
 - 双臂/单臂 assembly、mobile base、engine/structured scene 注入。
 - tracking、navigation、wiping、engine_navigation 的系统级控制器。
-- executor/observer 协同跟踪、双臂中心线避碰、发动机 clearance 避障、奇异性保护和 tendon 相容命令。
+- executor/observer 分臂求解、双臂中心线避碰、发动机 clearance 避障、奇异性保护和 tendon 相容命令。
 - DMP trajectory 作为 scenario tracking 的 `trajectory.type: dmp`。
 
 ## 迁移优先级

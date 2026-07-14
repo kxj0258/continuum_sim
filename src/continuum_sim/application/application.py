@@ -10,6 +10,7 @@ import numpy as np
 
 from continuum_sim.application.scenario import (
     ScenarioConfig,
+    ScenarioObserverControlConfig,
     ScenarioTrackingControlConfig,
     load_scenario_config,
 )
@@ -149,9 +150,13 @@ class SimulationApplication:
                 terminate_on_clearance_violation=(
                     config.task.terminate_on_clearance_violation
                 ),
+                observer_control_mode=config.task.observer_control_mode,
                 controller_dt_s=config.runtime.controller_dt_s,
                 low_level_coordinated_config=(
-                    _tracking_coordinated_config(tracking)
+                    _tracking_coordinated_config(
+                        tracking,
+                        config.task.observer_control,
+                    )
                 ),
                 low_level_solver_config=_tracking_solver_config(tracking),
             )
@@ -162,6 +167,7 @@ class SimulationApplication:
                 task_plan["waypoints_world"],
                 waypoint_tolerance_m=config.task.waypoint_tolerance_m,
                 observer_roi_world=config.task.observer_roi_world,
+                observer_control_mode=config.task.observer_control_mode,
                 scene_query=scene_query,
                 min_clearance_m=config.task.min_clearance_m,
                 terminate_on_clearance_violation=(
@@ -177,6 +183,10 @@ class SimulationApplication:
                 max_target_speed_mps=_tracking_target_speed_limit(tracking),
                 solver_config=_tracking_solver_config(tracking),
                 enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
+                coordinated_config=_tracking_coordinated_config(
+                    tracking,
+                    config.task.observer_control,
+                ),
                 control_type=config.task.navigation_control_type,
                 cbf_gain=config.task.navigation_cbf_gain,
                 cbf_influence_distance_m=(
@@ -208,12 +218,17 @@ class SimulationApplication:
                 tracking_mode=tracking.tracking_mode,
                 trajectory_duration_s=tracking.trajectory_duration_s,
                 approach_samples=tracking.approach_samples,
+                observer_control_mode=config.task.observer_control_mode,
                 executor_position_gain=tracking.executor_position_gain,
                 observer_position_gain=tracking.observer_position_gain,
                 feedforward_speed_mps=tracking.feedforward_speed_mps,
                 max_target_speed_mps=_tracking_target_speed_limit(tracking),
                 solver_config=_tracking_solver_config(tracking),
                 enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
+                coordinated_config=_tracking_coordinated_config(
+                    tracking,
+                    config.task.observer_control,
+                ),
             )
         elif config.task.type == "engine_cleaning":
             tracking = config.task.tracking_control
@@ -232,12 +247,17 @@ class SimulationApplication:
                 ),
                 controller_dt_s=config.runtime.controller_dt_s,
                 observer_roi_world=config.task.observer_roi_world,
+                observer_control_mode=config.task.observer_control_mode,
                 executor_position_gain=tracking.executor_position_gain,
                 observer_position_gain=tracking.observer_position_gain,
                 max_target_speed_mps=_tracking_target_speed_limit(tracking),
                 solver_config=_tracking_solver_config(tracking),
                 enforce_backend_tendon_limits=(
                     tracking.enforce_backend_tendon_limits
+                ),
+                coordinated_config=_tracking_coordinated_config(
+                    tracking,
+                    config.task.observer_control,
                 ),
             )
         else:
@@ -249,6 +269,7 @@ class SimulationApplication:
                     trajectory_duration_s=float(tracking.trajectory_duration_s),
                     waypoint_tolerance_m=config.task.waypoint_tolerance_m,
                     observer_roi_world=config.task.observer_roi_world,
+                    observer_control_mode=config.task.observer_control_mode,
                     loop=config.task.loop,
                     scene_query=scene_query,
                     approach_mask=task_plan["approach_mask"],
@@ -258,6 +279,10 @@ class SimulationApplication:
                     max_target_speed_mps=_tracking_target_speed_limit(tracking),
                     solver_config=_tracking_solver_config(tracking),
                     enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
+                    coordinated_config=_tracking_coordinated_config(
+                        tracking,
+                        config.task.observer_control,
+                    ),
                 )
             else:
                 controller = WaypointTrackingController(
@@ -265,6 +290,7 @@ class SimulationApplication:
                     task_plan["waypoints_world"],
                     waypoint_tolerance_m=config.task.waypoint_tolerance_m,
                     observer_roi_world=config.task.observer_roi_world,
+                    observer_control_mode=config.task.observer_control_mode,
                     loop=config.task.loop,
                     target_advance_mode=config.task.target_advance_mode,
                     controller_dt_s=config.runtime.controller_dt_s,
@@ -279,6 +305,10 @@ class SimulationApplication:
                     max_target_speed_mps=_tracking_target_speed_limit(tracking),
                     solver_config=_tracking_solver_config(tracking),
                     enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
+                    coordinated_config=_tracking_coordinated_config(
+                        tracking,
+                        config.task.observer_control,
+                    ),
                 )
         hooks: list[object] = []
         hooks_by_name: dict[str, object] = {}
@@ -468,11 +498,22 @@ def _tracking_solver_config(
 
 def _tracking_coordinated_config(
     tracking: ScenarioTrackingControlConfig,
+    observer: ScenarioObserverControlConfig | None = None,
 ) -> CoordinatedTrackingConfig:
+    observer = ScenarioObserverControlConfig() if observer is None else observer
     return CoordinatedTrackingConfig(
         executor_position_gain=tracking.executor_position_gain,
         observer_position_gain=tracking.observer_position_gain,
         max_target_speed_mps=_tracking_target_speed_limit(tracking),
+        inter_arm_min_distance_m=observer.minimum_distance_m,
+        inter_arm_influence_distance_m=observer.influence_distance_m,
+        inter_arm_hard_stop_distance_m=observer.critical_distance_m,
+        inter_arm_release_margin_m=observer.release_margin_m,
+        inter_arm_avoidance_gain=observer.avoidance_gain,
+        inter_arm_max_avoidance_speed_mps=observer.max_avoidance_speed_mps,
+        observer_collision_priority=True,
+        freeze_executor_inside_safe_distance=False,
+        stop_all_on_critical_distance=False,
         enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
     )
 

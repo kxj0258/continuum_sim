@@ -195,6 +195,10 @@ def _write_metadata(path: Path, metadata: dict[str, object]) -> None:
 def _flatten_result(application, result) -> dict[str, np.ndarray]:
     arrays: dict[str, np.ndarray] = {
         "time_s": np.asarray([state.time_s for state in result.states], dtype=float),
+        "command_time_s": np.asarray(
+            [state.time_s for state in result.states[: len(result.commands)]],
+            dtype=float,
+        ),
         "base_position_m": np.asarray(
             [state.base.pose.position for state in result.states], dtype=float
         ),
@@ -233,8 +237,57 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
         arrays[f"{prefix}_tendon_velocity_mps"] = np.asarray(
             [state.arms[arm_name].tendon_velocity_mps for state in result.states]
         )
+        arrays[f"{prefix}_tendon_target_m"] = np.asarray(
+            [state.arms[arm_name].tendon_target_m for state in result.states]
+        )
+        arrays[f"{prefix}_actuator_force_n"] = np.asarray(
+            [state.arms[arm_name].actuator_force_n for state in result.states]
+        )
         arrays[f"{prefix}_command_rate_mps"] = np.asarray(
             [command.arms[arm_name].tendon_rate_mps for command in result.commands]
+        )
+        applied_rates: list[np.ndarray] = []
+        rate_saturation: list[np.ndarray] = []
+        displacement_saturation: list[np.ndarray] = []
+        for state in result.states[1 : len(result.commands) + 1]:
+            arm_saturation = state.metadata.get("saturation", {}).get(arm_name, {})
+            applied_rates.append(
+                np.asarray(
+                    arm_saturation.get(
+                        "applied_rate_mps",
+                        np.full_like(state.arms[arm_name].tendon_velocity_mps, np.nan),
+                    ),
+                    dtype=float,
+                )
+            )
+            rate_saturation.append(
+                np.asarray(
+                    arm_saturation.get(
+                        "rate",
+                        np.zeros_like(
+                            state.arms[arm_name].tendon_velocity_mps,
+                            dtype=bool,
+                        ),
+                    ),
+                    dtype=bool,
+                )
+            )
+            displacement_saturation.append(
+                np.asarray(
+                    arm_saturation.get(
+                        "displacement",
+                        np.zeros_like(
+                            state.arms[arm_name].tendon_velocity_mps,
+                            dtype=bool,
+                        ),
+                    ),
+                    dtype=bool,
+                )
+            )
+        arrays[f"{prefix}_applied_rate_mps"] = np.asarray(applied_rates)
+        arrays[f"{prefix}_rate_saturated"] = np.asarray(rate_saturation)
+        arrays[f"{prefix}_displacement_saturated"] = np.asarray(
+            displacement_saturation
         )
     recorder = application.hooks_by_name.get("recorder")
     if recorder is not None and getattr(recorder, "engine_navigation_phase", ()):
@@ -419,7 +472,56 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
                 arrays[f"arm_{arm_name}_mapping_condition_number"] = np.asarray(
                     [report.condition_number for report in arm_reports]
                 )
+    if result.commands:
+        command_metadata = [command.metadata for command in result.commands]
+        for key, dtype in (
+            ("observer_control_mode", str),
+            ("observer_collision_active", bool),
+            ("observer_tracking_active", bool),
+            ("inter_arm_safety_mode", str),
+            ("inter_arm_executor_frozen", bool),
+            ("inter_arm_critical_distance", bool),
+            ("inter_arm_hard_stop", bool),
+            ("inter_arm_closest_observer_index", int),
+            ("inter_arm_closest_executor_index", int),
+            ("inter_arm_distance_m", float),
+            ("inter_arm_min_distance_m", float),
+            ("inter_arm_influence_distance_m", float),
+            ("inter_arm_hard_stop_distance_m", float),
+            ("inter_arm_release_margin_m", float),
+            ("observer_avoidance_desired_speed_mps", float),
+            ("observer_residual_norm", float),
+        ):
+            arrays[key] = np.asarray(
+                [metadata.get(key, _metadata_default(dtype)) for metadata in command_metadata],
+                dtype=dtype,
+            )
+        for key in (
+            "executor_target_velocity_world",
+            "observer_target_position_world",
+            "observer_target_error_world",
+            "observer_target_velocity_world",
+            "inter_arm_closest_observer_point_world",
+            "inter_arm_closest_executor_point_world",
+        ):
+            arrays[key] = np.asarray(
+                [
+                    metadata.get(key, np.full(3, np.nan, dtype=float))
+                    for metadata in command_metadata
+                ],
+                dtype=float,
+            )
     return arrays
+
+
+def _metadata_default(dtype):
+    if dtype is str:
+        return ""
+    if dtype is bool:
+        return False
+    if dtype is int:
+        return -1
+    return np.nan
 
 
 def _state_metadata_array(
@@ -604,6 +706,182 @@ def _save_plots(arrays: dict[str, np.ndarray], output_dir: Path) -> list[Path]:
         )
         axis.grid(alpha=0.3)
         path = output_dir / "whole_body_singularity.png"
+        fig.savefig(path, dpi=160, bbox_inches="tight")
+        plt.close(fig)
+        saved.append(path)
+    saved.extend(_save_dual_arm_control_plots(arrays, output_dir, plt))
+    return saved
+
+
+def _save_dual_arm_control_plots(
+    arrays: dict[str, np.ndarray],
+    output_dir: Path,
+    plt,
+) -> list[Path]:
+    state_time = arrays.get("time_s")
+    command_time = arrays.get("command_time_s")
+    if state_time is None or command_time is None:
+        return []
+    saved: list[Path] = []
+    for arm_name in ("executor", "observer"):
+        prefix = f"arm_{arm_name}"
+        target = arrays.get(f"{prefix}_tendon_target_m")
+        actual = arrays.get(f"{prefix}_tendon_displacement_m")
+        velocity = arrays.get(f"{prefix}_tendon_velocity_mps")
+        requested_rate = arrays.get(f"{prefix}_command_rate_mps")
+        applied_rate = arrays.get(f"{prefix}_applied_rate_mps")
+        force = arrays.get(f"{prefix}_actuator_force_n")
+        if any(
+            value is None
+            for value in (
+                target,
+                actual,
+                velocity,
+                requested_rate,
+                applied_rate,
+                force,
+            )
+        ):
+            continue
+        fig, axes = plt.subplots(2, 2, figsize=(13.0, 8.0))
+        for tendon_index in range(actual.shape[1]):
+            line = axes[0, 0].plot(
+                state_time,
+                1000.0 * actual[:, tendon_index],
+                linewidth=1.0,
+                label=("actual" if tendon_index == 0 else None),
+            )[0]
+            axes[0, 0].plot(
+                state_time,
+                1000.0 * target[:, tendon_index],
+                "--",
+                color=line.get_color(),
+                linewidth=0.8,
+                alpha=0.7,
+                label=("target" if tendon_index == 0 else None),
+            )
+        axes[0, 0].set(
+            title=f"{arm_name} tendon target vs actual",
+            xlabel="time [s]",
+            ylabel="displacement [mm]",
+        )
+        axes[0, 0].legend(loc="upper right", fontsize=8)
+
+        tendon_error = np.linalg.norm(target - actual, axis=1)
+        axes[0, 1].plot(state_time, 1000.0 * tendon_error)
+        axes[0, 1].set(
+            title="Tendon target error norm",
+            xlabel="time [s]",
+            ylabel="error [mm]",
+        )
+
+        command_count = min(
+            len(command_time),
+            len(requested_rate),
+            len(applied_rate),
+            max(0, len(velocity) - 1),
+        )
+        if command_count:
+            axes[1, 0].plot(
+                command_time[:command_count],
+                1000.0 * np.max(np.abs(requested_rate[:command_count]), axis=1),
+                label="requested rate",
+            )
+            axes[1, 0].plot(
+                command_time[:command_count],
+                1000.0 * np.max(np.abs(applied_rate[:command_count]), axis=1),
+                label="applied rate",
+            )
+            axes[1, 0].plot(
+                command_time[:command_count],
+                1000.0 * np.max(
+                    np.abs(velocity[1 : command_count + 1]),
+                    axis=1,
+                ),
+                label="actual velocity",
+            )
+        axes[1, 0].set(
+            title="Tendon rate envelope",
+            xlabel="time [s]",
+            ylabel="max absolute rate [mm/s]",
+        )
+        if command_count:
+            axes[1, 0].legend(loc="upper right", fontsize=8)
+
+        axes[1, 1].plot(
+            state_time,
+            np.max(np.abs(force), axis=1),
+            label="peak actuator force",
+        )
+        axes[1, 1].set(
+            title="Actuator load",
+            xlabel="time [s]",
+            ylabel="force [N]",
+        )
+        axes[1, 1].legend(loc="upper right", fontsize=8)
+        for axis in axes.reshape(-1):
+            axis.grid(alpha=0.3)
+        fig.tight_layout()
+        path = output_dir / f"{prefix}_synchronized_control.png"
+        fig.savefig(path, dpi=160, bbox_inches="tight")
+        plt.close(fig)
+        saved.append(path)
+
+    distance = arrays.get("inter_arm_distance_m")
+    observer_velocity = arrays.get("observer_target_velocity_world")
+    collision_active = arrays.get("observer_collision_active")
+    if (
+        "arm_observer_tendon_displacement_m" in arrays
+        and distance is not None
+        and observer_velocity is not None
+    ):
+        count = min(len(command_time), len(distance), len(observer_velocity))
+        fig, axes = plt.subplots(2, 1, figsize=(10.0, 7.0), sharex=True)
+        axes[0].plot(
+            command_time[:count],
+            1000.0 * distance[:count],
+            label="inter-arm distance",
+        )
+        for key, label in (
+            ("inter_arm_influence_distance_m", "influence"),
+            ("inter_arm_min_distance_m", "minimum"),
+            ("inter_arm_hard_stop_distance_m", "critical"),
+        ):
+            values = arrays.get(key)
+            if values is not None and len(values):
+                axes[0].axhline(
+                    1000.0 * float(values[0]),
+                    linestyle="--",
+                    label=label,
+                )
+        axes[0].set(ylabel="distance [mm]", title="Dual-arm safety distance")
+        axes[0].legend(loc="upper right", fontsize=8)
+        for axis_index, axis_name in enumerate(("x", "y", "z")):
+            axes[1].plot(
+                command_time[:count],
+                1000.0 * observer_velocity[:count, axis_index],
+                label=f"observer v {axis_name}",
+            )
+        if collision_active is not None and count:
+            axes[1].fill_between(
+                command_time[:count],
+                0.0,
+                1.0,
+                where=np.asarray(collision_active[:count], dtype=bool),
+                transform=axes[1].get_xaxis_transform(),
+                alpha=0.12,
+                label="avoidance active",
+            )
+        axes[1].set(
+            xlabel="time [s]",
+            ylabel="target velocity [mm/s]",
+            title="Observer collision-avoidance command",
+        )
+        axes[1].legend(loc="upper right", fontsize=8)
+        for axis in axes:
+            axis.grid(alpha=0.3)
+        fig.tight_layout()
+        path = output_dir / "dual_arm_synchronized_safety.png"
         fig.savefig(path, dpi=160, bbox_inches="tight")
         plt.close(fig)
         saved.append(path)

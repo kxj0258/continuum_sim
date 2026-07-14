@@ -7,7 +7,7 @@
 1. 独立的上层任务控制器负责路径、阶段、接触和任务终止语义。
 2. 上层统一输出强类型 `TaskStep(TaskIntent, TaskStatus)`。
 3. 共享底层控制器负责笛卡尔闭环、observer 协同、Jacobian、SVD/正则化、whole-body 求解及 tendon-rate 命令。
-4. MuJoCo backend 继续负责 actual-anchored tendon target 积分和 actuator target 写入。
+4. MuJoCo backend 继续读取实际 tendon feedback，负责 protected/actual-anchored target 积分和 actuator target 写入。
 
 ## 控制边界
 
@@ -49,3 +49,15 @@ task controller
 - Engine cleaning 改为 velocity intent 后，不再叠加通用位置 P；行为会比旧实现温和，原有增益需要重新手工标定。
 - 共享参数会减少场景逐项调参，但 analytic 与 MuJoCo 模型差异仍可能要求以后增加少量经过审查的 profile，而不是在每个任务中复制底层字段。
 - 本轮按用户约束不自动运行任何验证。
+
+## 第二阶段：双臂严格隔离
+
+single 和 dual tracking 的 executor 必须使用同一 `TimedTrajectoryTrackingController`、同一轨迹时长、同一共享底层 profile。dual 不再依赖 waypoint 容差推进 executor 目标。
+
+共享底层按 arm 分别求解 Cartesian task。executor solver 只包含 base/executor tendon 列；observer solver 只包含 observer tendon 列，observer 的跟踪、避碰或奇异性不得进入 executor 求解。双臂固定底座场景中，两条臂的命令分别求解后再组装为同一个 `RobotSystemCommand`。observer 不得触发 executor freeze 或全局 hard stop。
+
+observer 上层默认采用 `collision_avoidance`：输入两臂实际中心线和最近点，输出 observer Cartesian velocity intent。安全影响距离外输出零速度；进入影响距离后使用带滞回的平滑排斥速度，并受共享 Cartesian 速度上限约束。ROI/offset 跟随保留为显式可选策略，但不用于 `dual_mujoco_tracking`。
+
+两臂统一启用目标速度、solver tendon rate 和 backend tendon target lead 限制。机构 Jacobian、tendon routing 和位移范围仍由各自 robot YAML 定义，不为追求数值相同而抹平物理差异。
+
+运行产物新增 observer Cartesian target/velocity/error、避碰模式、臂间距离、最近点索引、每臂 tendon target、requested/applied tendon rate 和 actuator force。所有同步图使用 `time_s`，state 序列使用完整时间轴，command 序列使用 `time_s[:-1]`。

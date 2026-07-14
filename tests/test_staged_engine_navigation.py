@@ -385,7 +385,10 @@ def test_observer_critical_avoidance_does_not_change_executor_command() -> None:
     solver_config = WholeBodyControllerConfig(decouple_arm_singularity=True)
     baseline = CoordinatedTrackingController(
         fixed_assembly,
-        CoordinatedTrackingTarget(executor_position_world=target),
+        CoordinatedTrackingTarget(
+            executor_position_world=target,
+            observer_control_mode="disabled",
+        ),
         config=CoordinatedTrackingConfig(
             inter_arm_min_distance_m=0.001,
             observer_collision_priority=False,
@@ -394,7 +397,10 @@ def test_observer_critical_avoidance_does_not_change_executor_command() -> None:
     )
     avoidance = CoordinatedTrackingController(
         fixed_assembly,
-        CoordinatedTrackingTarget(executor_position_world=target),
+        CoordinatedTrackingTarget(
+            executor_position_world=target,
+            observer_control_mode="collision_avoidance",
+        ),
         config=CoordinatedTrackingConfig(
             observer_collision_priority=True,
             inter_arm_influence_distance_m=0.030,

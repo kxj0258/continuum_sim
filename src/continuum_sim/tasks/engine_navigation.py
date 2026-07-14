@@ -63,7 +63,7 @@ class EngineNavigationObserverControlSpec:
     inter_arm_critical_distance_m: float = 0.009
     inter_arm_release_margin_m: float = 0.002
     inter_arm_avoidance_gain: float = 6.0
-    inter_arm_max_avoidance_speed_mps: float = 0.03
+    inter_arm_max_avoidance_speed_mps: float | None = None
     centerline_samples_per_segment: int = 8
     observer_tracking_weight: float = 20.0
     observer_collision_weight: float = 250.0
@@ -517,8 +517,10 @@ def _load_observer_control(
         inter_arm_avoidance_gain=float(
             raw_value.get("inter_arm_avoidance_gain", 6.0)
         ),
-        inter_arm_max_avoidance_speed_mps=float(
-            raw_value.get("inter_arm_max_avoidance_speed_mps", 0.03)
+        inter_arm_max_avoidance_speed_mps=(
+            None
+            if raw_value.get("inter_arm_max_avoidance_speed_mps") is None
+            else float(raw_value["inter_arm_max_avoidance_speed_mps"])
         ),
         centerline_samples_per_segment=int(
             raw_value.get("centerline_samples_per_segment", 8)
@@ -537,9 +539,6 @@ def _load_observer_control(
         "inter_arm_safe_distance_m": spec.inter_arm_safe_distance_m,
         "inter_arm_critical_distance_m": spec.inter_arm_critical_distance_m,
         "inter_arm_avoidance_gain": spec.inter_arm_avoidance_gain,
-        "inter_arm_max_avoidance_speed_mps": (
-            spec.inter_arm_max_avoidance_speed_mps
-        ),
         "observer_tracking_weight": spec.observer_tracking_weight,
         "observer_collision_weight": spec.observer_collision_weight,
     }
@@ -549,6 +548,15 @@ def _load_observer_control(
                 f"engine_navigation.observer_control.{name} must be "
                 "positive and finite."
             )
+    if spec.inter_arm_max_avoidance_speed_mps is not None and (
+        not np.isfinite(spec.inter_arm_max_avoidance_speed_mps)
+        or spec.inter_arm_max_avoidance_speed_mps <= 0.0
+    ):
+        raise ValueError(
+            "engine_navigation.observer_control."
+            "inter_arm_max_avoidance_speed_mps must be positive and finite "
+            "when provided."
+        )
     if (
         not np.isfinite(spec.inter_arm_release_margin_m)
         or spec.inter_arm_release_margin_m < 0.0

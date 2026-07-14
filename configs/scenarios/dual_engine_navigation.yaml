@@ -12,6 +12,13 @@ scenario:
     engine_config_path: ../scenes/engine_cleaning.yaml
   task:
     type: engine_navigation
+    observer_control_mode: collision_avoidance
+    observer_control:
+      minimum_distance_m: 0.010
+      influence_distance_m: 0.018
+      critical_distance_m: 0.008
+      release_margin_m: 0.002
+      avoidance_gain: 1.2
     waypoint_tolerance_m: 0.003
     min_clearance_m: 0.010
     terminate_on_clearance_violation: true
@@ -39,14 +46,13 @@ scenario:
         executor_offset_world_m: [0.0, -0.04, 0.02]
         roi_blend: 0.25
         inter_arm_influence_distance_m: 0.018
-        inter_arm_safe_distance_m: 0.014
-        inter_arm_critical_distance_m: 0.009
+        inter_arm_safe_distance_m: 0.010
+        inter_arm_critical_distance_m: 0.008
         inter_arm_release_margin_m: 0.002
-        inter_arm_avoidance_gain: 6.0
-        inter_arm_max_avoidance_speed_mps: 0.03
-        centerline_samples_per_segment: 8
+        inter_arm_avoidance_gain: 1.2
+        centerline_samples_per_segment: 6
         observer_tracking_weight: 20.0
-        observer_collision_weight: 250.0
+        observer_collision_weight: 80.0
         stop_all_on_critical_distance: false
       intermediate_local_paths:
         - name: one_third_circle

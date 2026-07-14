@@ -45,6 +45,7 @@ WIPING_FORCE_STRATEGY_TYPES = (
     "contact_triggered_admittance",
 )
 TRACKING_MODES = ("waypoint", "time")
+OBSERVER_CONTROL_MODES = ("tracking", "collision_avoidance", "disabled")
 SINGULARITY_STRATEGIES = ("damping_scale", "svd_projection")
 
 
@@ -154,6 +155,46 @@ class ScenarioTrackingControlConfig:
 
 
 @dataclass(frozen=True)
+class ScenarioObserverControlConfig:
+    """Task-level observer collision-avoidance policy."""
+
+    minimum_distance_m: float = 0.010
+    influence_distance_m: float = 0.050
+    critical_distance_m: float = 0.008
+    release_margin_m: float = 0.005
+    avoidance_gain: float = 0.4
+    max_avoidance_speed_mps: float | None = None
+
+    def __post_init__(self) -> None:
+        non_negative = {
+            "minimum_distance_m": self.minimum_distance_m,
+            "influence_distance_m": self.influence_distance_m,
+            "critical_distance_m": self.critical_distance_m,
+            "release_margin_m": self.release_margin_m,
+        }
+        for name, value in non_negative.items():
+            if not np.isfinite(value) or value < 0.0:
+                raise ValueError(f"observer_control.{name} must be non-negative and finite.")
+        if self.influence_distance_m <= self.minimum_distance_m:
+            raise ValueError(
+                "observer_control.influence_distance_m must exceed minimum_distance_m."
+            )
+        if self.critical_distance_m > self.minimum_distance_m:
+            raise ValueError(
+                "observer_control.critical_distance_m must not exceed minimum_distance_m."
+            )
+        if not np.isfinite(self.avoidance_gain) or self.avoidance_gain <= 0.0:
+            raise ValueError("observer_control.avoidance_gain must be positive and finite.")
+        if self.max_avoidance_speed_mps is not None and (
+            not np.isfinite(self.max_avoidance_speed_mps)
+            or self.max_avoidance_speed_mps <= 0.0
+        ):
+            raise ValueError(
+                "observer_control.max_avoidance_speed_mps must be positive and finite."
+            )
+
+
+@dataclass(frozen=True)
 class ScenarioForceStrategyConfig:
     type: str = "contact_distance"
 
@@ -189,6 +230,10 @@ class ScenarioTaskConfig:
     waypoint_source: str = "waypoints_world"
     waypoint_tolerance_m: float = 0.001
     observer_roi_world: np.ndarray | None = None
+    observer_control_mode: str = "collision_avoidance"
+    observer_control: ScenarioObserverControlConfig = field(
+        default_factory=ScenarioObserverControlConfig
+    )
     loop: bool = False
     target_advance_mode: str = "tolerance"
     advance_time_s: float | None = None
@@ -381,6 +426,14 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     target_advance_mode = str(task_values.get("target_advance_mode", "tolerance"))
     if target_advance_mode not in WAYPOINT_ADVANCE_MODES:
         raise ValueError(f"scenario.task.target_advance_mode must be one of {WAYPOINT_ADVANCE_MODES}.")
+    observer_control_mode = str(
+        task_values.get("observer_control_mode", "collision_avoidance")
+    )
+    if observer_control_mode not in OBSERVER_CONTROL_MODES:
+        raise ValueError(
+            "scenario.task.observer_control_mode must be one of "
+            f"{OBSERVER_CONTROL_MODES}."
+        )
     navigation_control_type = str(task_values.get("navigation_control_type", "whole_body"))
     if navigation_control_type not in NAVIGATION_CONTROL_TYPES:
         raise ValueError(
@@ -398,6 +451,7 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
         task_values,
         low_level_control_values,
     )
+    observer_control = _load_observer_control_config(task_values)
     contact_admittance = _load_contact_admittance_config(task_values)
     if wiping_control_type == "contact_triggered_admittance" and contact_admittance is None:
         contact_admittance = ContactTriggeredAdmittanceConfig(
@@ -451,6 +505,8 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             waypoint_source=waypoint_source,
             waypoint_tolerance_m=float(task_values.get("waypoint_tolerance_m", 0.001)),
             observer_roi_world=None if roi is None else roi.copy(),
+            observer_control_mode=observer_control_mode,
+            observer_control=observer_control,
             loop=bool(task_values.get("loop", False)),
             target_advance_mode=target_advance_mode,
             advance_time_s=_optional_float(task_values.get("advance_time_s")),
@@ -592,8 +648,18 @@ def _load_tracking_control_config(
         approach_samples=int(values.get("approach_samples", 0)),
         tracking_mode=str(values.get("tracking_mode", "waypoint")),
         trajectory_duration_s=_optional_float(values.get("trajectory_duration_s")),
-        executor_position_gain=float(values.get("executor_position_gain", 4.0)),
-        observer_position_gain=float(values.get("observer_position_gain", 5.0)),
+        executor_position_gain=float(
+            values.get(
+                "arm_position_gain",
+                values.get("executor_position_gain", 4.0),
+            )
+        ),
+        observer_position_gain=float(
+            values.get(
+                "arm_position_gain",
+                values.get("observer_position_gain", 5.0),
+            )
+        ),
         feedforward_speed_mps=float(values.get("feedforward_speed_mps", 0.0)),
         max_target_speed_mps=_optional_float(values.get("max_target_speed_mps")),
         executor_tracking_weight=float(values.get("executor_tracking_weight", 100.0)),
@@ -622,6 +688,25 @@ def _load_tracking_control_config(
         ),
         enforce_backend_tendon_limits=bool(
             values.get("enforce_backend_tendon_limits", False)
+        ),
+    )
+
+
+def _load_observer_control_config(
+    task_values: dict[str, Any],
+) -> ScenarioObserverControlConfig:
+    values = _mapping(
+        task_values.get("observer_control", {}),
+        "scenario.task.observer_control",
+    )
+    return ScenarioObserverControlConfig(
+        minimum_distance_m=float(values.get("minimum_distance_m", 0.010)),
+        influence_distance_m=float(values.get("influence_distance_m", 0.050)),
+        critical_distance_m=float(values.get("critical_distance_m", 0.008)),
+        release_margin_m=float(values.get("release_margin_m", 0.005)),
+        avoidance_gain=float(values.get("avoidance_gain", 0.4)),
+        max_avoidance_speed_mps=_optional_float(
+            values.get("max_avoidance_speed_mps")
         ),
     )
 

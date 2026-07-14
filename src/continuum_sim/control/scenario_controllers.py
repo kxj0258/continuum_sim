@@ -206,7 +206,8 @@ class WaypointTrackingController:
         achieved_error = float(
             np.linalg.norm(self.waypoints_world[achieved_index] - position)
         )
-        if advance and self.advance_enabled:
+        scheduler_paused = not (advance and self.advance_enabled)
+        if not scheduler_paused:
             self.scheduler.update(error_norm_m=achieved_error)
         waypoint_advanced = self.done or self.active_index != achieved_index
         step = self._task_step()

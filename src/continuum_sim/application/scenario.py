@@ -71,6 +71,11 @@ class ScenarioTrackingControlConfig:
     approach_samples: int = 0
     tracking_mode: str = "waypoint"
     trajectory_duration_s: float | None = None
+    stage_mobile_base: bool = False
+    base_position_gain: float = 1.5
+    base_orientation_gain: float = 2.0
+    base_position_tolerance_m: float = 0.005
+    base_orientation_tolerance_rad: float = 0.035
     executor_position_gain: float = 4.0
     observer_position_gain: float = 5.0
     feedforward_speed_mps: float = 0.0
@@ -113,6 +118,10 @@ class ScenarioTrackingControlConfig:
                 "tracking_mode='time'."
             )
         positive = {
+            "base_position_gain": self.base_position_gain,
+            "base_orientation_gain": self.base_orientation_gain,
+            "base_position_tolerance_m": self.base_position_tolerance_m,
+            "base_orientation_tolerance_rad": self.base_orientation_tolerance_rad,
             "executor_position_gain": self.executor_position_gain,
             "observer_position_gain": self.observer_position_gain,
             "executor_tracking_weight": self.executor_tracking_weight,
@@ -648,6 +657,15 @@ def _load_tracking_control_config(
         approach_samples=int(values.get("approach_samples", 0)),
         tracking_mode=str(values.get("tracking_mode", "waypoint")),
         trajectory_duration_s=_optional_float(values.get("trajectory_duration_s")),
+        stage_mobile_base=bool(values.get("stage_mobile_base", False)),
+        base_position_gain=float(values.get("base_position_gain", 1.5)),
+        base_orientation_gain=float(values.get("base_orientation_gain", 2.0)),
+        base_position_tolerance_m=float(
+            values.get("base_position_tolerance_m", 0.005)
+        ),
+        base_orientation_tolerance_rad=float(
+            values.get("base_orientation_tolerance_rad", 0.035)
+        ),
         executor_position_gain=float(
             values.get(
                 "arm_position_gain",

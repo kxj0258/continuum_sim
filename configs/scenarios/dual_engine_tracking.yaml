@@ -1,7 +1,7 @@
 schema_version: 1
 scenario:
   name: dual_spatial_engine_tracking
-  assembly_config_path: ../robots/assemblies/dual_spatial.yaml
+  assembly_config_path: ../robots/assemblies/dual_spatial_mobile.yaml
   low_level_control_path: ../control/mujoco_tracking_low_level.yaml
   backend:
     type: mujoco
@@ -22,13 +22,22 @@ scenario:
     waypoint_tolerance_m: 0.002
     observer_roi_world: [0.115, 0.500, 0.060]
     loop: false
+    tracking_control:
+      approach_samples: 0
+      tracking_mode: time
+      trajectory_duration_s: 80.0
+      stage_mobile_base: true
+      base_position_gain: 1.5
+      base_orientation_gain: 2.0
+      base_position_tolerance_m: 0.005
+      base_orientation_tolerance_rad: 0.035
     waypoints_world:
       - [0.100, 0.450, 0.080]
       - [0.115, 0.500, 0.060]
   runtime:
     controller_dt_s: 0.02
     n_substeps: 20
-    max_steps: 1500
+    max_steps: 5000
   hooks:
     recorder: true
     tendon_debug: true

@@ -47,12 +47,19 @@ scenario:
 | `approach_samples` | 运行时 prepend 的平滑 approach 样本数。 |
 | `tracking_mode` | `waypoint` 或 `time`。 |
 | `trajectory_duration_s` | time 模式总时长。 |
+| `stage_mobile_base` | time tracking 前是否执行一次移动基座接近；仅移动装配可用。 |
+| `base_position_gain` | staged base 世界坐标位置误差到线速度的比例增益。 |
+| `base_orientation_gain` | staged base 姿态误差到角速度的比例增益。 |
+| `base_position_tolerance_m` | 切换到固定基座 tendon tracking 的位置容差。 |
+| `base_orientation_tolerance_rad` | 切换到固定基座 tendon tracking 的姿态容差。 |
 
 加载顺序为“代码默认值 < low-level profile < task.tracking_control”。最后一层只为旧场景兼容；
 新场景应修改共享 profile，避免每个任务形成不同的底层控制器。
 
-`single_mujoco_tracking.yaml` 作为历史性能回归基线，不设置 `low_level_control_path`，
-并在 `task.tracking_control` 中保留旧版完整参数。该场景不会随共享 profile 改动。
+`single_mujoco_tracking.yaml` 与 `dual_mujoco_tracking.yaml` 都引用
+`configs/control/mujoco_tracking_low_level.yaml`，并只在 `task.tracking_control` 中保存 approach、
+time mode 和 duration 等任务调度参数。engine tracking 也引用同一 profile，但通过
+`stage_mobile_base: true` 在轨迹计时开始前增加基座接近阶段。
 
 双臂上层 observer 策略位于 `scenario.task`，不属于共享底层 profile：
 
@@ -60,16 +67,50 @@ scenario:
 observer_control_mode: collision_avoidance
 observer_control:
   minimum_distance_m: 0.010
-  influence_distance_m: 0.050
+  influence_distance_m: 0.018
   critical_distance_m: 0.008
-  release_margin_m: 0.005
-  avoidance_gain: 0.4
-  max_avoidance_speed_mps: 0.015
+  release_margin_m: 0.002
+  avoidance_gain: 1.2
 ```
 
 `observer_control_mode` 支持 `tracking`、`collision_avoidance` 和 `disabled`，scenario 默认使用
 `collision_avoidance`。collision-only 模式只驱动
 observer，自影响距离开始平滑回避；`critical_distance_m` 只作为诊断阈值，不会冻结或停止 executor。
+省略 `max_avoidance_speed_mps` 表示不设置避碰专用速度上限；18 mm 激活距离加 2 mm release margin
+对应 20 mm 释放距离。
+
+### Staged engine tracking
+
+发动机 tracking 的目标位于发动机世界坐标附近，超出固定基座三段连续体机械臂的直接工作空间。
+推荐配置为：
+
+```yaml
+scenario:
+  assembly_config_path: ../robots/assemblies/single_spatial_mobile.yaml
+  low_level_control_path: ../control/mujoco_tracking_low_level.yaml
+  task:
+    type: tracking
+    tracking_control:
+      approach_samples: 0
+      tracking_mode: time
+      trajectory_duration_s: 80.0
+      stage_mobile_base: true
+      base_position_gain: 1.5
+      base_orientation_gain: 2.0
+      base_position_tolerance_m: 0.005
+      base_orientation_tolerance_rad: 0.035
+```
+
+控制阶段如下：
+
+1. `base_approach`：根据首个状态计算一次基座平移目标；所有 tendon rate 为零。
+2. `tracking`：使用固定基座 assembly 副本构造 `TimedTrajectoryTrackingController`，共享
+   `mujoco_tracking_low_level.yaml`，并强制输出零 `base_twist_world`。
+3. `complete`：80 s 轨迹结束，completion hook 以 `duration_elapsed` 停止。
+
+这种双重固定方式与 staged engine navigation 的局部机械臂路径一致：求解器不能使用基座自由度，
+MuJoCo prescribed base 也不会收到由 tendon 跟踪产生的基座速度，从而隔离肌腱反作用导致的基座晃动。
+基座接近本身是直线平移，不包含移动基座碰撞路径规划。
 
 ## 旧索引配置：`configs/main_config.yaml`
 

@@ -37,6 +37,9 @@ from continuum_sim.control.wiping_force_strategies import (
 from continuum_sim.control.staged_engine_navigation import (
     StagedEngineNavigationController,
 )
+from continuum_sim.control.staged_engine_tracking import (
+    StagedEngineTrackingController,
+)
 from continuum_sim.control.coordinated_tracking import CoordinatedTrackingConfig
 from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
 from continuum_sim.dynamics import load_pcc_dynamics_config
@@ -263,7 +266,12 @@ class SimulationApplication:
         else:
             tracking = config.task.tracking_control
             if tracking.tracking_mode == "time":
-                controller = TimedTrajectoryTrackingController(
+                timed_controller_type = (
+                    StagedEngineTrackingController
+                    if tracking.stage_mobile_base
+                    else TimedTrajectoryTrackingController
+                )
+                controller = timed_controller_type(
                     assembly,
                     task_plan["waypoints_world"],
                     trajectory_duration_s=float(tracking.trajectory_duration_s),
@@ -283,8 +291,27 @@ class SimulationApplication:
                         tracking,
                         config.task.observer_control,
                     ),
+                    **(
+                        {
+                            "base_position_gain": tracking.base_position_gain,
+                            "base_orientation_gain": tracking.base_orientation_gain,
+                            "base_position_tolerance_m": (
+                                tracking.base_position_tolerance_m
+                            ),
+                            "base_orientation_tolerance_rad": (
+                                tracking.base_orientation_tolerance_rad
+                            ),
+                        }
+                        if tracking.stage_mobile_base
+                        else {}
+                    ),
                 )
             else:
+                if tracking.stage_mobile_base:
+                    raise ValueError(
+                        "tracking_control.stage_mobile_base requires "
+                        "tracking_mode='time'."
+                    )
                 controller = WaypointTrackingController(
                     assembly,
                     task_plan["waypoints_world"],

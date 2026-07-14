@@ -139,6 +139,7 @@ task:
 各任务的上层控制过程如下：
 
 - `tracking`：轨迹生成器或 waypoint scheduler 输出目标位置和速度前馈；共享底层只计算一次位置闭环。
+- `engine tracking`：先由移动基座把直臂末端送到发动机轨迹起点，再冻结基座自由度并复用 time tracking 底层。
 - `navigation`：上层增加路径推进、完整中心线 clearance 和可选 CBF-QP；未触发安全终止时复用同一底层运动控制。
 - `wiping`：上层管理 approach/contact/retreat，并由选定的 force strategy 修正接触阶段目标；修正后的位置 intent 交给共享底层。
 - `engine_cleaning`：上层 task-space cleaning controller 根据 waypoint、接触距离和法向力输出 TCP velocity intent；底层把位置伺服锚定到当前 TCP，避免旧实现的双重 P 控制。
@@ -200,6 +201,37 @@ tracking_control:
 `actual_anchored` tendon target 模式，并关闭 Cartesian、solver 和 backend 限幅。所有引用它的 dual
 场景中，两条机械臂共用这些底层参数；observer 的差异只来自独立的上层 intent。继续引用
 `spatial_low_level.yaml` 的其他场景仍使用 `arm_position_gain: 1.5` 和 protected tendon target 模式。
+
+### Engine tracking 的移动基座与反作用隔离
+
+`single_engine_tracking.yaml` 和 `dual_engine_tracking.yaml` 使用两阶段上层控制：
+
+```text
+base_approach
+  -> MobileBasePoseController
+  -> base twist；所有机械臂 tendon rate = 0
+  -> 到位条件：位置误差 <= 5 mm，姿态误差 <= 0.035 rad
+
+tracking
+  -> TimedTrajectoryTrackingController（80 s）
+  -> UnifiedLowLevelController + mujoco_tracking_low_level.yaml
+  -> 固定基座装配模型求解 tendon rate
+  -> 发给 MuJoCo 的 base_twist_world 恒为 0
+```
+
+基座目标在第一个状态处计算：保持当前基座姿态，仅平移基座，使当前 executor tip 对齐第一个发动机
+waypoint。基座阶段使用 `base_position_gain: 1.5`、`base_orientation_gain: 2.0`，且与
+`engine_navigation` 一样不在 pose controller 内裁剪速度。轨迹阶段同时采用“求解模型无基座自由度”与
+“MuJoCo prescribed base 收到零速度”两层约束，避免肌腱动作及其反作用被转换为基座晃动。
+基座阶段的 `executor_error_m` 记录为 `NaN`，因此命令行输出的 final/mean/max tracking error 只统计
+实际的机械臂轨迹阶段，不会被基座移动阶段稀释。
+
+这里的 `approach_samples: 0` 是有意设置：普通 MuJoCo tracking 用 40 个机械臂 approach 样本连接本地
+方形轨迹；engine tracking 已由基座阶段完成远距离接近，若再次从初始原点 prepend arm approach，基座
+移动后这些世界坐标样本会失去意义。
+
+dual engine tracking 的 executor 与 single 使用相同的时间轨迹和底层参数；observer 在基座阶段保持
+零肌腱速度，进入 tracking 后使用独立的 18 mm 激活避碰上层 intent，并通过相同的固定基座肌腱底层执行。
 
 dual 运行产物额外保存 observer target/actual tendon、requested/applied rate、实际速度、逐 tendon
 actuator force、observer mode、最近臂间距离和避碰目标速度，并生成：
@@ -294,6 +326,8 @@ python scripts/run_scenario.py configs/scenarios/dual_analytic_navigation.yaml
 python scripts/run_scenario.py configs/scenarios/dual_analytic_wiping.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_tracking.yaml
 python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml
+python scripts/run_scenario.py configs/scenarios/single_engine_tracking.yaml
+python scripts/run_scenario.py configs/scenarios/dual_engine_tracking.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_navigation.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_wiping.yaml
 python scripts/run_scenario.py configs/scenarios/dual_mujoco_wiping.yaml

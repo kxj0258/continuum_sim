@@ -18,7 +18,10 @@ from continuum_sim.model.robot_params import PCC_VALUES_PER_SEGMENT, ThreeSegmen
 
 @dataclass(frozen=True)
 class PCCDynamicsConfig:
-    """Engineering-estimate parameters for reduced PCC dynamics."""
+    """Engineering estimates for reduced PCC dynamics.
+
+    ``bending_stiffness`` stores continuum flexural rigidity ``EI`` in N m^2.
+    """
 
     segment_masses_kg: np.ndarray
     bending_stiffness: np.ndarray
@@ -31,8 +34,8 @@ class PCCDynamicsConfig:
     def default(cls, params: ThreeSegmentRobotParams) -> "PCCDynamicsConfig":
         segment_count = params.segment_count
         return cls(
-            segment_masses_kg=np.full(segment_count, 0.025, dtype=float),
-            bending_stiffness=np.full(segment_count, 0.020, dtype=float),
+            segment_masses_kg=np.full(segment_count, 0.00989929, dtype=float),
+            bending_stiffness=np.full(segment_count, 0.0002, dtype=float),
             axial_stiffness=np.full(segment_count, 1.0, dtype=float),
             damping=np.full(params.q_size, 0.02, dtype=float),
         )
@@ -56,12 +59,12 @@ def load_pcc_dynamics_config(
     dynamics = raw.get("dynamics", raw)
     return PCCDynamicsConfig(
         segment_masses_kg=_segment_vector(
-            dynamics.get("segment_masses_kg", [0.025] * params.segment_count),
+            dynamics.get("segment_masses_kg", [0.00989929] * params.segment_count),
             params,
             "segment_masses_kg",
         ),
         bending_stiffness=_segment_vector(
-            dynamics.get("bending_stiffness", [0.020] * params.segment_count),
+            dynamics.get("bending_stiffness", [0.0002] * params.segment_count),
             params,
             "bending_stiffness",
         ),
@@ -110,14 +113,18 @@ def mass_matrix(
 
 
 def stiffness_matrix(params: ThreeSegmentRobotParams, config: PCCDynamicsConfig) -> np.ndarray:
-    """Return diagonal bending/axial stiffness in PCC coordinates."""
+    """Return diagonal stiffness in PCC curvature/axial-strain coordinates."""
 
     diagonal = np.zeros(params.q_size, dtype=float)
     for segment_index in range(params.segment_count):
         base = segment_index * PCC_VALUES_PER_SEGMENT
+        bending_stiffness = (
+            config.bending_stiffness[segment_index]
+            * params.segments[segment_index].length
+        )
         diagonal[base : base + 3] = (
-            config.bending_stiffness[segment_index],
-            config.bending_stiffness[segment_index],
+            bending_stiffness,
+            bending_stiffness,
             config.axial_stiffness[segment_index],
         )
     return np.diag(diagonal)

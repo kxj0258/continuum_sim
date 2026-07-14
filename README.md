@@ -342,3 +342,26 @@ python scripts/run_scenario.py configs/scenarios/dual_engine_navigation.yaml
 ```powershell
 pytest tests/test_tracking_optimization.py tests/test_scenario_migrated_task_features.py tests/test_staged_engine_navigation.py
 ```
+
+## 交互式 PCC–MuJoCo 末端对比
+
+使用以下专用入口加载双臂 MuJoCo XML，并手动控制两条连续体臂的全部肌腱：
+
+```powershell
+python scripts/debug_mujoco_pcc.py configs/scenarios/dual_mujoco_tracking.yaml
+```
+
+该入口只复用场景中的 assembly、MuJoCo backend、控制周期和低层肌腱参数，
+不会启动 tracking task controller。MuJoCo 窗口中紫色表示 PCC 计算的中心线和
+末端，青色表示 MuJoCo 实际中心线和末端 site，红线表示两个末端之间的误差。
+控制面板显示两种末端的世界坐标、安装坐标系下的分轴误差、三维误差模长和肌腱
+兼容性残差。
+
+PCC 始终使用 MuJoCo 当前实际肌腱位移计算，而不是滑块目标值。调整滑块后应点击
+`Run`，等待 target/current 柱状图和末端位置基本稳定，再点击 `Pause` 读取误差。
+默认 `compatible` 模式适合检查 PCC 参数；`raw tendon` 允许任意单根肌腱输入，
+其非零兼容性残差代表形变已经超出纯 PCC 弯曲子空间。
+
+`Save CSV` 仅在手动点击时写入数据，默认文件位于
+`output/diagnostics/mujoco_pcc_manual_<timestamp>.csv`。详细说明见
+[docs/debugging_guide.md](docs/debugging_guide.md)。

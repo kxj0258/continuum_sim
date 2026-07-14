@@ -88,12 +88,15 @@ class SystemTendonMonitorPanel:
         state: RobotSystemState,
         *,
         redraw: bool = True,
+        info_text: str | None = None,
     ) -> SystemTendonViewData:
         view = system_tendon_view_data(state)
         self.last_view_data = view
         self._draw_lengths(view)
         self._draw_forces(view)
-        self._info_text.set_text(_format_info(view))
+        self._info_text.set_text(
+            _format_info(view) if info_text is None else str(info_text)
+        )
         if redraw:
             self.fig.canvas.draw_idle()
         return view

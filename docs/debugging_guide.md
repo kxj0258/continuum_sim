@@ -101,5 +101,68 @@ python scripts/run_scenario.py configs/scenarios/dual_engine_navigation.yaml
 python scripts/check_mujoco_offscreen_renderer.py configs/mujoco_dual.yaml
 ```
 
+## PCC 与 MuJoCo 末端的交互式诊断
+
+### 启动方式
+
+双臂场景：
+
+```powershell
+python scripts/debug_mujoco_pcc.py configs/scenarios/dual_mujoco_tracking.yaml
+```
+
+同一入口也可加载单臂 MuJoCo 场景：
+
+```powershell
+python scripts/debug_mujoco_pcc.py configs/scenarios/single_mujoco_tracking.yaml
+```
+
+这是一项需要人工操作窗口的诊断，不应放入自动测试或无人值守脚本。它不会运行
+场景的 tracking controller；MuJoCo 只在点击 `Step` 或打开 `Run` 后前进。
+
+### 显示含义
+
+- 紫色中心线和球体：由当前实际肌腱位移重建的 PCC 模型及其末端；
+- 青色中心线和球体：MuJoCo link/site 给出的实际中心线和末端；
+- 红色连线：从 MuJoCo 末端 site 到 PCC 末端的误差向量；
+- `PCC` / `MJ`：两种末端的世界坐标，单位为 mm；
+- `dM`：`PCC - MuJoCo` 在该臂安装坐标系下的 XYZ 分量，单位为 mm；
+- `|d|`：三维欧氏距离，单位为 mm；
+- `compatibility residual`：实际肌腱位移中无法由 PCC 六维弯曲状态解释的分量。
+
+`executor_tip` 和 `observer_tip` 都定义在各自最后一个 link body 的
+`pos="0 0 0.01"`，即从最后一个 10 mm link 的近端 body 原点沿局部 Z 轴偏移到
+远端。该 link 的 collision geom 同样从局部 Z=0 延伸到 Z=10 mm，因此这个 site
+不是在 120 mm 总臂长外额外增加的 10 mm。诊断工具直接使用这个 site，不再手动
+加减偏置；在三段各 40 mm、MuJoCo 共 12 个 10 mm link 的直臂状态下，两者理论
+长度都应是 120 mm。若直臂仍有明显误差，应继续检查安装变换、关节静态平衡和
+离散 link/PCC 曲线定义，而不能直接归因于 site 的 `0.01`。
+
+### 推荐操作顺序
+
+1. 保持 `compatible` 模式并点击 `Reset`，记录两臂零输入误差；
+2. 调整一条臂的目标滑块，点击 `Run`；
+3. 等待橙色 target 和蓝色 current 柱状图基本重合、末端不再明显运动；
+4. 点击 `Pause`，比较 PCC/MuJoCo 坐标和 `dM`；
+5. 依次测试第一、第二、第三段主要弯曲方向，并观察误差从哪一段开始增长；
+6. 必要时切换 `raw tendon`，但应同时检查兼容性残差，不能把非兼容形变直接归因于
+   PCC 几何参数；
+7. 点击 `Save CSV` 保存当前会话的全部样本。
+
+`Reset` 后已有样本不会被删除，CSV 中的 `session` 会在仿真时间回退时递增。
+CSV 每条臂每个状态一行，包含实际肌腱位移、PCC/MuJoCo 世界坐标、世界/安装坐标
+误差、误差模长和兼容性残差。只有点击 `Save CSV` 才会创建目录和文件。
+
+可选参数：
+
+```powershell
+python scripts/debug_mujoco_pcc.py configs/scenarios/dual_mujoco_tracking.yaml `
+  --samples-per-segment 21 `
+  --output output/diagnostics/my_pcc_check.csv
+```
+
+`--samples-per-segment` 只改变紫色 PCC 中心线的显示采样密度，不改变末端正运动学
+结果。采样过高可能超过 MuJoCo user scene 的 overlay 几何容量，工具会明确报错。
+
 如果目标是检查 viewer 或实时面板，建议先复制一个场景配置，把 `hooks.viewer` 改成 `mujoco`，
 并把 `runtime.max_steps` 降低到较小值。

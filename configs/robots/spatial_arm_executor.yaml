@@ -5,24 +5,24 @@ spatial_arm:
   tendon_count: 9
   segments:
     - length_m: 0.04
-      tendon_radius_m: 0.00625
+      tendon_radius_m: 0.005
       tendon_angles_deg: [60.0, 180.0, 300.0]
     - length_m: 0.04
-      tendon_radius_m: 0.00625
+      tendon_radius_m: 0.005
       tendon_angles_deg: [0.0, 120.0, 240.0]
     - length_m: 0.04
-      tendon_radius_m: 0.00625
+      tendon_radius_m: 0.005
       tendon_angles_deg: [90.0, 210.0, 330.0]
   tendons:
-    - {local_index: 0, anchor_segment_index: 0, angle_deg: 60.0, radial_offset_m: 0.00625, path_segment_indices: [0]}
-    - {local_index: 1, anchor_segment_index: 0, angle_deg: 180.0, radial_offset_m: 0.00625, path_segment_indices: [0]}
-    - {local_index: 2, anchor_segment_index: 0, angle_deg: 300.0, radial_offset_m: 0.00625, path_segment_indices: [0]}
-    - {local_index: 3, anchor_segment_index: 1, angle_deg: 0.0, radial_offset_m: 0.00625, path_segment_indices: [0, 1]}
-    - {local_index: 4, anchor_segment_index: 1, angle_deg: 120.0, radial_offset_m: 0.00625, path_segment_indices: [0, 1]}
-    - {local_index: 5, anchor_segment_index: 1, angle_deg: 240.0, radial_offset_m: 0.00625, path_segment_indices: [0, 1]}
-    - {local_index: 6, anchor_segment_index: 2, angle_deg: 90.0, radial_offset_m: 0.00625, path_segment_indices: [0, 1, 2]}
-    - {local_index: 7, anchor_segment_index: 2, angle_deg: 210.0, radial_offset_m: 0.00625, path_segment_indices: [0, 1, 2]}
-    - {local_index: 8, anchor_segment_index: 2, angle_deg: 330.0, radial_offset_m: 0.00625, path_segment_indices: [0, 1, 2]}
+    - {local_index: 0, anchor_segment_index: 0, angle_deg: 60.0, radial_offset_m: 0.005, path_segment_indices: [0]}
+    - {local_index: 1, anchor_segment_index: 0, angle_deg: 180.0, radial_offset_m: 0.005, path_segment_indices: [0]}
+    - {local_index: 2, anchor_segment_index: 0, angle_deg: 300.0, radial_offset_m: 0.005, path_segment_indices: [0]}
+    - {local_index: 3, anchor_segment_index: 1, angle_deg: 0.0, radial_offset_m: 0.005, path_segment_indices: [0, 1]}
+    - {local_index: 4, anchor_segment_index: 1, angle_deg: 120.0, radial_offset_m: 0.005, path_segment_indices: [0, 1]}
+    - {local_index: 5, anchor_segment_index: 1, angle_deg: 240.0, radial_offset_m: 0.005, path_segment_indices: [0, 1]}
+    - {local_index: 6, anchor_segment_index: 2, angle_deg: 90.0, radial_offset_m: 0.005, path_segment_indices: [0, 1, 2]}
+    - {local_index: 7, anchor_segment_index: 2, angle_deg: 210.0, radial_offset_m: 0.005, path_segment_indices: [0, 1, 2]}
+    - {local_index: 8, anchor_segment_index: 2, angle_deg: 330.0, radial_offset_m: 0.005, path_segment_indices: [0, 1, 2]}
   limits:
     min_tendon_displacement_m: -0.020
     max_tendon_displacement_m: 0.020

@@ -2,8 +2,8 @@ schema_version: 1
 name: pcc_reduced_engineering_estimate
 
 dynamics:
-  segment_masses_kg: [0.025, 0.025, 0.025]
-  bending_stiffness: [0.020, 0.020, 0.020]
+  segment_masses_kg: [0.00989929, 0.00989929, 0.00989929]
+  bending_stiffness: [0.0002, 0.0002, 0.0002]
   axial_stiffness: [1.0, 1.0, 1.0]
   damping: [0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02]
   mass_regularization: 1.0e-6

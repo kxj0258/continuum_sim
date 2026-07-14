@@ -112,6 +112,9 @@ class MujocoSystemDebugViewer:
         control_dt_s: float,
         n_substeps: int,
         state_update_callback: Callable[[RobotSystemState], None] | None = None,
+        diagnostic_text_provider: (
+            Callable[[RobotSystemState, str], str] | None
+        ) = None,
     ) -> None:
         from matplotlib.widgets import Button, RadioButtons, Slider, TextBox
 
@@ -126,6 +129,7 @@ class MujocoSystemDebugViewer:
         self.control_dt_s = float(control_dt_s)
         self.n_substeps = int(n_substeps)
         self.state_update_callback = state_update_callback
+        self.diagnostic_text_provider = diagnostic_text_provider
         self.state = backend.reset_system()
         self.arm_names = tuple(self.state.arms)
         self.targets = {
@@ -194,7 +198,7 @@ class MujocoSystemDebugViewer:
         )
         self.timer.add_callback(self._on_timer)
         self._connect_controls()
-        self.panel.update(self.state, redraw=False)
+        self._update_panel(redraw=False)
         self._notify_state_updated()
 
     def _build_arm_controls(
@@ -431,6 +435,7 @@ class MujocoSystemDebugViewer:
                 for arm_name, values in self.targets.items()
             }
             self.set_targets(projected)
+        self._update_views()
 
     def toggle_run(self) -> None:
         if self._running:
@@ -452,6 +457,11 @@ class MujocoSystemDebugViewer:
         self.pause()
         self.panel.close()
 
+    def refresh(self) -> None:
+        """Redraw the panel and notify external diagnostic views."""
+
+        self._update_views()
+
     def _on_timer(self) -> bool:
         if self._running and self.panel.is_open():
             self.step()
@@ -460,9 +470,22 @@ class MujocoSystemDebugViewer:
         return True
 
     def _update_views(self) -> None:
-        self.panel.update(self.state)
+        self._update_panel()
         self.panel.flush_events()
         self._notify_state_updated()
+
+    def _update_panel(self, *, redraw: bool = True) -> None:
+        info_text = None
+        if self.diagnostic_text_provider is not None:
+            info_text = self.diagnostic_text_provider(
+                self.state,
+                self.control_space,
+            )
+        self.panel.update(
+            self.state,
+            redraw=redraw,
+            info_text=info_text,
+        )
 
     def _notify_state_updated(self) -> None:
         if self.state_update_callback is not None:

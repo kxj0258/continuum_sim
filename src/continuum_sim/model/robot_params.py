@@ -15,11 +15,19 @@ PCC_VALUES_PER_SEGMENT = 3
 
 @dataclass(frozen=True)
 class SegmentParams:
-    """Geometry and routing data needed by one PCC segment."""
+    """Geometry, routing, and optional physical data for one segment."""
 
     length: float
     tendon_radius: float
     tendon_angles_deg: tuple[float, ...] = (0.0, 120.0, 240.0)
+    collision_radius: float | None = None
+    mass: float | None = None
+    bending_stiffness: float | None = None
+
+    @property
+    def effective_collision_radius(self) -> float:
+        """Return the collision radius, falling back to the tendon radius."""
+        return self.tendon_radius if self.collision_radius is None else self.collision_radius
 
     @property
     def routing(self) -> TendonRouting:
@@ -53,6 +61,17 @@ class ThreeSegmentRobotParams:
                     length=float(segment["length"]),
                     tendon_radius=float(segment["tendon_radius"]),
                     tendon_angles_deg=tuple(float(v) for v in segment["tendon_angles_deg"]),
+                    collision_radius=(
+                        None
+                        if segment.get("collision_radius") is None
+                        else float(segment["collision_radius"])
+                    ),
+                    mass=None if segment.get("mass") is None else float(segment["mass"]),
+                    bending_stiffness=(
+                        None
+                        if segment.get("bending_stiffness") is None
+                        else float(segment["bending_stiffness"])
+                    ),
                 )
             )
         if len(segments) != 3:

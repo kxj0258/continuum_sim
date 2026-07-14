@@ -144,6 +144,19 @@ def load_spatial_arm_config(path: str | Path) -> SpatialArmConfig:
                     f"spatial_arm.segments[{index}]",
                 )
             ),
+            collision_radius=(
+                None
+                if segment.get("collision_radius_m") is None
+                else float(segment["collision_radius_m"])
+            ),
+            mass=(
+                None if segment.get("mass_kg") is None else float(segment["mass_kg"])
+            ),
+            bending_stiffness=(
+                None
+                if segment.get("bending_stiffness_n_m2") is None
+                else float(segment["bending_stiffness_n_m2"])
+            ),
         )
         for index, segment in enumerate(segments_raw)
         if isinstance(segment, dict)

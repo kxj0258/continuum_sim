@@ -13,6 +13,9 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
+from continuum_sim.io.mujoco_pcc_diagnostics import (
+    build_mujoco_pcc_diagnostic_arrays,
+)
 from continuum_sim.visualization.mujoco_video import save_replay_video
 
 
@@ -44,6 +47,20 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
     paths.plots_dir.mkdir(parents=True)
     paths.videos_dir.mkdir(parents=True)
     arrays = _flatten_result(application, result)
+    errors: list[str] = []
+    if config.backend.type == "mujoco":
+        try:
+            arrays.update(
+                build_mujoco_pcc_diagnostic_arrays(
+                    application.loop.backend.assembly,
+                    result.states,
+                    result.commands,
+                )
+            )
+        except Exception as exc:  # Diagnostics must not discard the base artifacts.
+            errors.append(
+                f"mujoco_pcc_diagnostics: {type(exc).__name__}: {exc}"
+            )
     if settings.save_npz:
         np.savez_compressed(paths.result_npz, **arrays)
     config_dir = run_dir / "configs"
@@ -58,7 +75,6 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
     if config.backend.mujoco_config_path is not None:
         shutil.copy2(config.backend.mujoco_config_path, config_dir / "mujoco.yaml")
     scene_xml = _copy_scene_model(application, run_dir / "model") if settings.save_model else None
-    errors: list[str] = []
     plot_files: list[str] = []
     if settings.save_plots:
         try:
@@ -545,18 +561,20 @@ def _state_metadata_array(
 
 
 def _metrics(arrays: dict[str, np.ndarray]) -> dict[str, float]:
+    metrics: dict[str, float] = {}
     error = arrays.get("tracking_error_m")
-    if error is None or error.size == 0:
-        return {}
-    finite = error[np.isfinite(error)]
-    if finite.size == 0:
-        return {}
-    metrics = {
-        "final_tracking_error_m": float(finite[-1]),
-        "mean_tracking_error_m": float(np.mean(finite)),
-        "max_tracking_error_m": float(np.max(finite)),
-        "rms_tracking_error_m": float(np.sqrt(np.mean(finite**2))),
-    }
+    finite = (
+        np.asarray([], dtype=float)
+        if error is None
+        else error[np.isfinite(error)]
+    )
+    if finite.size:
+        metrics.update(
+            final_tracking_error_m=float(finite[-1]),
+            mean_tracking_error_m=float(np.mean(finite)),
+            max_tracking_error_m=float(np.max(finite)),
+            rms_tracking_error_m=float(np.sqrt(np.mean(finite**2))),
+        )
     achieved = arrays.get("achieved_waypoint_error_m")
     if achieved is not None:
         achieved_finite = achieved[np.isfinite(achieved)]
@@ -568,7 +586,8 @@ def _metrics(arrays: dict[str, np.ndarray]) -> dict[str, float]:
             )
     approach = arrays.get("tracking_approach")
     if (
-        approach is not None
+        error is not None
+        and approach is not None
         and approach.shape == error.shape
         and np.any(~approach.astype(bool) & np.isfinite(error))
     ):
@@ -583,6 +602,33 @@ def _metrics(arrays: dict[str, np.ndarray]) -> dict[str, float]:
         metrics["maximum_whole_body_condition_number"] = float(
             np.nanmax(condition)
         )
+    diagnostic_suffixes = {
+        "_pcc_mujoco_tip_error_norm_m": "pcc_mujoco_tip_error_m",
+        "_pcc_jacobian_linearization_residual_norm_mps": (
+            "pcc_jacobian_linearization_residual_mps"
+        ),
+        "_pcc_mujoco_model_velocity_residual_norm_mps": (
+            "pcc_mujoco_model_velocity_residual_mps"
+        ),
+        "_pcc_command_mujoco_velocity_residual_norm_mps": (
+            "pcc_command_mujoco_velocity_residual_mps"
+        ),
+    }
+    for key, values in arrays.items():
+        for suffix, metric_name in diagnostic_suffixes.items():
+            if not key.startswith("arm_") or not key.endswith(suffix):
+                continue
+            arm_name = key[len("arm_") : -len(suffix)]
+            diagnostic_finite = values[np.isfinite(values)]
+            if not diagnostic_finite.size:
+                break
+            metric_prefix = f"{arm_name}_{metric_name}"
+            metrics[f"final_{metric_prefix}"] = float(diagnostic_finite[-1])
+            metrics[f"mean_{metric_prefix}"] = float(
+                np.mean(diagnostic_finite)
+            )
+            metrics[f"max_{metric_prefix}"] = float(np.max(diagnostic_finite))
+            break
     return metrics
 
 
@@ -709,7 +755,246 @@ def _save_plots(arrays: dict[str, np.ndarray], output_dir: Path) -> list[Path]:
         fig.savefig(path, dpi=160, bbox_inches="tight")
         plt.close(fig)
         saved.append(path)
+    saved.extend(_save_mujoco_pcc_diagnostic_plots(arrays, output_dir, plt))
     saved.extend(_save_dual_arm_control_plots(arrays, output_dir, plt))
+    return saved
+
+
+def _save_mujoco_pcc_diagnostic_plots(
+    arrays: dict[str, np.ndarray],
+    output_dir: Path,
+    plt,
+) -> list[Path]:
+    state_time = arrays.get("time_s")
+    command_time = arrays.get("command_time_s")
+    if state_time is None or command_time is None:
+        return []
+    suffix = "_pcc_mujoco_tip_error_norm_m"
+    arm_names = sorted(
+        key[len("arm_") : -len(suffix)]
+        for key in arrays
+        if key.startswith("arm_") and key.endswith(suffix)
+    )
+    saved: list[Path] = []
+    component_names = ("x", "y", "z")
+    for arm_name in arm_names:
+        prefix = f"arm_{arm_name}"
+        mujoco_tip = arrays[f"{prefix}_mujoco_tip_position_mount_m"]
+        pcc_tip = arrays[f"{prefix}_pcc_tip_position_mount_m"]
+        position_error = arrays[f"{prefix}_pcc_mujoco_tip_error_mount_m"]
+        position_error_norm = arrays[f"{prefix}_pcc_mujoco_tip_error_norm_m"]
+
+        fig, axes = plt.subplots(2, 2, figsize=(12.5, 8.0), sharex=True)
+        for component, axis in enumerate(axes.flat[:3]):
+            axis.plot(
+                state_time,
+                1000.0 * mujoco_tip[:, component],
+                label="MuJoCo",
+            )
+            axis.plot(
+                state_time,
+                1000.0 * pcc_tip[:, component],
+                "--",
+                label="PCC FK",
+            )
+            axis.set(
+                title=f"mount-frame {component_names[component]}",
+                ylabel="position [mm]",
+            )
+            axis.grid(alpha=0.3)
+            axis.legend(fontsize=8)
+        for component, component_name in enumerate(component_names):
+            axes[1, 1].plot(
+                state_time,
+                1000.0 * position_error[:, component],
+                label=f"{component_name} error",
+            )
+        axes[1, 1].plot(
+            state_time,
+            1000.0 * position_error_norm,
+            "k--",
+            linewidth=1.2,
+            label="norm",
+        )
+        axes[1, 1].set(
+            title="PCC FK - MuJoCo",
+            ylabel="error [mm]",
+        )
+        axes[1, 1].grid(alpha=0.3)
+        axes[1, 1].legend(fontsize=8)
+        for axis in axes[1, :]:
+            axis.set_xlabel("time [s]")
+        fig.suptitle(f"{arm_name}: PCC and MuJoCo tip position")
+        path = output_dir / f"{prefix}_pcc_mujoco_position.png"
+        fig.savefig(path, dpi=160, bbox_inches="tight")
+        plt.close(fig)
+        saved.append(path)
+
+        mujoco_velocity = arrays[f"{prefix}_mujoco_tip_velocity_fd_mount_mps"]
+        pcc_fk_velocity = arrays[f"{prefix}_pcc_tip_velocity_fd_mount_mps"]
+        jacobian_velocity = arrays[
+            f"{prefix}_pcc_tip_velocity_from_tendon_delta_mount_mps"
+        ]
+        command_velocity = arrays[
+            f"{prefix}_pcc_command_arm_tip_velocity_mount_mps"
+        ]
+        measured_tendon_velocity = arrays[
+            f"{prefix}_pcc_tip_velocity_from_measured_tendon_mount_mps"
+        ]
+        jacobian_residual = arrays[
+            f"{prefix}_pcc_jacobian_linearization_residual_norm_mps"
+        ]
+        model_residual = arrays[
+            f"{prefix}_pcc_mujoco_model_velocity_residual_norm_mps"
+        ]
+        command_residual = arrays[
+            f"{prefix}_pcc_command_mujoco_velocity_residual_norm_mps"
+        ]
+        velocity_count = min(
+            len(command_time),
+            len(mujoco_velocity),
+            len(pcc_fk_velocity),
+            len(jacobian_velocity),
+            len(command_velocity),
+            max(len(measured_tendon_velocity) - 1, 0),
+        )
+        velocity_time = command_time[:velocity_count]
+        fig, axes = plt.subplots(2, 2, figsize=(12.5, 8.0), sharex=True)
+        for component, axis in enumerate(axes.flat[:3]):
+            axis.plot(
+                velocity_time,
+                1000.0 * mujoco_velocity[:velocity_count, component],
+                label="MuJoCo FD",
+            )
+            axis.plot(
+                velocity_time,
+                1000.0 * pcc_fk_velocity[:velocity_count, component],
+                "--",
+                label="PCC FK FD",
+            )
+            axis.plot(
+                velocity_time,
+                1000.0 * jacobian_velocity[:velocity_count, component],
+                ":",
+                label="PCC J from actual tendon delta",
+            )
+            axis.plot(
+                velocity_time,
+                1000.0 * command_velocity[:velocity_count, component],
+                alpha=0.65,
+                label="PCC J from command",
+            )
+            axis.plot(
+                velocity_time,
+                1000.0
+                * measured_tendon_velocity[1 : velocity_count + 1, component],
+                "-.",
+                alpha=0.65,
+                label="PCC J from measured tendon velocity",
+            )
+            axis.set(
+                title=f"mount-frame {component_names[component]}",
+                ylabel="velocity [mm/s]",
+            )
+            axis.grid(alpha=0.3)
+            axis.legend(fontsize=7)
+        residual_count = min(
+            velocity_count,
+            len(jacobian_residual),
+            len(model_residual),
+            len(command_residual),
+        )
+        axes[1, 1].plot(
+            velocity_time[:residual_count],
+            1000.0 * jacobian_residual[:residual_count],
+            label="Jacobian vs PCC FK",
+        )
+        axes[1, 1].plot(
+            velocity_time[:residual_count],
+            1000.0 * model_residual[:residual_count],
+            label="PCC FK vs MuJoCo",
+        )
+        axes[1, 1].plot(
+            velocity_time[:residual_count],
+            1000.0 * command_residual[:residual_count],
+            label="command vs MuJoCo (world)",
+        )
+        axes[1, 1].set(
+            title="velocity residual norms",
+            ylabel="residual [mm/s]",
+        )
+        axes[1, 1].grid(alpha=0.3)
+        axes[1, 1].legend(fontsize=8)
+        for axis in axes[1, :]:
+            axis.set_xlabel("time [s]")
+        fig.suptitle(f"{arm_name}: PCC velocity and command response")
+        path = output_dir / f"{prefix}_pcc_mujoco_velocity.png"
+        fig.savefig(path, dpi=160, bbox_inches="tight")
+        plt.close(fig)
+        saved.append(path)
+
+        singular_values = arrays[f"{prefix}_pcc_jacobian_singular_values"]
+        row_norms = arrays[f"{prefix}_pcc_jacobian_world_row_norm"]
+        rank = arrays[f"{prefix}_pcc_jacobian_rank"]
+        condition_number = arrays[f"{prefix}_pcc_jacobian_condition_number"]
+        fig, axes = plt.subplots(1, 3, figsize=(15.0, 4.5))
+        for index in range(singular_values.shape[1]):
+            axes[0].semilogy(
+                state_time,
+                singular_values[:, index],
+                label=f"sigma {index + 1}",
+            )
+        axes[0].set(
+            title="bending Jacobian singular values",
+            xlabel="time [s]",
+            ylabel="singular value",
+        )
+        axes[0].legend(fontsize=8)
+        for component, component_name in enumerate(component_names):
+            axes[1].semilogy(
+                state_time,
+                row_norms[:, component],
+                label=f"world {component_name} row",
+            )
+        axes[1].set(
+            title="world-axis sensitivity",
+            xlabel="time [s]",
+            ylabel="row norm",
+        )
+        axes[1].legend(fontsize=8)
+        finite_condition = np.where(
+            np.isfinite(condition_number),
+            condition_number,
+            np.nan,
+        )
+        axes[2].semilogy(
+            state_time,
+            finite_condition,
+            label="condition number",
+        )
+        rank_axis = axes[2].twinx()
+        rank_axis.plot(
+            state_time,
+            rank,
+            color="tab:orange",
+            alpha=0.7,
+            label="rank",
+        )
+        axes[2].set(
+            title="conditioning and rank",
+            xlabel="time [s]",
+            ylabel="condition number",
+        )
+        rank_axis.set_ylabel("rank")
+        lines = axes[2].lines + rank_axis.lines
+        axes[2].legend(lines, [line.get_label() for line in lines], fontsize=8)
+        for axis in axes:
+            axis.grid(alpha=0.3)
+        fig.suptitle(f"{arm_name}: PCC Jacobian conditioning")
+        path = output_dir / f"{prefix}_pcc_jacobian.png"
+        fig.savefig(path, dpi=160, bbox_inches="tight")
+        plt.close(fig)
+        saved.append(path)
     return saved
 
 

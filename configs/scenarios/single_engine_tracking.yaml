@@ -18,7 +18,7 @@ scenario:
     tracking_control:
       approach_samples: 0
       tracking_mode: time
-      trajectory_duration_s: 80.0
+      trajectory_duration_s: 30.0
       stage_mobile_base: true
       base_position_gain: 1.5
       base_orientation_gain: 2.0

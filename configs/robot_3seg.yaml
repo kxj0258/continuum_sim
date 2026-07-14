@@ -35,8 +35,8 @@ segments:
     length: 0.04
     backbone_radius: 0.0075
     tendon_radius: 0.005
-    mass: 0.025
-    bending_stiffness: 0.020
+    mass: 0.00989929
+    bending_stiffness: 0.0002
     torsional_stiffness: 0.006
     tendon_angles_deg: [0.0, 120.0, 240.0]
     tendons:
@@ -58,8 +58,8 @@ segments:
     length: 0.04
     backbone_radius: 0.0075
     tendon_radius: 0.005
-    mass: 0.025
-    bending_stiffness: 0.020
+    mass: 0.00989929
+    bending_stiffness: 0.0002
     torsional_stiffness: 0.006
     tendon_angles_deg: [0.0, 120.0, 240.0]
     tendons:
@@ -81,8 +81,8 @@ segments:
     length: 0.04
     backbone_radius: 0.0075
     tendon_radius: 0.005
-    mass: 0.025
-    bending_stiffness: 0.020
+    mass: 0.00989929
+    bending_stiffness: 0.0002
     torsional_stiffness: 0.006
     tendon_angles_deg: [0.0, 120.0, 240.0]
     tendons:

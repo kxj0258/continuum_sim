@@ -274,6 +274,9 @@ def _append_worldbody(
             config=config,
             params=dual_robot.params_by_arm[arm.name],
             physical_tendons=dual_robot.tendons_by_arm[arm.name],
+            flexure_joint_axis_pattern=(
+                dual_robot.flexure_joint_axis_pattern
+            ),
             arm=arm,
             mesh_manifest=mesh_manifest,
             hole_pattern=hole_pattern,
@@ -325,6 +328,7 @@ def _append_arm(
     config,
     params: ThreeSegmentRobotParams,
     physical_tendons: tuple[PhysicalTendonPath, ...],
+    flexure_joint_axis_pattern: tuple[tuple[float, float, float], ...],
     arm: ArmConfig,
     mesh_manifest: dict[str, object],
     hole_pattern: TendonHolePattern,
@@ -387,31 +391,34 @@ def _append_arm(
                 "body",
                 {"name": body_name, "pos": _format_vec(body_pos)},
             )
+            flexure_axis = flexure_joint_axis_pattern[
+                (link_index - 1) % len(flexure_joint_axis_pattern)
+            ]
+            axis_suffix = _flexure_axis_suffix(flexure_axis)
             ElementTree.SubElement(
                 body,
                 "joint",
-                {
-                    "name": f"{body_name}_x",
-                    "type": "hinge",
-                    "axis": "1 0 0",
-                },
-            )
-            ElementTree.SubElement(
-                body,
-                "joint",
-                {
-                    "name": f"{body_name}_y",
-                    "type": "hinge",
-                    "axis": "0 1 0",
-                },
+                _joint_attrs(
+                    {
+                        "name": f"{body_name}_{axis_suffix}",
+                        "type": "hinge",
+                        "axis": _format_vec(flexure_axis),
+                    },
+                    segment=segment,
+                    link_length=link_length,
+                ),
             )
             geom_attrs = {
                 "name": f"{body_name}_collision",
                 "type": "capsule",
                 "fromto": _format_vec((0.0, 0.0, 0.0, 0.0, 0.0, link_length)),
-                "size": _format_float(segment.tendon_radius),
+                "size": _format_float(segment.effective_collision_radius),
                 "group": str(config.visuals.collision_geom_group),
             }
+            if segment.mass is not None:
+                geom_attrs["mass"] = _format_float(
+                    segment.mass / float(config.links_per_segment)
+                )
             if not collision_enabled:
                 geom_attrs.update(
                     {
@@ -465,6 +472,34 @@ def _append_arm(
             )
             straight_z += link_length
             parent = body
+
+
+def _joint_attrs(
+    attrs: dict[str, str],
+    *,
+    segment,
+    link_length: float,
+) -> dict[str, str]:
+    if segment.bending_stiffness is not None:
+        attrs["stiffness"] = _format_float(segment.bending_stiffness / link_length)
+    return attrs
+
+
+def _flexure_axis_suffix(axis: tuple[float, float, float]) -> str:
+    tolerance = 1.0e-12
+    if (
+        abs(abs(axis[0]) - 1.0) <= tolerance
+        and abs(axis[1]) <= tolerance
+        and abs(axis[2]) <= tolerance
+    ):
+        return "x"
+    if (
+        abs(axis[0]) <= tolerance
+        and abs(abs(axis[1]) - 1.0) <= tolerance
+        and abs(axis[2]) <= tolerance
+    ):
+        return "y"
+    return "bend"
 
 
 def _append_tendon_base_sites(

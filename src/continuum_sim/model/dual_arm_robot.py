@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 
 from continuum_sim.config import load_yaml
@@ -36,6 +37,7 @@ class DualArmRobotConfig:
     total_tendon_count: int
     total_motor_count: int
     tendons_per_arm: int
+    flexure_joint_axis_pattern: tuple[tuple[float, float, float], ...]
 
     @property
     def physical_tendons(self) -> tuple[PhysicalTendonPath, ...]:
@@ -86,6 +88,7 @@ def load_dual_arm_robot_config(path: str | Path) -> DualArmRobotConfig:
     total_tendon_count = int(dual_raw.get("total_tendon_count", 0))
     total_motor_count = int(dual_raw.get("total_motor_count", total_tendon_count))
     tendons_per_arm = int(dual_raw.get("tendons_per_arm", 0))
+    flexure_joint_axis_pattern = _load_flexure_joint_axis_pattern(dual_raw)
     if total_tendon_count <= 0:
         raise ValueError("dual_robot.total_tendon_count must be positive.")
     if total_motor_count <= 0:
@@ -122,9 +125,41 @@ def load_dual_arm_robot_config(path: str | Path) -> DualArmRobotConfig:
         total_tendon_count=total_tendon_count,
         total_motor_count=total_motor_count,
         tendons_per_arm=tendons_per_arm,
+        flexure_joint_axis_pattern=flexure_joint_axis_pattern,
     )
     _validate_dual_indices(config, dual_raw)
     return config
+
+
+def _load_flexure_joint_axis_pattern(
+    dual_raw: dict[str, object],
+) -> tuple[tuple[float, float, float], ...]:
+    raw_pattern = dual_raw.get("flexure_joint_axis_pattern")
+    if not isinstance(raw_pattern, list) or not raw_pattern:
+        raise ValueError(
+            "dual_robot.flexure_joint_axis_pattern must be a non-empty list."
+        )
+    normalized: list[tuple[float, float, float]] = []
+    for index, raw_axis in enumerate(raw_pattern):
+        if not isinstance(raw_axis, list | tuple) or len(raw_axis) != 3:
+            raise ValueError(
+                "dual_robot.flexure_joint_axis_pattern"
+                f"[{index}] must contain exactly 3 numbers."
+            )
+        axis = tuple(float(value) for value in raw_axis)
+        if not all(math.isfinite(value) for value in axis):
+            raise ValueError(
+                "dual_robot.flexure_joint_axis_pattern"
+                f"[{index}] must contain only finite values."
+            )
+        norm = math.sqrt(sum(value * value for value in axis))
+        if norm <= 1.0e-12:
+            raise ValueError(
+                "dual_robot.flexure_joint_axis_pattern"
+                f"[{index}] must be non-zero."
+            )
+        normalized.append(tuple(value / norm for value in axis))
+    return tuple(normalized)
 
 
 def _load_arm_params(arm_name: str, arm_raw: dict[str, object]) -> ThreeSegmentRobotParams:
@@ -140,6 +175,19 @@ def _load_arm_params(arm_name: str, arm_raw: dict[str, object]) -> ThreeSegmentR
                 length=float(segment_raw["length"]),
                 tendon_radius=float(segment_raw["tendon_radius"]),
                 tendon_angles_deg=tuple(float(v) for v in segment_raw["tendon_angles_deg"]),
+                collision_radius=(
+                    None
+                    if segment_raw.get("collision_radius") is None
+                    else float(segment_raw["collision_radius"])
+                ),
+                mass=(
+                    None if segment_raw.get("mass") is None else float(segment_raw["mass"])
+                ),
+                bending_stiffness=(
+                    None
+                    if segment_raw.get("bending_stiffness") is None
+                    else float(segment_raw["bending_stiffness"])
+                ),
             )
         )
     return ThreeSegmentRobotParams(segments=tuple(segments))  # type: ignore[arg-type]

@@ -24,7 +24,7 @@ scenario:
     tracking_control:
       approach_samples: 40
       tracking_mode: time
-      trajectory_duration_s: 80.0
+      trajectory_duration_s: 30.0
     trajectory:
       type: square
       samples: 80

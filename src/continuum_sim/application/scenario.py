@@ -12,6 +12,7 @@ from continuum_sim.config import load_yaml
 from continuum_sim.config_validation import resolve_path
 from continuum_sim.control.contact_triggered_admittance import ContactTriggeredAdmittanceConfig
 from continuum_sim.control.engine_cleaning_types import EngineCleaningControllerGains
+from continuum_sim.control.tendon_rate_control import TENDON_TARGET_MODES
 from continuum_sim.control.waypoint_scheduler import WAYPOINT_ADVANCE_MODES
 from continuum_sim.tasks.engine_cleaning_path import EngineCleaningPathSpec
 from continuum_sim.tasks.engine_navigation import EngineNavigationSpec
@@ -45,6 +46,8 @@ WIPING_FORCE_STRATEGY_TYPES = (
     "contact_triggered_admittance",
 )
 TRACKING_MODES = ("waypoint", "time")
+TIME_PARAMETERIZATIONS = ("uniform_waypoint", "arc_length")
+TRAJECTORY_INTERPOLATIONS = ("linear", "corner_stop_hermite")
 OBSERVER_CONTROL_MODES = ("tracking", "collision_avoidance", "disabled")
 SINGULARITY_STRATEGIES = ("damping_scale", "svd_projection")
 
@@ -69,8 +72,11 @@ class ScenarioTrackingControlConfig:
     """Scenario-native trajectory-tracking controller parameters."""
 
     approach_samples: int = 0
+    approach_duration_s: float = 0.0
     tracking_mode: str = "waypoint"
     trajectory_duration_s: float | None = None
+    time_parameterization: str = "uniform_waypoint"
+    trajectory_interpolation: str = "linear"
     stage_mobile_base: bool = False
     base_position_gain: float = 1.5
     base_orientation_gain: float = 2.0
@@ -96,18 +102,79 @@ class ScenarioTrackingControlConfig:
     enforce_target_speed_limit: bool = False
     enforce_solver_velocity_limits: bool = False
     enforce_backend_tendon_limits: bool = False
+    backend_tendon_target_mode: str | None = None
+    reference_governor_enabled: bool = False
+    reference_error_slow_m: float = 0.003
+    reference_error_stop_m: float = 0.010
+    reference_lead_slow_ratio: float = 0.60
+    reference_lead_stop_ratio: float = 0.90
+    reference_scale_recovery_per_s: float = 1.0
 
     def __post_init__(self) -> None:
         if self.approach_samples == 1 or self.approach_samples < 0:
             raise ValueError("tracking_control.approach_samples must be 0 or at least 2.")
+        if (
+            not np.isfinite(self.approach_duration_s)
+            or self.approach_duration_s < 0.0
+        ):
+            raise ValueError(
+                "tracking_control.approach_duration_s must be non-negative and finite."
+            )
+        if self.approach_duration_s > 0.0 and self.approach_samples < 2:
+            raise ValueError(
+                "tracking_control.approach_duration_s requires at least two "
+                "approach samples."
+            )
         if self.tracking_mode not in TRACKING_MODES:
             raise ValueError(
                 f"tracking_control.tracking_mode must be one of {TRACKING_MODES}."
+            )
+        if self.time_parameterization not in TIME_PARAMETERIZATIONS:
+            raise ValueError(
+                "tracking_control.time_parameterization must be one of "
+                f"{TIME_PARAMETERIZATIONS}."
+            )
+        if self.trajectory_interpolation not in TRAJECTORY_INTERPOLATIONS:
+            raise ValueError(
+                "tracking_control.trajectory_interpolation must be one of "
+                f"{TRAJECTORY_INTERPOLATIONS}."
             )
         if self.singularity_strategy not in SINGULARITY_STRATEGIES:
             raise ValueError(
                 "tracking_control.singularity_strategy must be one of "
                 f"{SINGULARITY_STRATEGIES}."
+            )
+        if (
+            self.backend_tendon_target_mode is not None
+            and self.backend_tendon_target_mode not in TENDON_TARGET_MODES
+        ):
+            raise ValueError(
+                "tracking_control.backend_tendon_target_mode must be one of "
+                f"{TENDON_TARGET_MODES}."
+            )
+        governor_values = {
+            "reference_error_slow_m": self.reference_error_slow_m,
+            "reference_error_stop_m": self.reference_error_stop_m,
+            "reference_lead_slow_ratio": self.reference_lead_slow_ratio,
+            "reference_lead_stop_ratio": self.reference_lead_stop_ratio,
+            "reference_scale_recovery_per_s": (
+                self.reference_scale_recovery_per_s
+            ),
+        }
+        for name, value in governor_values.items():
+            if not np.isfinite(value) or value <= 0.0:
+                raise ValueError(
+                    f"tracking_control.{name} must be positive and finite."
+                )
+        if self.reference_error_stop_m <= self.reference_error_slow_m:
+            raise ValueError(
+                "tracking_control.reference_error_stop_m must exceed "
+                "reference_error_slow_m."
+            )
+        if self.reference_lead_stop_ratio <= self.reference_lead_slow_ratio:
+            raise ValueError(
+                "tracking_control.reference_lead_stop_ratio must exceed "
+                "reference_lead_slow_ratio."
             )
         if self.tracking_mode == "time" and (
             self.trajectory_duration_s is None
@@ -660,8 +727,15 @@ def _load_tracking_control_config(
     }
     return ScenarioTrackingControlConfig(
         approach_samples=int(values.get("approach_samples", 0)),
+        approach_duration_s=float(values.get("approach_duration_s", 0.0)),
         tracking_mode=str(values.get("tracking_mode", "waypoint")),
         trajectory_duration_s=_optional_float(values.get("trajectory_duration_s")),
+        time_parameterization=str(
+            values.get("time_parameterization", "uniform_waypoint")
+        ),
+        trajectory_interpolation=str(
+            values.get("trajectory_interpolation", "linear")
+        ),
         stage_mobile_base=bool(values.get("stage_mobile_base", False)),
         base_position_gain=float(values.get("base_position_gain", 1.5)),
         base_orientation_gain=float(values.get("base_orientation_gain", 2.0)),
@@ -712,6 +786,29 @@ def _load_tracking_control_config(
         ),
         enforce_backend_tendon_limits=bool(
             values.get("enforce_backend_tendon_limits", False)
+        ),
+        backend_tendon_target_mode=(
+            None
+            if values.get("backend_tendon_target_mode") is None
+            else str(values["backend_tendon_target_mode"])
+        ),
+        reference_governor_enabled=bool(
+            values.get("reference_governor_enabled", False)
+        ),
+        reference_error_slow_m=float(
+            values.get("reference_error_slow_m", 0.003)
+        ),
+        reference_error_stop_m=float(
+            values.get("reference_error_stop_m", 0.010)
+        ),
+        reference_lead_slow_ratio=float(
+            values.get("reference_lead_slow_ratio", 0.60)
+        ),
+        reference_lead_stop_ratio=float(
+            values.get("reference_lead_stop_ratio", 0.90)
+        ),
+        reference_scale_recovery_per_s=float(
+            values.get("reference_scale_recovery_per_s", 1.0)
         ),
     )
 

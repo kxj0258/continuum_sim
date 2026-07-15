@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import numpy as np
@@ -13,6 +14,26 @@ from continuum_sim.model.bending_space import BendingSpaceModel
 DEFAULT_TARGET_LEAD_M = 0.0005
 _BENDING_LIMIT_PROJECTION_CONFIG = CBFQPConfig(max_projection_iterations=32)
 TENDON_TARGET_MODES = ("protected", "free_integrated", "actual_anchored")
+
+
+def resolve_tendon_target_policy(
+    metadata: Mapping[str, object],
+) -> tuple[bool, str]:
+    """Resolve explicit target mode first, then legacy boolean metadata."""
+
+    explicit_mode = metadata.get("backend_tendon_target_mode")
+    if explicit_mode is not None:
+        mode = str(explicit_mode)
+        if mode not in TENDON_TARGET_MODES:
+            raise ValueError(f"backend_tendon_target_mode must be one of {TENDON_TARGET_MODES}.")
+        return True, mode
+    if "enforce_backend_tendon_limits" in metadata:
+        enforce_limits = bool(metadata["enforce_backend_tendon_limits"])
+    elif "disable_backend_tendon_limits" in metadata:
+        enforce_limits = not bool(metadata["disable_backend_tendon_limits"])
+    else:
+        enforce_limits = True
+    return enforce_limits, ("protected" if enforce_limits else "actual_anchored")
 
 
 @dataclass(frozen=True)

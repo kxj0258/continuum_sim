@@ -23,11 +23,21 @@ scenario:
     loop: false
     tracking_control:
       approach_samples: 40
+      approach_duration_s: 20.0
       tracking_mode: time
-      trajectory_duration_s: 30.0
+      trajectory_duration_s: 80.0
+      time_parameterization: arc_length
+      trajectory_interpolation: corner_stop_hermite
+      reference_governor_enabled: true
+      reference_error_slow_m: 0.003
+      reference_error_stop_m: 0.010
+      reference_lead_slow_ratio: 0.60
+      reference_lead_stop_ratio: 0.90
+      reference_scale_recovery_per_s: 1.0
     trajectory:
       type: square
       samples: 80
+      closed: true
       radius_m: 0.018
       placement:
         center_mode: straight_tip_xy
@@ -39,7 +49,7 @@ scenario:
   runtime:
     controller_dt_s: 0.02
     n_substeps: 20
-    max_steps: 5000
+    max_steps: 9000
   hooks:
     recorder: true
     tendon_debug: true

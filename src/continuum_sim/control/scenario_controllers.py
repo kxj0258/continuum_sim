@@ -318,6 +318,15 @@ class TimedTrajectoryTrackingController:
         waypoints_world: np.ndarray,
         *,
         trajectory_duration_s: float,
+        approach_duration_s: float = 0.0,
+        time_parameterization: str = "uniform_waypoint",
+        trajectory_interpolation: str = "linear",
+        reference_governor_enabled: bool = False,
+        reference_error_slow_m: float = 0.003,
+        reference_error_stop_m: float = 0.010,
+        reference_lead_slow_ratio: float = 0.60,
+        reference_lead_stop_ratio: float = 0.90,
+        reference_scale_recovery_per_s: float = 1.0,
         waypoint_tolerance_m: float = 1.0e-3,
         observer_roi_world: np.ndarray | None = None,
         observer_control_mode: str = "tracking",
@@ -339,9 +348,58 @@ class TimedTrajectoryTrackingController:
             raise ValueError("waypoints_world must have shape (N, 3) with N > 0.")
         if trajectory_duration_s <= 0.0 or not np.isfinite(trajectory_duration_s):
             raise ValueError("trajectory_duration_s must be positive and finite.")
+        if approach_duration_s < 0.0 or not np.isfinite(approach_duration_s):
+            raise ValueError("approach_duration_s must be non-negative and finite.")
+        if loop and approach_duration_s > 0.0:
+            raise ValueError("A separately timed approach cannot be looped.")
+        if time_parameterization not in ("uniform_waypoint", "arc_length"):
+            raise ValueError(
+                "time_parameterization must be 'uniform_waypoint' or 'arc_length'."
+            )
+        if trajectory_interpolation not in ("linear", "corner_stop_hermite"):
+            raise ValueError(
+                "trajectory_interpolation must be 'linear' or "
+                "'corner_stop_hermite'."
+            )
+        if loop and (
+            time_parameterization != "uniform_waypoint"
+            or trajectory_interpolation != "linear"
+        ):
+            raise ValueError(
+                "Looped time tracking currently requires uniform linear sampling."
+            )
+        governor_values = {
+            "reference_error_slow_m": reference_error_slow_m,
+            "reference_error_stop_m": reference_error_stop_m,
+            "reference_lead_slow_ratio": reference_lead_slow_ratio,
+            "reference_lead_stop_ratio": reference_lead_stop_ratio,
+            "reference_scale_recovery_per_s": reference_scale_recovery_per_s,
+        }
+        for name, value in governor_values.items():
+            if not np.isfinite(value) or value <= 0.0:
+                raise ValueError(f"{name} must be positive and finite.")
+        if reference_error_stop_m <= reference_error_slow_m:
+            raise ValueError(
+                "reference_error_stop_m must exceed reference_error_slow_m."
+            )
+        if reference_lead_stop_ratio <= reference_lead_slow_ratio:
+            raise ValueError(
+                "reference_lead_stop_ratio must exceed reference_lead_slow_ratio."
+            )
         self.assembly = assembly
         self.waypoints_world = waypoints.copy()
         self.trajectory_duration_s = float(trajectory_duration_s)
+        self.approach_duration_s = float(approach_duration_s)
+        self.time_parameterization = str(time_parameterization)
+        self.trajectory_interpolation = str(trajectory_interpolation)
+        self.reference_governor_enabled = bool(reference_governor_enabled)
+        self.reference_error_slow_m = float(reference_error_slow_m)
+        self.reference_error_stop_m = float(reference_error_stop_m)
+        self.reference_lead_slow_ratio = float(reference_lead_slow_ratio)
+        self.reference_lead_stop_ratio = float(reference_lead_stop_ratio)
+        self.reference_scale_recovery_per_s = float(
+            reference_scale_recovery_per_s
+        )
         self.waypoint_tolerance_m = float(waypoint_tolerance_m)
         self.loop = loop
         self.approach_mask = _waypoint_vector(
@@ -358,6 +416,8 @@ class TimedTrajectoryTrackingController:
             dtype=int,
             name="source_waypoint_index",
         )
+        self._waypoint_times_s = self._build_waypoint_times()
+        self.total_duration_s = float(self._waypoint_times_s[-1])
         self.observer_roi_world = (
             None
             if observer_roi_world is None
@@ -375,9 +435,18 @@ class TimedTrajectoryTrackingController:
         self.observer_roi_blend = float(observer_roi_blend)
         self._executor_name = _single_role_name(assembly, "executor")
         self._start_time_s: float | None = None
+        self._last_state_time_s: float | None = None
+        self._reference_time_s = 0.0
+        self._reference_scale = 1.0
+        self._reference_error_scale = 1.0
+        self._reference_lead_scale = 1.0
+        self._reference_lead_utilization = 0.0
+        self._reference_hold_reason = "none"
+        self._corner_hold_time_s: float | None = None
         self._elapsed_s = 0.0
         self._active_index = 0
         self._done = False
+        self._runtime_approach_initialized = False
         low_level_config = (
             CoordinatedTrackingConfig(
                 executor_position_gain=executor_position_gain,
@@ -409,18 +478,79 @@ class TimedTrajectoryTrackingController:
 
     @property
     def terminal_reason(self) -> str:
-        return "duration_elapsed" if self.done else ""
+        if not self.done:
+            return ""
+        return (
+            "reference_complete"
+            if self.reference_governor_enabled
+            else "duration_elapsed"
+        )
 
     def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
+        self._initialize_runtime_approach(state)
+        state_time = float(state.time_s)
         if self._start_time_s is None:
-            self._start_time_s = float(state.time_s)
-        elapsed = max(0.0, float(state.time_s) - self._start_time_s)
-        complete = (not self.loop) and elapsed >= self.trajectory_duration_s
+            self._start_time_s = state_time
+        wall_elapsed = max(0.0, state_time - self._start_time_s)
+        physical_dt = (
+            0.0
+            if self._last_state_time_s is None
+            else max(0.0, state_time - self._last_state_time_s)
+        )
+        self._last_state_time_s = state_time
+        if self.reference_governor_enabled:
+            raw_scale = self._reference_governor_scale(state)
+            self._reference_scale = min(
+                raw_scale,
+                self._reference_scale
+                + self.reference_scale_recovery_per_s * physical_dt,
+            )
+            advanced_reference_time = (
+                self._reference_time_s + self._reference_scale * physical_dt
+            )
+            unclamped_reference_time = advanced_reference_time
+            advanced_reference_time = self._hold_at_crossed_corner(
+                self._reference_time_s,
+                advanced_reference_time,
+            )
+            if advanced_reference_time < unclamped_reference_time:
+                self._reference_hold_reason = (
+                    "corner"
+                    if self._reference_hold_reason == "none"
+                    else f"{self._reference_hold_reason}+corner"
+                )
+            self._reference_time_s = (
+                advanced_reference_time
+                if self.loop
+                else min(self.total_duration_s, advanced_reference_time)
+            )
+        else:
+            self._reference_scale = 1.0
+            self._reference_error_scale = 1.0
+            self._reference_lead_scale = 1.0
+            self._reference_lead_utilization = 0.0
+            self._reference_hold_reason = "disabled"
+            self._reference_time_s = wall_elapsed
+        reference_time = self._reference_time_s
+        reference_position = self._sample_trajectory(reference_time)[0]
+        terminal_error = float(
+            np.linalg.norm(
+                reference_position
+                - state.arms[self._executor_name].tip_pose_world.position
+            )
+        )
+        reference_at_end = (
+            (not self.loop) and reference_time >= self.total_duration_s
+        )
+        complete = reference_at_end and (
+            not self.reference_governor_enabled
+            or terminal_error <= self.waypoint_tolerance_m
+        )
         step, source_index, local_fraction = self._target_at(
-            elapsed,
+            reference_time,
             complete=complete,
         )
-        self._elapsed_s = elapsed
+        self._elapsed_s = reference_time
         self._active_index = int(source_index)
         self._done = complete
         command = self._controller.compute_command(state, step)
@@ -445,8 +575,40 @@ class TimedTrajectoryTrackingController:
                 **controller_metadata,
                 "task_type": "tracking",
                 "tracking_mode": "time",
-                "trajectory_time_s": min(elapsed, self.trajectory_duration_s),
+                "tracking_wall_elapsed_s": wall_elapsed,
+                "tracking_elapsed_s": min(reference_time, self.total_duration_s),
+                "reference_time_s": min(reference_time, self.total_duration_s),
+                "reference_time_scale": self._reference_scale,
+                "reference_error_scale": self._reference_error_scale,
+                "reference_lead_scale": self._reference_lead_scale,
+                "reference_lead_utilization": (
+                    self._reference_lead_utilization
+                ),
+                "reference_hold_reason": self._reference_hold_reason,
+                "reference_governor_enabled": self.reference_governor_enabled,
+                "time_parameterization": self.time_parameterization,
+                "trajectory_interpolation": self.trajectory_interpolation,
+                "approach_time_s": min(
+                    reference_time,
+                    self.approach_duration_s,
+                ),
+                "trajectory_time_s": min(
+                    max(reference_time - self.approach_duration_s, 0.0),
+                    self.trajectory_duration_s,
+                ),
+                "trajectory_phase": (
+                    "approach"
+                    if self.approach_duration_s > 0.0
+                    and reference_time < self.approach_duration_s
+                    else (
+                        "complete"
+                        if complete
+                        else ("settling" if reference_at_end else "path")
+                    )
+                ),
+                "approach_duration_s": self.approach_duration_s,
                 "trajectory_duration_s": self.trajectory_duration_s,
+                "tracking_total_duration_s": self.total_duration_s,
                 "waypoint_index": int(source_index),
                 "source_waypoint_index": int(self.source_waypoint_index[source_index]),
                 "trajectory_local_fraction": float(local_fraction),
@@ -461,7 +623,13 @@ class TimedTrajectoryTrackingController:
                 "achieved_waypoint_error_m": np.nan,
                 "waypoint_advanced": False,
                 "tracking_complete": self._done,
+                "tracking_terminal_error_m": terminal_error,
                 "tracking_approach": bool(self.approach_mask[source_index]),
+                "approach_start_source": (
+                    "measured_executor_tip"
+                    if self.approach_duration_s > 0.0
+                    else "configured_waypoints"
+                ),
             },
         )
 
@@ -491,7 +659,15 @@ class TimedTrajectoryTrackingController:
                     phase=("complete" if complete else "tracking"),
                     active_index=int(source_index),
                     complete=complete,
-                    stop_reason=("duration_elapsed" if complete else ""),
+                    stop_reason=(
+                        (
+                            "reference_complete"
+                            if self.reference_governor_enabled
+                            else "duration_elapsed"
+                        )
+                        if complete
+                        else ""
+                    ),
                 ),
             ),
             source_index,
@@ -513,21 +689,211 @@ class TimedTrajectoryTrackingController:
             fraction = float(scaled - np.floor(scaled))
             segment_dt = self.trajectory_duration_s / count
         else:
-            clamped = min(max(elapsed_s, 0.0), self.trajectory_duration_s)
-            scaled = (clamped / self.trajectory_duration_s) * (count - 1)
-            index = min(int(np.floor(scaled)), count - 2)
+            clamped = min(max(elapsed_s, 0.0), self.total_duration_s)
+            index = int(np.searchsorted(self._waypoint_times_s, clamped, side="right")) - 1
+            index = int(np.clip(index, 0, count - 2))
             next_index = index + 1
-            fraction = float(scaled - index)
-            segment_dt = self.trajectory_duration_s / (count - 1)
+            segment_start = float(self._waypoint_times_s[index])
+            segment_dt = float(
+                self._waypoint_times_s[next_index] - self._waypoint_times_s[index]
+            )
+            fraction = float(np.clip((clamped - segment_start) / segment_dt, 0.0, 1.0))
         current = self.waypoints_world[index]
         following = self.waypoints_world[next_index]
-        position = current + fraction * (following - current)
-        velocity = (following - current) / segment_dt
+        if (
+            self.trajectory_interpolation == "corner_stop_hermite"
+            and not self.loop
+            and not self.approach_mask[index]
+        ):
+            start_velocity = self._path_waypoint_velocity(index)
+            end_velocity = self._path_waypoint_velocity(next_index)
+            position, velocity = _sample_cubic_hermite(
+                current,
+                following,
+                start_velocity,
+                end_velocity,
+                segment_dt,
+                fraction,
+            )
+        else:
+            position = current + fraction * (following - current)
+            velocity = (following - current) / segment_dt
         active_index = next_index if fraction > np.finfo(float).eps else index
-        if (not self.loop) and elapsed_s >= self.trajectory_duration_s:
+        if (not self.loop) and elapsed_s >= self.total_duration_s:
             velocity = np.zeros(3, dtype=float)
             active_index = count - 1
         return position, velocity, active_index, fraction
+
+    def _build_waypoint_times(self) -> np.ndarray:
+        count = self.waypoints_world.shape[0]
+        if count == 1:
+            return np.array([self.trajectory_duration_s], dtype=float)
+        if self.approach_duration_s <= 0.0:
+            return self._path_waypoint_times(0, start_time_s=0.0)
+        path_indices = np.flatnonzero(~self.approach_mask)
+        if path_indices.size == 0:
+            raise ValueError("A separately timed approach requires path waypoints.")
+        path_start = int(path_indices[0])
+        if path_start < 1 or np.any(self.approach_mask[path_start:]):
+            raise ValueError(
+                "approach_mask must be one contiguous prefix before path waypoints."
+            )
+        if count - path_start < 2:
+            raise ValueError(
+                "A separately timed trajectory requires at least two path waypoints."
+            )
+        approach_times = np.linspace(
+            0.0,
+            self.approach_duration_s,
+            path_start + 1,
+        )
+        path_times = self._path_waypoint_times(
+            path_start,
+            start_time_s=self.approach_duration_s,
+        )
+        return np.concatenate((approach_times[:-1], path_times))
+
+    def _path_waypoint_times(
+        self,
+        path_start: int,
+        *,
+        start_time_s: float,
+    ) -> np.ndarray:
+        path = self.waypoints_world[path_start:]
+        if path.shape[0] < 2:
+            return np.array([start_time_s + self.trajectory_duration_s])
+        if self.time_parameterization == "uniform_waypoint":
+            offsets = np.linspace(0.0, self.trajectory_duration_s, path.shape[0])
+            return start_time_s + offsets
+        lengths = np.linalg.norm(np.diff(path, axis=0), axis=1)
+        if np.any(lengths <= np.finfo(float).eps):
+            raise ValueError(
+                "arc_length time parameterization requires distinct consecutive "
+                "path waypoints."
+            )
+        cumulative = np.concatenate(([0.0], np.cumsum(lengths)))
+        return start_time_s + self.trajectory_duration_s * (
+            cumulative / cumulative[-1]
+        )
+
+    def _path_waypoint_velocity(self, index: int) -> np.ndarray:
+        count = self.waypoints_world.shape[0]
+        path_indices = np.flatnonzero(~self.approach_mask)
+        path_start = int(path_indices[0])
+        if index <= path_start or index >= count - 1:
+            return np.zeros(3, dtype=float)
+        previous_delta = (
+            self.waypoints_world[index] - self.waypoints_world[index - 1]
+        )
+        next_delta = (
+            self.waypoints_world[index + 1] - self.waypoints_world[index]
+        )
+        previous_length = float(np.linalg.norm(previous_delta))
+        next_length = float(np.linalg.norm(next_delta))
+        if (
+            previous_length <= np.finfo(float).eps
+            or next_length <= np.finfo(float).eps
+        ):
+            return np.zeros(3, dtype=float)
+        previous_direction = previous_delta / previous_length
+        next_direction = next_delta / next_length
+        if float(np.dot(previous_direction, next_direction)) < np.cos(
+            np.deg2rad(15.0)
+        ):
+            return np.zeros(3, dtype=float)
+        tangent = previous_direction + next_direction
+        tangent_norm = float(np.linalg.norm(tangent))
+        if tangent_norm <= np.finfo(float).eps:
+            return np.zeros(3, dtype=float)
+        previous_dt = float(
+            self._waypoint_times_s[index] - self._waypoint_times_s[index - 1]
+        )
+        next_dt = float(
+            self._waypoint_times_s[index + 1] - self._waypoint_times_s[index]
+        )
+        speed = 0.5 * (
+            previous_length / previous_dt + next_length / next_dt
+        )
+        return speed * tangent / tangent_norm
+
+    def _hold_at_crossed_corner(
+        self,
+        start_time_s: float,
+        proposed_time_s: float,
+    ) -> float:
+        if self.trajectory_interpolation != "corner_stop_hermite":
+            return proposed_time_s
+        tolerance = 1.0e-12
+        if (
+            self._corner_hold_time_s is not None
+            and abs(start_time_s - self._corner_hold_time_s) <= tolerance
+        ):
+            self._corner_hold_time_s = None
+            return proposed_time_s
+        path_indices = np.flatnonzero(~self.approach_mask)
+        path_start = int(path_indices[0])
+        for index in range(path_start, self.waypoints_world.shape[0] - 1):
+            corner_time = float(self._waypoint_times_s[index])
+            if not (
+                corner_time > start_time_s + tolerance
+                and corner_time <= proposed_time_s + tolerance
+            ):
+                continue
+            if np.linalg.norm(self._path_waypoint_velocity(index)) <= tolerance:
+                self._corner_hold_time_s = corner_time
+                return corner_time
+        return proposed_time_s
+
+    def _initialize_runtime_approach(self, state: RobotSystemState) -> None:
+        if self._runtime_approach_initialized:
+            return
+        self._runtime_approach_initialized = True
+        if self.approach_duration_s <= 0.0:
+            return
+        path_indices = np.flatnonzero(~self.approach_mask)
+        path_start = int(path_indices[0])
+        start = state.arms[self._executor_name].tip_pose_world.position
+        end = self.waypoints_world[path_start]
+        progress = np.linspace(0.0, 1.0, path_start, endpoint=False)
+        blend = progress**3 * (10.0 - 15.0 * progress + 6.0 * progress**2)
+        self.waypoints_world[:path_start] = (
+            start[None, :] + blend[:, None] * (end - start)[None, :]
+        )
+
+    def _reference_governor_scale(self, state: RobotSystemState) -> float:
+        reference_position = self._sample_trajectory(self._reference_time_s)[0]
+        executor = state.arms[self._executor_name]
+        tracking_error = float(
+            np.linalg.norm(reference_position - executor.tip_pose_world.position)
+        )
+        self._reference_error_scale = _slowdown_scale(
+            tracking_error,
+            self.reference_error_slow_m,
+            self.reference_error_stop_m,
+        )
+        lead_limit = self.assembly.arms[
+            self._executor_name
+        ].spatial_arm.limits.target_lead_m
+        lead_ratio = np.divide(
+            np.abs(executor.tendon_target_m - executor.tendon_displacement_m),
+            lead_limit,
+            out=np.zeros_like(lead_limit),
+            where=lead_limit > 0.0,
+        )
+        self._reference_lead_utilization = float(np.max(lead_ratio))
+        self._reference_lead_scale = _slowdown_scale(
+            self._reference_lead_utilization,
+            self.reference_lead_slow_ratio,
+            self.reference_lead_stop_ratio,
+        )
+        reasons: list[str] = []
+        if self._reference_error_scale < 1.0:
+            reasons.append("tracking_error")
+        if self._reference_lead_scale < 1.0:
+            reasons.append("tendon_lead")
+        self._reference_hold_reason = "+".join(reasons) if reasons else "none"
+        return min(self._reference_error_scale, self._reference_lead_scale)
+
 
 class NavigationController:
     """Waypoint tracking with explicit clearance reporting and termination."""
@@ -1261,6 +1627,47 @@ class EngineCleaningSystemController:
                 "engine_cleaning_estimated_force_n": force,
             },
         )
+
+
+def _sample_cubic_hermite(
+    start: np.ndarray,
+    end: np.ndarray,
+    start_velocity: np.ndarray,
+    end_velocity: np.ndarray,
+    duration_s: float,
+    fraction: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    u = float(np.clip(fraction, 0.0, 1.0))
+    u2 = u * u
+    u3 = u2 * u
+    h00 = 2.0 * u3 - 3.0 * u2 + 1.0
+    h10 = u3 - 2.0 * u2 + u
+    h01 = -2.0 * u3 + 3.0 * u2
+    h11 = u3 - u2
+    start_tangent = duration_s * np.asarray(start_velocity, dtype=float)
+    end_tangent = duration_s * np.asarray(end_velocity, dtype=float)
+    position = h00 * start + h10 * start_tangent + h01 * end + h11 * end_tangent
+    dh00 = 6.0 * u2 - 6.0 * u
+    dh10 = 3.0 * u2 - 4.0 * u + 1.0
+    dh01 = -dh00
+    dh11 = 3.0 * u2 - 2.0 * u
+    velocity = (
+        dh00 * start
+        + dh10 * start_tangent
+        + dh01 * end
+        + dh11 * end_tangent
+    ) / duration_s
+    return position, velocity
+
+
+def _slowdown_scale(value: float, slow: float, stop: float) -> float:
+    if value <= slow:
+        return 1.0
+    if value >= stop:
+        return 0.0
+    fraction = (value - slow) / (stop - slow)
+    smooth = fraction * fraction * (3.0 - 2.0 * fraction)
+    return float(1.0 - smooth)
 
 
 def _single_role_name(assembly: RobotAssemblyConfig, role: str) -> str:

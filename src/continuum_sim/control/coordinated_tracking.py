@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from continuum_sim.control.tendon_rate_control import TENDON_TARGET_MODES
 from continuum_sim.control.whole_body_controller import (
     WholeBodyController,
     WholeBodyControllerConfig,
@@ -105,10 +106,19 @@ class CoordinatedTrackingConfig:
     engine_influence_distance_m: float = 0.025
     engine_avoidance_gain: float = 4.0
     enforce_backend_tendon_limits: bool = False
+    backend_tendon_target_mode: str | None = None
 
     def __post_init__(self) -> None:
         if not np.isfinite(self.feedforward_gain) or self.feedforward_gain < 0.0:
             raise ValueError("feedforward_gain must be non-negative and finite.")
+        if (
+            self.backend_tendon_target_mode is not None
+            and self.backend_tendon_target_mode not in TENDON_TARGET_MODES
+        ):
+            raise ValueError(
+                "backend_tendon_target_mode must be one of "
+                f"{TENDON_TARGET_MODES}."
+            )
 
 
 @dataclass(frozen=True)
@@ -384,8 +394,16 @@ class CoordinatedTrackingController:
                 if observer_result is None
                 else observer_result.solver_diagnostics or {}
             ),
-            "disable_backend_tendon_limits": (
-                not self.config.enforce_backend_tendon_limits
+            "enforce_backend_tendon_limits": self.config.enforce_backend_tendon_limits,
+            "disable_backend_tendon_limits": not self.config.enforce_backend_tendon_limits,
+            **(
+                {}
+                if self.config.backend_tendon_target_mode is None
+                else {
+                    "backend_tendon_target_mode": (
+                        self.config.backend_tendon_target_mode
+                    )
+                }
             ),
         }
         return RobotSystemCommand(

@@ -1,10 +1,10 @@
 schema_version: 1
 low_level_control:
-  arm_position_gain: 1.0
+  arm_position_gain: 5.0
   feedforward_gain: 1.0
   feedforward_speed_mps: 0.0
-  max_target_speed_mps: 0.006
-  enforce_target_speed_limit: true
+  max_target_speed_mps:
+  enforce_target_speed_limit: false
   executor_tracking_weight: 100.0
   observer_tracking_weight: 40.0
   executor_collision_avoidance_weight: 80.0
@@ -17,6 +17,5 @@ low_level_control:
   maximum_damping: 0.1
   minimum_velocity_scale: 0.05
   decouple_arm_singularity: true
-  enforce_solver_velocity_limits: true
-  enforce_backend_tendon_limits: true
-  backend_tendon_target_mode: protected
+  enforce_solver_velocity_limits: false
+  enforce_backend_tendon_limits: false

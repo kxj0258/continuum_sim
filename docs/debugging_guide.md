@@ -161,6 +161,38 @@ python scripts/debug_mujoco_pcc.py configs/scenarios/dual_mujoco_tracking.yaml `
   --output output/diagnostics/my_pcc_check.csv
 ```
 
+## Scenario artifact tendon-rate semantics
+
+Scenario NPZ files keep command, finite-difference, and backend-sensor rates as
+separate signals. For an arm prefix such as `arm_executor_`:
+
+- `command_rate_mps` is the controller-requested tendon-rate command at
+  `command_time_s`.
+- `constrained_command_rate_mps` is the command after configured rate and
+  displacement constraints. The older `applied_rate_mps` key remains an exact
+  compatibility alias; it does not mean measured or realized velocity.
+- `tendon_target_rate_fd_mps` is
+  `(tendon_target_m[i + 1] - tendon_target_m[i]) /
+  (time_s[i + 1] - time_s[i])`.
+- `tendon_realized_rate_fd_mps` is the same adjacent-state finite difference
+  of `tendon_displacement_m`.
+- `tendon_velocity_sensor_raw_mps` is the instantaneous backend sensor sample
+  at `time_s`. The older `tendon_velocity_mps` key remains a compatibility
+  alias for this raw sensor signal.
+
+Finite-difference row `i` describes the transition beginning at `time_s[i]`.
+Do not align a raw state sensor by blindly slicing it to command length, and do
+not treat the raw sensor as the derivative of recorded displacement unless its
+backend sign, ordering, and sampling convention have been confirmed. The
+`arm_<name>_synchronized_control.png` plot uses each signal's own time base and
+labels all five rate channels explicitly.
+
+`metadata.json` also records a best-effort `git` object (`commit`, `dirty`, and
+repository `root`) plus an `input_manifest`. Manifest entries preserve the
+original path, archived relative path, and SHA-256 hashes for direct inputs and
+selected transitive inputs, including assembly-referenced spatial-arm YAML and
+the scenario MuJoCo source XML when present.
+
 `--samples-per-segment` 只改变紫色 PCC 中心线的显示采样密度，不改变末端正运动学
 结果。采样过高可能超过 MuJoCo user scene 的 overlay 几何容量，工具会明确报错。
 

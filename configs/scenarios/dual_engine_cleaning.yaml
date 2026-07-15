@@ -2,7 +2,7 @@ schema_version: 1
 scenario:
   name: dual_engine_cleaning
   assembly_config_path: ../robots/assemblies/dual_spatial_mobile.yaml
-  low_level_control_path: ../control/mujoco_tracking_low_level.yaml
+  low_level_control_path: ../control/mujoco_direct_task_low_level.yaml
   backend:
     type: mujoco
     mujoco_config_path: ../mujoco_dual.yaml

@@ -27,6 +27,15 @@ class StagedEngineTrackingController:
         waypoints_world: np.ndarray,
         *,
         trajectory_duration_s: float,
+        approach_duration_s: float = 0.0,
+        time_parameterization: str = "uniform_waypoint",
+        trajectory_interpolation: str = "linear",
+        reference_governor_enabled: bool = False,
+        reference_error_slow_m: float = 0.003,
+        reference_error_stop_m: float = 0.010,
+        reference_lead_slow_ratio: float = 0.60,
+        reference_lead_stop_ratio: float = 0.90,
+        reference_scale_recovery_per_s: float = 1.0,
         waypoint_tolerance_m: float = 1.0e-3,
         observer_roi_world: np.ndarray | None = None,
         observer_control_mode: str = "tracking",
@@ -75,6 +84,15 @@ class StagedEngineTrackingController:
             fixed_assembly,
             waypoints,
             trajectory_duration_s=trajectory_duration_s,
+            approach_duration_s=approach_duration_s,
+            time_parameterization=time_parameterization,
+            trajectory_interpolation=trajectory_interpolation,
+            reference_governor_enabled=reference_governor_enabled,
+            reference_error_slow_m=reference_error_slow_m,
+            reference_error_stop_m=reference_error_stop_m,
+            reference_lead_slow_ratio=reference_lead_slow_ratio,
+            reference_lead_stop_ratio=reference_lead_stop_ratio,
+            reference_scale_recovery_per_s=reference_scale_recovery_per_s,
             waypoint_tolerance_m=waypoint_tolerance_m,
             observer_roi_world=observer_roi_world,
             observer_control_mode=observer_control_mode,
@@ -96,7 +114,7 @@ class StagedEngineTrackingController:
 
     @property
     def terminal_reason(self) -> str:
-        return "duration_elapsed" if self.done else ""
+        return self._tracking.terminal_reason if self.done else ""
 
     @property
     def last_diagnostics(self) -> dict[str, object]:

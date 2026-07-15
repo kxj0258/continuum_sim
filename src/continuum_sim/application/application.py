@@ -275,6 +275,23 @@ class SimulationApplication:
                     assembly,
                     task_plan["waypoints_world"],
                     trajectory_duration_s=float(tracking.trajectory_duration_s),
+                    approach_duration_s=tracking.approach_duration_s,
+                    time_parameterization=tracking.time_parameterization,
+                    trajectory_interpolation=tracking.trajectory_interpolation,
+                    reference_governor_enabled=(
+                        tracking.reference_governor_enabled
+                    ),
+                    reference_error_slow_m=tracking.reference_error_slow_m,
+                    reference_error_stop_m=tracking.reference_error_stop_m,
+                    reference_lead_slow_ratio=(
+                        tracking.reference_lead_slow_ratio
+                    ),
+                    reference_lead_stop_ratio=(
+                        tracking.reference_lead_stop_ratio
+                    ),
+                    reference_scale_recovery_per_s=(
+                        tracking.reference_scale_recovery_per_s
+                    ),
                     waypoint_tolerance_m=config.task.waypoint_tolerance_m,
                     observer_roi_world=config.task.observer_roi_world,
                     observer_control_mode=config.task.observer_control_mode,
@@ -543,6 +560,7 @@ def _tracking_coordinated_config(
         freeze_executor_inside_safe_distance=False,
         stop_all_on_critical_distance=False,
         enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
+        backend_tendon_target_mode=tracking.backend_tendon_target_mode,
     )
 
 

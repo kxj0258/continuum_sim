@@ -98,13 +98,13 @@ tendon_target_next = clip(integrated_target,
 `trajectory_duration_s` 等上层调度参数。当前提供两套明确的底层版本：
 
 - `configs/control/spatial_low_level.yaml`：通用 protected 版本，启用目标速度、solver 和 backend 保护。
-- `configs/control/mujoco_tracking_low_level.yaml`：MuJoCo tracking 基线版本，完整保留已验证的
-  `1.0` 位置增益、SVD/权重参数，关闭 target/solver/backend 限制并使用
-  MuJoCo `actual_anchored` tendon target 模式。
+- `configs/control/mujoco_tracking_low_level.yaml`：MuJoCo tracking 基线版本，使用 `1.0` 位置增益、
+  `0.006 m/s` Cartesian 总目标速度上限、solver/backend rate 保护和显式 `protected` tendon target。
 
-single/dual 的 MuJoCo tracking、engine tracking、MuJoCo navigation 和 engine cleaning 共 8 个场景
-统一引用 MuJoCo tracking 基线。dual 中 executor 与 observer 共用这套底层参数，但保留各自独立的
-上层任务。
+single/dual 的 MuJoCo tracking 与 engine tracking 共 4 个场景引用新的 MuJoCo tracking 安全基线。
+MuJoCo navigation 与 engine cleaning 的直接速度尺度不同，单独引用
+`configs/control/mujoco_direct_task_low_level.yaml`，以免 tracking 的 `0.006 m/s` 上限改变其既有行为。
+dual 中 executor 与 observer 仍共用所在场景的底层参数，但保留各自独立的上层任务。
 
 共享 profile 当前显式启用 solver/backend 物理限幅：
 
@@ -177,11 +177,16 @@ task:
 
 ```yaml
 tracking_control:
+  approach_duration_s: 20.0
   tracking_mode: time
   trajectory_duration_s: 80.0
+  time_parameterization: arc_length
+  trajectory_interpolation: corner_stop_hermite
+  reference_governor_enabled: true
 ```
 
-控制器每个控制周期按仿真时间采样：
+普通 MuJoCo 方形场景使用 20 s 独立 approach，80 s 只表示正式闭合路径。控制器按虚拟参考时间采样；
+tracking error 或 tendon lead 利用率升高时 governor 会减慢参考：
 
 ```text
 p_d(t), p_dot_d(t)
@@ -197,9 +202,9 @@ tracking_control:
 
 恢复。
 
-`mujoco_tracking_low_level.yaml` 统一定义 `1.0` 位置增益、SVD 参数、权重和
-`actual_anchored` tendon target 模式，并关闭 Cartesian、solver 和 backend 限幅。所有引用它的 dual
-场景中，两条机械臂共用这些底层参数；observer 的差异只来自独立的上层 intent。继续引用
+`mujoco_tracking_low_level.yaml` 统一定义 `1.0` 位置增益、SVD 参数、权重、Cartesian/solver 限幅和
+`protected` tendon target 模式。所有引用它的 dual 场景中，两条机械臂共用这些底层参数；observer
+的差异只来自独立的上层 intent。继续引用
 `spatial_low_level.yaml` 的其他场景仍使用 `arm_position_gain: 1.5` 和 protected tendon target 模式。
 
 ### Engine tracking 的移动基座与反作用隔离

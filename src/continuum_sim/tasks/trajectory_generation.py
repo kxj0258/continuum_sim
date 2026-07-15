@@ -62,6 +62,7 @@ class TrajectorySpec:
     dmp_tau: float = 1.0
     dmp_start_xyz_m: np.ndarray | None = None
     dmp_goal_xyz_m: np.ndarray | None = None
+    closed: bool = False
 
     @classmethod
     def from_mapping(
@@ -115,6 +116,7 @@ class TrajectorySpec:
                 merged.get("goal_xyz_m", merged.get("dmp_goal_xyz_m")),
                 "trajectory.dmp.goal_xyz_m",
             ),
+            closed=bool(merged.get("closed", False)),
         )
 
 
@@ -143,6 +145,8 @@ def generate_trajectory_waypoints(
         return _lift_planar(points, center, in_plane_u, in_plane_v)
     if spec.type == "square":
         points = _square(_square_side(spec), spec.samples)
+        if spec.closed:
+            points = np.vstack((points, points[0]))
         return _lift_planar(points, center, in_plane_u, in_plane_v)
     if spec.type == "lissajous":
         points = _lissajous(

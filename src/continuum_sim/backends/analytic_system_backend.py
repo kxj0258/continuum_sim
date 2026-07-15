@@ -12,6 +12,7 @@ from continuum_sim.control.mobile_base_controller import (
 from continuum_sim.control.tendon_rate_control import (
     CompatibleTendonRateIntegrator,
     TendonRateLimits,
+    resolve_tendon_target_policy,
 )
 from continuum_sim.kinematics.pcc import forward_kinematics
 from continuum_sim.model.base_pose import Pose6D
@@ -77,6 +78,8 @@ class AnalyticSystemBackend:
         n_substeps: int = 1,
     ) -> RobotSystemState:
         del n_substeps
+        if dt <= 0.0:
+            raise ValueError(f"dt must be positive, got {dt}.")
         if set(command.arms) != set(self.layout.arms):
             raise ValueError("Command arms must exactly match the assembly layout.")
         self._base_state = integrate_base_pose(
@@ -104,25 +107,50 @@ class AnalyticSystemBackend:
             locked=self._base_state.locked,
             last_twist=self._base_state.last_twist,
         )
+        enforce_tendon_limits, tendon_target_mode = resolve_tendon_target_policy(
+            command.metadata
+        )
+        saturation: dict[str, dict[str, object]] = {}
         for arm_name, arm_command in command.arms.items():
-            enforce_tendon_limits = bool(
-                command.metadata.get("enforce_backend_tendon_limits", False)
-            )
-            tendon_target_mode = command.metadata.get("backend_tendon_target_mode")
-            if tendon_target_mode is None:
-                tendon_target_mode = (
-                    "protected" if enforce_tendon_limits else "actual_anchored"
-                )
+            actual_before = self._integrators[arm_name].displacement_m
+            previous_target = actual_before.copy()
             step = self._integrators[arm_name].step(
                 arm_command.tendon_rate_mps,
                 dt,
                 raw_debug=arm_command.control_space == "raw_tendon_debug",
+                actual_displacement_m=actual_before,
                 enforce_limits=enforce_tendon_limits,
-                target_mode=str(tendon_target_mode),
+                target_mode=tendon_target_mode,
             )
             self._last_rates[arm_name] = step.applied_rate_mps
+            actual_after = step.displacement_m
+            saturation[arm_name] = {
+                "rate": step.rate_saturated,
+                "displacement": step.displacement_saturated,
+                "common_scale": step.common_scale,
+                "requested_rate_mps": step.requested_rate_mps.copy(),
+                "applied_rate_mps": step.applied_rate_mps.copy(),
+                "applied_rate_semantics": "constrained_command_rate",
+                "target_rate_fd_mps": (
+                    (step.displacement_m - previous_target) / float(dt)
+                ),
+                "realized_rate_fd_mps": (
+                    (actual_after - actual_before) / float(dt)
+                ),
+                "target_m": step.displacement_m.copy(),
+                "target_error_m": step.displacement_m - actual_after,
+                "compatibility_residual_mps": step.compatibility_residual_mps,
+                "raw_debug": step.raw_debug,
+                "target_mode": tendon_target_mode,
+            }
         self._time_s += float(dt)
-        return self.get_system_state()
+        state = self.get_system_state()
+        return RobotSystemState(
+            time_s=state.time_s,
+            base=state.base,
+            arms=state.arms,
+            metadata={**state.metadata, "saturation": saturation},
+        )
 
     def get_system_state(self) -> RobotSystemState:
         arms: dict[str, ArmSystemState] = {}

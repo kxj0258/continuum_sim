@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 from types import SimpleNamespace
 import xml.etree.ElementTree as ET
 
@@ -35,6 +37,7 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
     settings = config.artifacts
     if not settings.enabled:
         return None
+    git_provenance = _git_provenance(config.path.parent)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = _unique_dir(settings.output_root / f"{config.name}_{stamp}")
     paths = ScenarioArtifactPaths(
@@ -63,18 +66,17 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
             )
     if settings.save_npz:
         np.savez_compressed(paths.result_npz, **arrays)
-    config_dir = run_dir / "configs"
-    config_dir.mkdir()
-    shutil.copy2(config.path, config_dir / "scenario.yaml")
-    shutil.copy2(config.assembly_config_path, config_dir / "assembly.yaml")
-    if config.low_level_control_path is not None:
-        shutil.copy2(
-            config.low_level_control_path,
-            config_dir / "low_level_control.yaml",
-        )
-    if config.backend.mujoco_config_path is not None:
-        shutil.copy2(config.backend.mujoco_config_path, config_dir / "mujoco.yaml")
+    archived_inputs = _archive_run_inputs(application, run_dir, errors)
     scene_xml = _copy_scene_model(application, run_dir / "model") if settings.save_model else None
+    if scene_xml is not None:
+        archived_inputs.append(
+            _input_manifest_entry(
+                "generated_scene_xml",
+                config.backend.generated_xml_path,
+                scene_xml,
+                run_dir,
+            )
+        )
     plot_files: list[str] = []
     if settings.save_plots:
         try:
@@ -99,6 +101,8 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
         "video_mode": settings.video_mode if settings.save_gif else None,
         "video_frames": None,
         "model": None if scene_xml is None else str(scene_xml),
+        "git": git_provenance,
+        "input_manifest": archived_inputs,
         "errors": errors,
     }
     _write_metadata(paths.metadata_json, metadata)
@@ -208,6 +212,183 @@ def _write_metadata(path: Path, metadata: dict[str, object]) -> None:
     )
 
 
+def _git_provenance(start_path: Path) -> dict[str, object]:
+    """Return best-effort source-control identity without making artifacts fatal."""
+
+    try:
+        root_result = subprocess.run(
+            ["git", "-C", str(start_path), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        if root_result.returncode != 0:
+            return {"commit": None, "dirty": None, "root": None}
+        root = Path(root_result.stdout.strip()).resolve()
+        commit_result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        status_result = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {"commit": None, "dirty": None, "root": None}
+    commit = (
+        commit_result.stdout.strip()
+        if commit_result.returncode == 0 and commit_result.stdout.strip()
+        else None
+    )
+    dirty = None if status_result.returncode != 0 else bool(status_result.stdout.strip())
+    return {"commit": commit, "dirty": dirty, "root": str(root)}
+
+
+def _archive_run_inputs(
+    application,
+    run_dir: Path,
+    errors: list[str],
+) -> list[dict[str, object]]:
+    """Copy direct and selected transitive inputs with portable provenance."""
+
+    config = application.config
+    config_dir = run_dir / "configs"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    candidates: list[tuple[str, Path | None, Path]] = [
+        ("scenario_config", config.path, config_dir / "scenario.yaml"),
+        (
+            "assembly_config",
+            config.assembly_config_path,
+            config_dir / "assembly.yaml",
+        ),
+        (
+            "low_level_control_config",
+            config.low_level_control_path,
+            config_dir / "low_level_control.yaml",
+        ),
+        (
+            "mujoco_config",
+            config.backend.mujoco_config_path,
+            config_dir / "mujoco.yaml",
+        ),
+        (
+            "mujoco_source_xml",
+            config.backend.source_xml_path,
+            config_dir / "mujoco_source.xml",
+        ),
+        (
+            "engine_scene_config",
+            getattr(config.scene, "engine_config_path", None),
+            config_dir / "engine_scene.yaml",
+        ),
+        (
+            "structured_scene_config",
+            getattr(config.scene, "structured_config_path", None),
+            config_dir / "structured_scene.yaml",
+        ),
+        (
+            "task_dynamics_config",
+            getattr(config.task, "dynamics_config_path", None),
+            config_dir / "task_dynamics.yaml",
+        ),
+    ]
+    backend = getattr(getattr(application, "loop", None), "backend", None)
+    assembly = getattr(backend, "assembly", None)
+    arms = getattr(assembly, "arms", {})
+    if isinstance(arms, dict):
+        for arm_name, arm in sorted(arms.items()):
+            spatial_arm = getattr(arm, "spatial_arm", None)
+            candidates.append(
+                (
+                    f"arm_{arm_name}_config",
+                    getattr(spatial_arm, "path", None),
+                    config_dir / f"arm_{_safe_plot_name(str(arm_name))}.yaml",
+                )
+            )
+
+    manifest: list[dict[str, object]] = []
+    for label, source, destination in candidates:
+        if source is None:
+            continue
+        source_path = Path(source).resolve()
+        if not source_path.is_file():
+            errors.append(f"input_archive: missing {label}: {source_path}")
+            continue
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, destination)
+            manifest.append(
+                _input_manifest_entry(
+                    label,
+                    source_path,
+                    destination,
+                    run_dir,
+                )
+            )
+        except OSError as exc:
+            errors.append(f"input_archive: {label}: {type(exc).__name__}: {exc}")
+    return manifest
+
+
+def _input_manifest_entry(
+    label: str,
+    source: Path | None,
+    archived: Path,
+    run_dir: Path,
+) -> dict[str, object]:
+    source_path = None if source is None else Path(source).resolve()
+    source_hash = (
+        _sha256_file(source_path)
+        if source_path is not None and source_path.is_file()
+        else None
+    )
+    return {
+        "label": label,
+        "source": None if source_path is None else str(source_path),
+        "archived": archived.resolve().relative_to(run_dir.resolve()).as_posix(),
+        "source_sha256": source_hash,
+        "archived_sha256": _sha256_file(archived),
+    }
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _finite_difference_rate(values: np.ndarray, time_s: np.ndarray) -> np.ndarray:
+    """Differentiate adjacent state samples and preserve invalid intervals as NaN."""
+
+    samples = np.asarray(values, dtype=float)
+    time = np.asarray(time_s, dtype=float)
+    count = min(len(samples), len(time))
+    output_shape = (max(0, count - 1), *samples.shape[1:])
+    rate = np.full(output_shape, np.nan, dtype=float)
+    if count < 2:
+        return rate
+    dt = np.diff(time[:count])
+    valid = np.isfinite(dt) & (dt > 0.0)
+    if not np.any(valid):
+        return rate
+    delta = np.diff(samples[:count], axis=0)
+    divisor_shape = (int(np.count_nonzero(valid)),) + (1,) * (samples.ndim - 1)
+    rate[valid] = delta[valid] / dt[valid].reshape(divisor_shape)
+    return rate
+
+
 def _flatten_result(application, result) -> dict[str, np.ndarray]:
     arrays: dict[str, np.ndarray] = {
         "time_s": np.asarray([state.time_s for state in result.states], dtype=float),
@@ -225,6 +406,35 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
             [state.base.twist_world for state in result.states], dtype=float
         ),
     }
+    command_scalar_metadata = (
+        "tracking_wall_elapsed_s",
+        "tracking_elapsed_s",
+        "reference_time_s",
+        "reference_time_scale",
+        "reference_error_scale",
+        "reference_lead_scale",
+        "reference_lead_utilization",
+        "tracking_terminal_error_m",
+    )
+    if any(
+        any(key in command.metadata for key in command_scalar_metadata)
+        for command in result.commands
+    ):
+        for key in command_scalar_metadata:
+            arrays[key] = np.asarray(
+                [
+                    float(command.metadata.get(key, np.nan))
+                    for command in result.commands
+                ],
+                dtype=float,
+            )
+        arrays["reference_hold_reason"] = np.asarray(
+            [
+                str(command.metadata.get("reference_hold_reason", ""))
+                for command in result.commands
+            ],
+            dtype=str,
+        )
     mujoco_mobile_base_pose_rpy = _state_metadata_array(
         result.states,
         "mujoco_mobile_base_pose_rpy",
@@ -247,15 +457,31 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
         arrays[f"{prefix}_tip_quat_wxyz"] = np.asarray(
             [state.arms[arm_name].tip_pose_world.quat for state in result.states]
         )
-        arrays[f"{prefix}_tendon_displacement_m"] = np.asarray(
+        tendon_displacement = np.asarray(
             [state.arms[arm_name].tendon_displacement_m for state in result.states]
         )
-        arrays[f"{prefix}_tendon_velocity_mps"] = np.asarray(
+        raw_tendon_velocity_sensor = np.asarray(
             [state.arms[arm_name].tendon_velocity_mps for state in result.states]
         )
-        arrays[f"{prefix}_tendon_target_m"] = np.asarray(
+        tendon_target = np.asarray(
             [state.arms[arm_name].tendon_target_m for state in result.states]
         )
+        arrays[f"{prefix}_tendon_displacement_m"] = tendon_displacement
+        arrays[f"{prefix}_tendon_target_m"] = tendon_target
+        arrays[f"{prefix}_tendon_target_rate_fd_mps"] = _finite_difference_rate(
+            tendon_target,
+            arrays["time_s"],
+        )
+        arrays[f"{prefix}_tendon_realized_rate_fd_mps"] = _finite_difference_rate(
+            tendon_displacement,
+            arrays["time_s"],
+        )
+        arrays[f"{prefix}_tendon_velocity_sensor_raw_mps"] = (
+            raw_tendon_velocity_sensor
+        )
+        # Backward-compatible alias. This is a raw backend sensor sample, not
+        # the finite difference of tendon_displacement_m.
+        arrays[f"{prefix}_tendon_velocity_mps"] = raw_tendon_velocity_sensor
         arrays[f"{prefix}_actuator_force_n"] = np.asarray(
             [state.arms[arm_name].actuator_force_n for state in result.states]
         )
@@ -300,7 +526,12 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
                     dtype=bool,
                 )
             )
-        arrays[f"{prefix}_applied_rate_mps"] = np.asarray(applied_rates)
+        constrained_command_rate = np.asarray(applied_rates)
+        arrays[f"{prefix}_constrained_command_rate_mps"] = (
+            constrained_command_rate
+        )
+        # Backward-compatible alias for the post-constraint command rate.
+        arrays[f"{prefix}_applied_rate_mps"] = constrained_command_rate
         arrays[f"{prefix}_rate_saturated"] = np.asarray(rate_saturation)
         arrays[f"{prefix}_displacement_saturated"] = np.asarray(
             displacement_saturation
@@ -1015,18 +1246,36 @@ def _save_dual_arm_control_plots(
         prefix = f"arm_{arm_name}"
         target = arrays.get(f"{prefix}_tendon_target_m")
         actual = arrays.get(f"{prefix}_tendon_displacement_m")
-        velocity = arrays.get(f"{prefix}_tendon_velocity_mps")
+        raw_velocity_sensor = arrays.get(
+            f"{prefix}_tendon_velocity_sensor_raw_mps"
+        )
+        if raw_velocity_sensor is None:
+            raw_velocity_sensor = arrays.get(f"{prefix}_tendon_velocity_mps")
         requested_rate = arrays.get(f"{prefix}_command_rate_mps")
-        applied_rate = arrays.get(f"{prefix}_applied_rate_mps")
+        constrained_rate = arrays.get(
+            f"{prefix}_constrained_command_rate_mps"
+        )
+        if constrained_rate is None:
+            constrained_rate = arrays.get(f"{prefix}_applied_rate_mps")
+        target_rate_fd = arrays.get(f"{prefix}_tendon_target_rate_fd_mps")
+        if target_rate_fd is None and target is not None:
+            target_rate_fd = _finite_difference_rate(target, state_time)
+        realized_rate_fd = arrays.get(
+            f"{prefix}_tendon_realized_rate_fd_mps"
+        )
+        if realized_rate_fd is None and actual is not None:
+            realized_rate_fd = _finite_difference_rate(actual, state_time)
         force = arrays.get(f"{prefix}_actuator_force_n")
         if any(
             value is None
             for value in (
                 target,
                 actual,
-                velocity,
+                raw_velocity_sensor,
                 requested_rate,
-                applied_rate,
+                constrained_rate,
+                target_rate_fd,
+                realized_rate_fd,
                 force,
             )
         ):
@@ -1063,38 +1312,58 @@ def _save_dual_arm_control_plots(
             ylabel="error [mm]",
         )
 
-        command_count = min(
-            len(command_time),
-            len(requested_rate),
-            len(applied_rate),
-            max(0, len(velocity) - 1),
-        )
-        if command_count:
+        requested_count = min(len(command_time), len(requested_rate))
+        constrained_count = min(len(command_time), len(constrained_rate))
+        transition_time = state_time[:-1]
+        target_fd_count = min(len(transition_time), len(target_rate_fd))
+        realized_fd_count = min(len(transition_time), len(realized_rate_fd))
+        sensor_count = min(len(state_time), len(raw_velocity_sensor))
+        if requested_count:
             axes[1, 0].plot(
-                command_time[:command_count],
-                1000.0 * np.max(np.abs(requested_rate[:command_count]), axis=1),
-                label="requested rate",
+                command_time[:requested_count],
+                1000.0 * np.max(np.abs(requested_rate[:requested_count]), axis=1),
+                label="requested command",
             )
+        if constrained_count:
             axes[1, 0].plot(
-                command_time[:command_count],
-                1000.0 * np.max(np.abs(applied_rate[:command_count]), axis=1),
-                label="applied rate",
+                command_time[:constrained_count],
+                1000.0 * np.max(np.abs(constrained_rate[:constrained_count]), axis=1),
+                label="constrained command",
             )
+        if target_fd_count:
             axes[1, 0].plot(
-                command_time[:command_count],
+                transition_time[:target_fd_count],
                 1000.0 * np.max(
-                    np.abs(velocity[1 : command_count + 1]),
+                    np.abs(target_rate_fd[:target_fd_count]),
                     axis=1,
                 ),
-                label="actual velocity",
+                label="target FD",
+            )
+        if realized_fd_count:
+            axes[1, 0].plot(
+                transition_time[:realized_fd_count],
+                1000.0 * np.max(
+                    np.abs(realized_rate_fd[:realized_fd_count]),
+                    axis=1,
+                ),
+                label="realized displacement FD",
+            )
+        if sensor_count:
+            axes[1, 0].plot(
+                state_time[:sensor_count],
+                1000.0 * np.max(
+                    np.abs(raw_velocity_sensor[:sensor_count]),
+                    axis=1,
+                ),
+                label="raw velocity sensor",
             )
         axes[1, 0].set(
-            title="Tendon rate envelope",
+            title="Tendon rate diagnostics",
             xlabel="time [s]",
             ylabel="max absolute rate [mm/s]",
         )
-        if command_count:
-            axes[1, 0].legend(loc="upper right", fontsize=8)
+        if axes[1, 0].lines:
+            axes[1, 0].legend(loc="upper right", fontsize=7)
 
         axes[1, 1].plot(
             state_time,

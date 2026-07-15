@@ -17,6 +17,7 @@ from continuum_sim.control.mobile_base_controller import (
 from continuum_sim.control.tendon_rate_control import (
     CompatibleTendonRateIntegrator,
     TendonRateLimits,
+    resolve_tendon_target_policy,
 )
 from continuum_sim.model.base_pose import Pose6D
 from continuum_sim.model.mount_frame import MobileBaseLimitsConfig
@@ -173,15 +174,12 @@ class MujocoSystemBackend:
         tendon_target = np.zeros(self.layout.tendon_size, dtype=float)
         actual_tendon_displacement = self.physics.get_tendon_length()
         saturation: dict[str, dict[str, object]] = {}
-        enforce_tendon_limits = not bool(
-            command.metadata.get("disable_backend_tendon_limits", False)
+        enforce_tendon_limits, tendon_target_mode = resolve_tendon_target_policy(
+            command.metadata
         )
-        tendon_target_mode = command.metadata.get("backend_tendon_target_mode")
-        if tendon_target_mode is None:
-            tendon_target_mode = "protected" if enforce_tendon_limits else "actual_anchored"
-        tendon_target_mode = str(tendon_target_mode)
         for arm_name in self.layout.arms:
             tendon_slice = self.layout.tendon_slice(arm_name)
+            previous_target = self._integrators[arm_name].displacement_m
             step = self._integrators[arm_name].step(
                 command.arms[arm_name].tendon_rate_mps,
                 dt,
@@ -200,6 +198,10 @@ class MujocoSystemBackend:
                 "common_scale": step.common_scale,
                 "requested_rate_mps": step.requested_rate_mps.copy(),
                 "applied_rate_mps": step.applied_rate_mps.copy(),
+                "applied_rate_semantics": "constrained_command_rate",
+                "target_rate_fd_mps": (
+                    (step.displacement_m - previous_target) / float(dt)
+                ),
                 "target_m": step.displacement_m.copy(),
                 "compatibility_residual_mps": step.compatibility_residual_mps,
                 "raw_debug": step.raw_debug,
@@ -213,6 +215,17 @@ class MujocoSystemBackend:
             else np.concatenate((tendon_target, base_rpy))
         )
         self.physics.step(raw_control, n_substeps=n_substeps)
+        actual_tendon_displacement_after = self.physics.get_tendon_length()
+        for arm_name in self.layout.arms:
+            tendon_slice = self.layout.tendon_slice(arm_name)
+            saturation[arm_name]["realized_rate_fd_mps"] = (
+                actual_tendon_displacement_after[tendon_slice]
+                - actual_tendon_displacement[tendon_slice]
+            ) / float(dt)
+            saturation[arm_name]["target_error_m"] = (
+                tendon_target[tendon_slice]
+                - actual_tendon_displacement_after[tendon_slice]
+            )
         state = self.get_system_state()
         return RobotSystemState(
             time_s=state.time_s,

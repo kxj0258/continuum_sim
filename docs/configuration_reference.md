@@ -16,20 +16,15 @@ scenario YAML 负责组合 assembly、backend、scene、task、runtime、hooks �
 
 ## 四个 MuJoCo tracking 控制基线
 
-以下四个场景共享 `configs/control/mujoco_tracking_low_level.yaml`，当前值可作为调参前的控制基线。
-表中数值来自 2026-07-14 的一次人工运行，只用于说明当前量级，不是自动验收阈值。
+以下四个场景共享 `configs/control/mujoco_tracking_low_level.yaml`。2026-07-15 之前保存的误差表对应旧的
+uniform-time、`actual_anchored`、无速度保护基线，不能作为当前配置的验收值。当前问题分解、历史代表性
+run 和分阶段验收见 `docs/pcc_mujoco_tracking_optimization.md`；本轮修改后尚未自动运行新基线。
 
-| 命令对应场景 | 控制对象与轨迹 | commands | final / mean / max error, m |
-|---|---|---:|---|
-| `single_mujoco_tracking.yaml` | 固定基座单臂，带 approach 的方形轨迹 | 4001 | 0.003249 / 0.004448 / 0.007955 |
-| `dual_mujoco_tracking.yaml` | 固定基座双臂；executor 跟踪，observer 独立避碰 | 4001 | 0.003249 / 0.004448 / 0.007955 |
-| `single_engine_tracking.yaml` | 移动基座单臂；基座接近后跟踪两点直线 | 4150 | 0.001650 / 0.002337 / 0.004866 |
-| `dual_engine_tracking.yaml` | 移动基座双臂；基座接近、executor 跟踪、observer 避碰 | 4150 | 0.001649 / 0.002337 / 0.004866 |
-
-`stopped_early: True` 与 `stop_reason: duration_elapsed` 是正常完成，不是异常中止：controller 在 80 s
-时间轨迹完成后置 `done`，completion hook 在下一轮、尚未达到 `max_steps: 5000` 时结束循环。
-每次运行先保存 reset state，所以 `states = commands + 1`。`tendon_debug_stride: 5` 会保存初始快照，
-再保存 step index 可被 5 整除的快照，因此 4001/4150 条命令分别对应 802/831 个 tendon debug 样本。
+未启用 reference governor 时，`stopped_early: True` 与 `stop_reason: duration_elapsed` 表示正常完成。
+当前普通 MuJoCo tracking 启用 governor，正常完成原因为 `reference_complete`：参考走到终点并且末端进入
+容差后置 `done`。`max_steps` 仍是独立的运行时上限，不代表轨迹正常完成。
+每次运行先保存 reset state，所以通常有 `states = commands + 1`。governor 会改变命令条数，不能再用
+旧的固定 4001/4150 行数判断运行是否正确。
 
 ### 公共控制链路
 
@@ -40,7 +35,8 @@ scenario YAML 负责组合 assembly、backend、scene、task、runtime、hooks �
 3. application 从源 MJCF 生成本次场景 XML：单臂场景移除另一条臂，engine 场景注入发动机几何，
    固定基座场景锁定 mobile-base freejoint。
 4. task 生成或读取世界坐标 waypoint，并按 `tracking_control` 选择 time controller 或 staged controller。
-5. time controller 在每个控制周期对相邻 waypoint 做线性插值，得到位置和解析段速度：
+5. time controller 使用独立 approach/path 时间、弧长参数化和角点零速 Hermite 插值生成参考；reference
+   governor 可根据实际 tracking error 和 tendon lead 利用率减慢虚拟时间：
 
    ```text
    p_d(t), p_dot_d(t)
@@ -52,19 +48,19 @@ scenario YAML 负责组合 assembly、backend、scene、task、runtime、hooks �
 7. MuJoCo backend 按 `controller_dt_s` 积分 tendon target，再执行 `n_substeps` 个 MuJoCo 步；hooks
    同步记录状态、诊断、viewer 和视频，直到 duration、viewer 或 `max_steps` 结束运行。
 
-当前 `enforce_backend_tendon_limits: false` 使 tendon target 使用 `actual_anchored`：每周期从实际 tendon
-位移出发加上 `dt * compatible_rate`，不应用软件 rate/displacement/target-lead 保护。MuJoCo 的位置执行器
-仍受模型中的 actuator force range 等物理参数影响。
+当前 `enforce_backend_tendon_limits: true` 且 `backend_tendon_target_mode: protected`。backend 持久积分
+tendon target，并共同应用 rate、displacement 和 target-lead 保护。旧 `actual_anchored` 仍可显式选择，
+但不再是 MuJoCo tracking 基线。
 
 ### 每条命令的具体流程
 
 #### `single_mujoco_tracking.yaml`
 
 1. 加载固定基座 `single_spatial.yaml`，并从 dual 源 XML 只保留 `executor`。
-2. 以直臂末端为放置参考生成 80 个方形 waypoint；边长 40 mm，平面内旋转 15°。
-3. 在方形第一个点前添加 40 个五次平滑直线 approach 点，总计 120 点。
-4. `TimedTrajectoryTrackingController` 在总共 80 s 内遍历这 120 点。approach 与方形共享 80 s，
-   不是额外 80 s；按 waypoint index 均匀计时，当前约 40/119 的段时间用于 approach。
+2. 以直臂末端为放置参考生成 80 个方形独立样本并追加首点闭合；边长 40 mm，平面内旋转 15°。
+3. 在方形第一个点前添加 40 个五次平滑直线 approach 点；首帧再用实测 executor tip 重建 approach 起点。
+4. approach 独立使用 20 s；正式闭合方形按弧长使用 80 s。角点采用零速度 Hermite 插值，并由
+   reference governor 在执行链落后时减慢参考。
 5. 固定基座 whole-body solve 只输出 executor tendon rate，完成时输出零命令。
 
 #### `dual_mujoco_tracking.yaml`
@@ -128,17 +124,22 @@ tracking 后 executor 与 observer 分开求解。observer 使用与 dual MuJoCo
 | `task.type` | `tracking` | 选择 tracking controller 分支。 |
 | `task.waypoint_tolerance_m` | 普通 `0.003`；engine `0.002` | waypoint 模式的到点阈值。当前四个场景都是 time 模式，因此不决定推进或结束，仅保留在 controller 配置中。 |
 | `task.target_advance_mode` | 普通场景显式 `tolerance`；engine 使用默认值 | 仅 waypoint 模式控制按 tolerance/time/steps 推进；time 模式忽略。 |
-| `task.loop` | `false` | false 时在 80 s 后完成；true 时把 `trajectory_duration_s` 解释为一个循环周期，并持续到 viewer 关闭或 `max_steps`。 |
-| `tracking_control.approach_samples` | 普通 `40`；engine `0` | 在原轨迹前添加从直臂末端到首点的五次平滑直线样本。time 模式下它会分走固定总时长；增大可增加几何采样，但也会改变 approach/主轨迹的时间比例。engine 已用 base approach，不应再添加世界坐标 arm approach。 |
+| `task.loop` | `false` | false 时在参考完成后结束；governor 开启时墙钟用时可以超过名义 duration。loop 当前只支持旧的 uniform/linear time sampling。 |
+| `tracking_control.approach_samples` | 普通 `40`；engine `0` | 普通场景在正式路径前生成五次平滑接近样本；首帧起点使用实测 executor tip。engine 已用 base approach，不应再添加 arm approach。 |
+| `tracking_control.approach_duration_s` | 普通 `20.0`；engine `0` | 单独控制接近段时长，不再占用正式路径的 `trajectory_duration_s`。 |
 | `tracking_control.tracking_mode` | `time` | 按仿真时间连续插值；改为 `waypoint` 后才使用 tolerance/advance 参数，并改用 waypoint 前馈逻辑。 |
-| `tracking_control.trajectory_duration_s` | `80.0` | time 模式总时长或 loop 周期。增大可降低路径前馈速度、通常更易跟踪；减小会提高速度和误差。engine 的 base approach 时间不计入这 80 s。 |
+| `tracking_control.trajectory_duration_s` | `80.0` | 正式路径名义时长，不含普通 arm approach 或 engine base approach。governor 可增加实际墙钟用时。 |
+| `tracking_control.time_parameterization` | 普通 `arc_length` | `arc_length` 按路径弦长分配时间，避免 waypoint 密度改变局部速度；旧默认是 `uniform_waypoint`。 |
+| `tracking_control.trajectory_interpolation` | 普通 `corner_stop_hermite` | 保持精确直边，并在检测到方向突变的 waypoint 将速度连续降为零；旧默认是 `linear`。 |
+| `tracking_control.reference_governor_enabled` | 普通 `true` | 根据 tracking error 与 executor tendon lead 利用率推进虚拟参考时间；engine 当前保持 false。 |
 | `tracking_control.stage_mobile_base` | engine 为 `true`；普通场景省略/false | 在 time tracking 前执行一次 base-only 接近。只允许 mobile assembly；普通 fixed-base 场景不能开启。 |
 | `base_position_gain` | `1.5 s^-1` | `v_base = gain * position_error`。增大可缩短接近时间，但当前 staged controller 不做速度裁剪，过大可能跳动或穿越场景。 |
 | `base_orientation_gain` | `2.0 s^-1` | 旋转向量误差到角速度的比例。当前目标姿态等于初始姿态，正常情况下误差接近零；有姿态扰动时才明显生效。 |
 | `base_position_tolerance_m` | `0.005` | base approach 切换阈值。减小可提高交接位置精度，但会增加接近步数，并可能因噪声迟迟不切换。 |
 | `base_orientation_tolerance_rad` | `0.035` | 姿态切换阈值，约 2°。与 position tolerance 必须同时满足。 |
 | `task.trajectory.type` | `square`，普通场景 | 选择程序化方形 waypoint 生成器。engine 使用显式点，不含该块。 |
-| `task.trajectory.samples` | `80` | 方形离散点数。更多点可细化插值，但在固定 80 s 下不会自动延长运行；拐角仍是速度方向不连续。 |
+| `task.trajectory.samples` | `80` | 方形独立样本数；`closed: true` 会额外追加首点。arc-length 模式下改变采样密度不会改变名义路径速度。 |
+| `task.trajectory.closed` | `true` | 显式追加首点，确保非 loop 的方形也走完最后一条边。 |
 | `task.trajectory.radius_m` | `0.018` | square 已显式给 `side_length_m`，所以它不决定边长；它仍参与 `z_mode` 的参考尺度计算。 |
 | `trajectory.placement.center_mode` | `straight_tip_xy` | x/y 取直臂 executor tip，z 由 `z_mode` 计算。改为 explicit 时需要提供中心坐标。 |
 | `trajectory.placement.z_mode` | `straight_tip_minus_radius` | 中心 z 为直臂 tip z 减去所有有效轨迹尺度的最大值。当前 `side_length/2 = 0.020 m` 大于 `radius_m`，实际下移 20 mm。 |
@@ -166,7 +167,7 @@ tracking 后 executor 与 observer 分开求解。observer 使用与 dual MuJoCo
 |---|---:|---|
 | `runtime.controller_dt_s` | `0.02 s` | 控制命令周期，也是 base/tendon target 的软件积分步长。减小可提高控制更新率，但增加计算与记录量。 |
 | `runtime.n_substeps` | `20` | 每条控制命令执行的 MuJoCo 物理步数。`mujoco_dual.yaml` timestep 为 0.001 s，当前正好 `20 * 0.001 = 0.02 s`。 |
-| `runtime.max_steps` | `5000` | 总控制步上限，当前对应约 100 s。普通场景需覆盖 80 s；engine 还需覆盖 base approach，当前 4150 步仍有余量。 |
+| `runtime.max_steps` | 普通 `9000`；engine `6500` | 分别约 180 s/130 s 的独立安全上限，为 governor 或 base approach 留余量；达到它不等于任务正常完成。 |
 
 必须优先保持：
 
@@ -208,11 +209,11 @@ task 中覆盖底层字段，因此实际值来自同一个 profile。
 
 | 字段 | 当前值 | 控制作用 | 调参方向与风险 |
 |---|---:|---|---|
-| `arm_position_gain` | `2.0 s^-1` | 同时覆盖 executor/observer 的笛卡尔位置反馈增益。position 模式使用 `feedforward_gain*v_ff + Kp*error`。 | 增大通常减小稳态滞后，但提高 tendon rate、执行器力和超调；降低更平滑但误差更大。优先小步单变量调整。 |
+| `arm_position_gain` | `1.0 s^-1` | 同时覆盖 executor/observer 的笛卡尔位置反馈增益。position 模式使用 `feedforward_gain*v_ff + Kp*error`。 | 当前低增益与 governor 配合；不要用继续增大 gain 代替参考降速。 |
 | `feedforward_gain` | `1.0` | 无量纲的轨迹前馈比例，作用于 time 模式的轨迹导数和 waypoint 模式的前馈速度。 | `0` 关闭前馈但保留位置反馈；`0~1` 降低前馈；`1` 保持原始轨迹速度；大于 `1` 放大前馈并可能增加超调和 tendon 控制量。 |
 | `feedforward_speed_mps` | `0.0` | 仅 waypoint 模式沿下一段提供常速前馈。 | 当前 time 模式由轨迹导数自动提供前馈，此字段不生效。 |
-| `max_target_speed_mps` | 空/`None` | Cartesian 目标速度上限值。 | 只有下一字段为 true 才生效；启用后要大于期望轨迹速度，否则会人为制造滞后。 |
-| `enforce_target_speed_limit` | `false` | 是否裁剪 executor/observer 的合成 Cartesian 速度。 | 需要控制峰值时同时设上限；当前关闭是基线的一部分。 |
+| `max_target_speed_mps` | `0.006` | 反馈与前馈相加后的 Cartesian 总目标速度上限。 | 80 s 方形平均边速度约 2 mm/s，其余预算留给位置反馈。 |
+| `enforce_target_speed_limit` | `true` | 是否裁剪 executor/observer 的合成 Cartesian 速度。 | 当前开启，防止位置误差被高增益放大成不可实现命令。 |
 | `executor_tracking_weight` | `100.0` | executor tracking 相对 tendon 正则与环境避碰的权重。 | 增大偏向跟踪，可能放大控制量；降低更保守但误差增大。权重只有相对比例有意义。 |
 | `observer_tracking_weight` | `40.0` | observer 为 tracking 模式时的任务权重。 | 当前 collision mode 不使用 observer tracking task。 |
 | `executor_collision_avoidance_weight` | `80.0` | engine clearance task 权重；未单设 observer collision weight 时也作为 observer 避碰权重。 | 提高避障相对正则的优先级；过高可能产生激烈回避。它不会把 observer 任务耦合到 executor solve。 |
@@ -225,8 +226,9 @@ task 中覆盖底层字段，因此实际值来自同一个 profile。
 | `maximum_damping` | `0.1` | `damping_scale` 接近奇异时的最大阻尼。 | 当前策略下不参与 solve；必须不小于 nominal。 |
 | `minimum_velocity_scale` | `0.05` | `damping_scale` 接近奇异时的最低速度比例。 | 当前策略下不参与 solve；增大响应更强，降低更保守。 |
 | `decouple_arm_singularity` | `true` | fixed-base 且 `damping_scale` 时按臂分别应用阻尼/缩放。 | 当前 `svd_projection` 下不改变求解结果。 |
-| `enforce_solver_velocity_limits` | `false` | 在 whole-body solver 输出端应用 assembly base/tendon rate limit。 | 启用能加保护，但会改变基线并引入 tracking lag；需结合 saturation 图调 duration/gain。 |
-| `enforce_backend_tendon_limits` | `false` | backend 是否应用 rate、displacement、target-lead 保护；false 选择 actual-anchored target。 | 开启会切换为 protected 积分并可能饱和，安全性更强但跟踪结果会明显变化。不要把开关变化与 gain 调整混在同一次实验。 |
+| `enforce_solver_velocity_limits` | `true` | 在 solver 输出端按臂统一缩放，满足 assembly tendon rate limit。 | 统一缩放保持 tendon 方向；诊断需观察 constrained command。 |
+| `enforce_backend_tendon_limits` | `true` | backend 应用 rate、displacement 与 target-lead 保护。 | 与显式 target mode 一起构成当前安全基线。 |
+| `backend_tendon_target_mode` | `protected` | 使用有界持久 target；旧的 `actual_anchored` 每拍重新锚定实际位移。 | `free_integrated` 可能积累不可达目标，不能作为当前基线。 |
 
 `feedforward_gain` 与 `arm_position_gain` 控制不同部分：
 
@@ -441,9 +443,10 @@ hooks:
 
 Spatial-arm assembly configs also accept `spatial_arm.limits.target_lead_m`.
 This positive scalar or per-tendon vector limits how far a tendon-position
-target may lead the measured tendon length. The current default and executor /
-observer configs use the same `[-0.020, 0.020]` m displacement range,
-`0.005` m/s rate limit, and `0.0005` m target lead.
+target may lead the measured tendon length. The executor / observer configs use
+the same `[-0.020, 0.020]` m displacement range, `0.005` m/s rate limit, and
+`0.00025` m target lead. The code default remains `0.0005` m for older configs
+that omit this field.
 
 ## `configs/pcc.yaml`
 
@@ -514,7 +517,7 @@ observer configs use the same `[-0.020, 0.020]` m displacement range,
 | `joints.hinge.*`                  | scalar       | hinge damping、armature、limit、range、stiffness 和 springref。 |
 | `tendon_model.*`                  | scalar       | tendon model 类型、数量、限幅、damping、stiffness 和 coefficient source。 |
 | `actuators.tendon_position.*`     | scalar       | tendon position gain、命令范围和力范围。         |
-| `actuators.tendon_position.kp`    | float, N/m   | Tendon position gain. Dual-arm config uses `40000.0` with `forcerange_n: [-30.0, 30.0]`. |
+| `actuators.tendon_position.kp`    | float, N/m   | Tendon position gain. Dual-arm config uses `100000.0` with `forcerange_n: [-30.0, 30.0]`. |
 | `actuators.tendon_position.ctrllimited` | bool | Spatial-tendon MJCF uses `false` because MuJoCo receives absolute tendon lengths; `ctrlrange_m` remains the software-side relative displacement range. |
 | `mobile_base_xml_path`            | path         | Optional committed output for the mobile-base-wrapped model generated after `tendon_xml_path`. |
 | `visuals.world_frame.*`           | mapping      | Optional world-origin and RGB-axis MJCF site dimensions, colors, and geom group. |

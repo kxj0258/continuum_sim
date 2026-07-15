@@ -507,6 +507,7 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
             ("inter_arm_release_margin_m", float),
             ("observer_avoidance_desired_speed_mps", float),
             ("observer_residual_norm", float),
+            ("executor_feedforward_gain", float),
         ):
             arrays[key] = np.asarray(
                 [metadata.get(key, _metadata_default(dtype)) for metadata in command_metadata],
@@ -514,6 +515,8 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
             )
         for key in (
             "executor_target_velocity_world",
+            "task_intent_velocity_world",
+            "executor_scaled_feedforward_velocity_world",
             "observer_target_position_world",
             "observer_target_error_world",
             "observer_target_velocity_world",

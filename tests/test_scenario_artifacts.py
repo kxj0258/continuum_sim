@@ -83,6 +83,15 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
             RobotSystemCommand(
                 base_twist_world=np.zeros(6, dtype=float),
                 arms={"executor": ArmTendonRateCommand(np.zeros(9, dtype=float))},
+                metadata={
+                    "executor_feedforward_gain": 0.25,
+                    "task_intent_velocity_world": np.array(
+                        [0.004, 0.0, 0.0], dtype=float
+                    ),
+                    "executor_scaled_feedforward_velocity_world": np.array(
+                        [0.001, 0.0, 0.0], dtype=float
+                    ),
+                },
             ),
         ),
         stopped_early=False,
@@ -159,6 +168,13 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
         assert arrays["target_engine_local_path_name"].tolist() == [
             "one_third_circle"
         ]
+        assert arrays["executor_feedforward_gain"].tolist() == [0.25]
+        assert arrays["task_intent_velocity_world"].tolist() == [
+            [0.004, 0.0, 0.0]
+        ]
+        assert arrays[
+            "executor_scaled_feedforward_velocity_world"
+        ].tolist() == [[0.001, 0.0, 0.0]]
 
 
 def test_scenario_artifacts_save_separate_named_local_path_plots(tmp_path) -> None:

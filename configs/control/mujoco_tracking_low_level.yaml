@@ -1,6 +1,7 @@
 schema_version: 1
 low_level_control:
-  arm_position_gain: 1.0
+  arm_position_gain: 5.0
+  feedforward_gain: 1.0
   feedforward_speed_mps: 0.0
   max_target_speed_mps:
   enforce_target_speed_limit: false

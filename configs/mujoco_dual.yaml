@@ -149,11 +149,13 @@ gravity:
   vector_m_s2: [0.0, 0.0, -9.81]
 joints:
   hinge:
-    damping: 0.20
+    damping: 0.10
     armature: 0.0001
     limited: true
     range_rad: [-0.25, 0.25]
-    stiffness: 0.02
+    # Fallback rotational stiffness for the alternating single-axis hinges.
+    # Segment EI values remain authoritative and are converted by the builder.
+    stiffness: 0.01
     springref: 0.0
 tendon_model:
   enabled: true
@@ -167,7 +169,7 @@ tendon_model:
   include_axial_strain: false
 actuators:
   tendon_position:
-    kp: 40000.0
+    kp: 100000.0
     # MuJoCo receives absolute tendon lengths, so relative command clipping
     # remains in software through ctrlrange_m instead of MJCF ctrl limits.
     ctrllimited: false

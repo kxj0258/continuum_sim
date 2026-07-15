@@ -208,7 +208,8 @@ task 中覆盖底层字段，因此实际值来自同一个 profile。
 
 | 字段 | 当前值 | 控制作用 | 调参方向与风险 |
 |---|---:|---|---|
-| `arm_position_gain` | `1.0 s^-1` | 同时覆盖 executor/observer 的笛卡尔位置反馈增益。time executor 使用 `v_ff + Kp*error`。 | 增大通常减小稳态滞后，但提高 tendon rate、执行器力和超调；降低更平滑但误差更大。优先小步单变量调整。 |
+| `arm_position_gain` | `2.0 s^-1` | 同时覆盖 executor/observer 的笛卡尔位置反馈增益。position 模式使用 `feedforward_gain*v_ff + Kp*error`。 | 增大通常减小稳态滞后，但提高 tendon rate、执行器力和超调；降低更平滑但误差更大。优先小步单变量调整。 |
+| `feedforward_gain` | `1.0` | 无量纲的轨迹前馈比例，作用于 time 模式的轨迹导数和 waypoint 模式的前馈速度。 | `0` 关闭前馈但保留位置反馈；`0~1` 降低前馈；`1` 保持原始轨迹速度；大于 `1` 放大前馈并可能增加超调和 tendon 控制量。 |
 | `feedforward_speed_mps` | `0.0` | 仅 waypoint 模式沿下一段提供常速前馈。 | 当前 time 模式由轨迹导数自动提供前馈，此字段不生效。 |
 | `max_target_speed_mps` | 空/`None` | Cartesian 目标速度上限值。 | 只有下一字段为 true 才生效；启用后要大于期望轨迹速度，否则会人为制造滞后。 |
 | `enforce_target_speed_limit` | `false` | 是否裁剪 executor/observer 的合成 Cartesian 速度。 | 需要控制峰值时同时设上限；当前关闭是基线的一部分。 |
@@ -226,6 +227,28 @@ task 中覆盖底层字段，因此实际值来自同一个 profile。
 | `decouple_arm_singularity` | `true` | fixed-base 且 `damping_scale` 时按臂分别应用阻尼/缩放。 | 当前 `svd_projection` 下不改变求解结果。 |
 | `enforce_solver_velocity_limits` | `false` | 在 whole-body solver 输出端应用 assembly base/tendon rate limit。 | 启用能加保护，但会改变基线并引入 tracking lag；需结合 saturation 图调 duration/gain。 |
 | `enforce_backend_tendon_limits` | `false` | backend 是否应用 rate、displacement、target-lead 保护；false 选择 actual-anchored target。 | 开启会切换为 protected 积分并可能饱和，安全性更强但跟踪结果会明显变化。不要把开关变化与 gain 调整混在同一次实验。 |
+
+`feedforward_gain` 与 `arm_position_gain` 控制不同部分：
+
+```text
+position 模式：v_target = arm_position_gain * (p_target - p_measured)
+                        + feedforward_gain * v_feedforward
+velocity 模式：v_target = v_direct
+```
+
+因此 tracking、navigation、engine tracking 和 wiping 中由轨迹导数或 waypoint 方向产生的前馈会被缩放；
+engine cleaning 以及 navigation 安全控制生成的直接 velocity intent 不会被缩放。最终的
+`max_target_speed_mps` 裁剪发生在反馈与缩放后前馈相加之后，所以合成速度已经饱和时，降低
+`feedforward_gain` 不一定产生同等比例的最终速度变化。
+
+默认值和两个共享 profile 都是 `1.0`，用于保持已有行为。全局调节位置为
+`configs/control/mujoco_tracking_low_level.yaml` 或 `configs/control/spatial_low_level.yaml`；单个任务可在
+scenario 的 `task.tracking_control.feedforward_gain` 中覆盖。运行产物 `result.npz` 记录：
+
+- `task_intent_velocity_world`：上层给出的原始前馈或直接速度；
+- `executor_feedforward_gain`：当前配置比例；
+- `executor_scaled_feedforward_velocity_world`：按控制模式处理后的速度；
+- `executor_target_velocity_world`：与位置反馈相加并经过可选限速后的最终笛卡尔目标速度。
 
 ### 推荐调参顺序
 
@@ -979,6 +1002,7 @@ scenario 主线中的 `wiping` 任务复用统一底层。任务时序保留在 
 | 字段 | 建议用途 |
 | ---- | -------- |
 | `low_level_control.executor_position_gain` | 末端位置误差到目标速度的共享比例增益。 |
+| `low_level_control.feedforward_gain` | position 模式的轨迹/waypoint 前馈比例；不缩放 velocity 模式直接命令。 |
 | `low_level_control.feedforward_speed_mps` | waypoint 模式沿下一 waypoint 的前馈速度。 |
 | `low_level_control.max_target_speed_mps` | 所有任务共用的末端目标速度上限。 |
 | `low_level_control.tendon_regularization_weight` | tendon 速度正则权重。增大后动作更慢、更稳。 |
@@ -1066,8 +1090,38 @@ hinge。全臂第 1、3、5…小节绕局部 Y 轴转动，对应局部 X 方�
 同样保留 Y 轴转动自由度。轴序列沿全臂连续取模，两条臂完全一致。
 
 这里的 axis 属于对应 body 的局部坐标系，会随上游刚体姿态一起旋转；它不是
-运行期间固定在世界坐标系中的转轴。该阶段只修正自由度拓扑，仍沿用现有 pivot、
-刚度、阻尼、关节范围、质量和肌腱路径。
+运行期间固定在世界坐标系中的转轴。
+
+#### 单轴铰链的等效刚度
+
+每个 segment 的 `bending_stiffness` 仍表示连续模型的抗弯刚度 `EI`，单位为
+`N·m²`，不是单个 MuJoCo hinge 的转动刚度。生成器会在每个 segment 内统计与
+当前 hinge 平行或反向平行的串联关节数量 `n_axis`，并计算：
+
+```text
+k_joint = n_axis * EI / segment_length
+k_segment = k_joint / n_axis = EI / segment_length
+```
+
+当前每个 40 mm segment 含 Y/X/Y/X 四个小节，因此 X、Y 方向分别有两个串联
+hinge。使用 `EI = 0.0002 N·m²` 时：
+
+```text
+k_joint = 2 * 0.0002 / 0.04 = 0.01 N·m/rad
+k_segment = 0.01 / 2 = 0.005 N·m/rad
+```
+
+`configs/mujoco_dual.yaml` 中 `joints.hinge.stiffness: 0.01` 是缺少段级
+`bending_stiffness` 时的 fallback；正常生成的柔性关节仍以机器人 YAML 中的
+segment `EI` 和上述公式为准，并显式写入每个 `<joint>`。
+
+如果继续沿用双自由度模型时期的 `0.02 N·m/rad` 单关节值，每个方向只有两个
+串联关节，会使段级等效刚度变成 `0.01 N·m/rad`，即 PCC 目标值的两倍。
+
+刚度会直接影响肌腱控制：刚度越大，相同肌腱长度增量需要的执行器力越大，实际
+肌腱速度和末端速度越容易落后于 PCC 命令；刚度降低则会提高响应，但也可能增加
+形变、过冲和振荡。本修正只恢复段级等效刚度，不改变 pivot、阻尼、关节范围、
+质量、肌腱路径或控制增益。
 
 ### MuJoCo 末端 site
 

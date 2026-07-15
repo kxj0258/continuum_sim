@@ -70,11 +70,16 @@ class UnifiedLowLevelController:
             if executor.control_mode == "velocity"
             else executor.target_position_world
         )
+        scaled_feedforward_velocity = (
+            executor.feedforward_velocity_world * self.config.feedforward_gain
+            if executor.control_mode == "position"
+            else executor.feedforward_velocity_world.copy()
+        )
         observer = step.intent.observer
         self._controller.set_target(
             CoordinatedTrackingTarget(
                 executor_position_world=servo_position,
-                executor_velocity_world=executor.feedforward_velocity_world,
+                executor_velocity_world=scaled_feedforward_velocity,
                 observer_roi_position_world=(
                     None if observer is None else observer.roi_position_world
                 ),
@@ -105,6 +110,10 @@ class UnifiedLowLevelController:
                 ),
                 "task_intent_velocity_world": (
                     executor.feedforward_velocity_world.copy()
+                ),
+                "executor_feedforward_gain": self.config.feedforward_gain,
+                "executor_scaled_feedforward_velocity_world": (
+                    scaled_feedforward_velocity.copy()
                 ),
                 "task_status_type": step.status.task_type,
                 "task_status_phase": step.status.phase,

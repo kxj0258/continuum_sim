@@ -78,6 +78,7 @@ class ScenarioTrackingControlConfig:
     base_orientation_tolerance_rad: float = 0.035
     executor_position_gain: float = 4.0
     observer_position_gain: float = 5.0
+    feedforward_gain: float = 1.0
     feedforward_speed_mps: float = 0.0
     max_target_speed_mps: float | None = None
     executor_tracking_weight: float = 100.0
@@ -140,6 +141,10 @@ class ScenarioTrackingControlConfig:
         if not np.isfinite(self.feedforward_speed_mps) or self.feedforward_speed_mps < 0.0:
             raise ValueError(
                 "tracking_control.feedforward_speed_mps must be non-negative and finite."
+            )
+        if not np.isfinite(self.feedforward_gain) or self.feedforward_gain < 0.0:
+            raise ValueError(
+                "tracking_control.feedforward_gain must be non-negative and finite."
             )
         if (
             self.enforce_target_speed_limit
@@ -678,6 +683,7 @@ def _load_tracking_control_config(
                 values.get("observer_position_gain", 5.0),
             )
         ),
+        feedforward_gain=float(values.get("feedforward_gain", 1.0)),
         feedforward_speed_mps=float(values.get("feedforward_speed_mps", 0.0)),
         max_target_speed_mps=_optional_float(values.get("max_target_speed_mps")),
         executor_tracking_weight=float(values.get("executor_tracking_weight", 100.0)),

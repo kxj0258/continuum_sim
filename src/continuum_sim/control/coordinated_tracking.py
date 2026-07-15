@@ -89,6 +89,7 @@ class CoordinatedTrackingConfig:
 
     executor_position_gain: float = 4.0
     observer_position_gain: float = 5.0
+    feedforward_gain: float = 1.0
     max_target_speed_mps: float | None = None
     inter_arm_min_distance_m: float = 0.010
     inter_arm_influence_distance_m: float = 0.05
@@ -104,6 +105,10 @@ class CoordinatedTrackingConfig:
     engine_influence_distance_m: float = 0.025
     engine_avoidance_gain: float = 4.0
     enforce_backend_tendon_limits: bool = False
+
+    def __post_init__(self) -> None:
+        if not np.isfinite(self.feedforward_gain) or self.feedforward_gain < 0.0:
+            raise ValueError("feedforward_gain must be non-negative and finite.")
 
 
 @dataclass(frozen=True)

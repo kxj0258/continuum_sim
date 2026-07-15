@@ -531,6 +531,7 @@ def _tracking_coordinated_config(
     return CoordinatedTrackingConfig(
         executor_position_gain=tracking.executor_position_gain,
         observer_position_gain=tracking.observer_position_gain,
+        feedforward_gain=tracking.feedforward_gain,
         max_target_speed_mps=_tracking_target_speed_limit(tracking),
         inter_arm_min_distance_m=observer.minimum_distance_m,
         inter_arm_influence_distance_m=observer.influence_distance_m,

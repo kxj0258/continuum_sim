@@ -376,6 +376,16 @@ def _append_arm(
     for segment_index, segment in enumerate(params.segments):
         segment_number = segment_index + 1
         link_length = segment.length / float(config.links_per_segment)
+        segment_flexure_axes = tuple(
+            flexure_joint_axis_pattern[
+                (link_index + offset) % len(flexure_joint_axis_pattern)
+            ]
+            for offset in range(config.links_per_segment)
+        )
+        parallel_joint_counts = tuple(
+            _parallel_axis_count(axis, segment_flexure_axes)
+            for axis in segment_flexure_axes
+        )
         for local_link_index in range(config.links_per_segment):
             link_number = local_link_index + 1
             link_index += 1
@@ -391,9 +401,7 @@ def _append_arm(
                 "body",
                 {"name": body_name, "pos": _format_vec(body_pos)},
             )
-            flexure_axis = flexure_joint_axis_pattern[
-                (link_index - 1) % len(flexure_joint_axis_pattern)
-            ]
+            flexure_axis = segment_flexure_axes[local_link_index]
             axis_suffix = _flexure_axis_suffix(flexure_axis)
             ElementTree.SubElement(
                 body,
@@ -405,7 +413,7 @@ def _append_arm(
                         "axis": _format_vec(flexure_axis),
                     },
                     segment=segment,
-                    link_length=link_length,
+                    parallel_joint_count=parallel_joint_counts[local_link_index],
                 ),
             )
             geom_attrs = {
@@ -478,11 +486,36 @@ def _joint_attrs(
     attrs: dict[str, str],
     *,
     segment,
-    link_length: float,
+    parallel_joint_count: int,
 ) -> dict[str, str]:
     if segment.bending_stiffness is not None:
-        attrs["stiffness"] = _format_float(segment.bending_stiffness / link_length)
+        attrs["stiffness"] = _format_float(
+            parallel_joint_count
+            * segment.bending_stiffness
+            / segment.length
+        )
     return attrs
+
+
+def _parallel_axis_count(
+    axis: tuple[float, float, float],
+    segment_axes: tuple[tuple[float, float, float], ...],
+) -> int:
+    tolerance = 1.0e-12
+    count = sum(
+        1
+        for candidate in segment_axes
+        if abs(
+            abs(sum(a * b for a, b in zip(axis, candidate, strict=True)))
+            - 1.0
+        )
+        <= tolerance
+    )
+    if count <= 0:
+        raise ValueError(
+            "A flexure axis must be represented in its segment axis sequence."
+        )
+    return count
 
 
 def _flexure_axis_suffix(axis: tuple[float, float, float]) -> str:

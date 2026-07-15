@@ -11,6 +11,9 @@ CONFIG_PATH = PROJECT_ROOT / "configs" / "mujoco_dual.yaml"
 
 
 def _assert_alternating_single_axis_flexures(root: ET.Element) -> None:
+    default_joint = root.find("./default/joint")
+    assert default_joint is not None
+    assert default_joint.get("stiffness") == "0.01"
     for arm_name in ("executor", "observer"):
         for global_link_index in range(1, 13):
             segment_number = (global_link_index - 1) // 4 + 1
@@ -27,6 +30,7 @@ def _assert_alternating_single_axis_flexures(root: ET.Element) -> None:
             assert joints[0].get("name") == f"{body_name}_{expected_axis_name}"
             assert joints[0].get("type") == "hinge"
             assert joints[0].get("axis") == expected_axis
+            assert joints[0].get("stiffness") == "0.01"
 
 
 def test_dual_builder_generates_base_and_mobile_models_from_yaml(

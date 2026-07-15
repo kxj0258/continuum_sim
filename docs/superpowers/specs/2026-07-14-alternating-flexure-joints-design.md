@@ -36,22 +36,41 @@ The builder chooses `pattern[(global_link_index - 1) % len(pattern)]`.
 
 For each arm and link, generate one hinge named after its dominant cardinal
 axis. Odd global links use `<joint ..._y axis="0 1 0">`; even global links use
-`<joint ..._x axis="1 0 0">`. Preserve the existing pivot, stiffness,
-damping, armature, range, spring reference, rigid link transforms, tendon
-sites, mass, visuals, and actuators.
+`<joint ..._x axis="1 0 0">`.
+
+## Equivalent Bending Stiffness
+
+The configured `bending_stiffness` remains the segment flexural rigidity
+`EI` in N m2. For each segment and each parallel hinge-axis family, the
+builder counts the number `n_axis` of serial hinges and assigns
+
+```text
+k_joint = n_axis * EI / segment_length
+```
+
+so the serial equivalent remains `k_segment = k_joint / n_axis = EI / L`.
+With a 40 mm segment, `EI = 0.0002 N m2`, and the Y/X/Y/X four-link pattern,
+each axis has two hinges and each hinge therefore uses `0.01 N m/rad`.
+The generic dual-model hinge fallback is also `0.01 N m/rad`; explicit
+segment-derived joint values remain authoritative.
+
+Preserve the existing pivot, damping, armature, range, spring reference,
+rigid link transforms, tendon sites, mass, visuals, and actuators.
 
 The two committed source XML assets are updated to match the generator. Files
 under `output/generated/` are historical runtime products and are not edited.
 
 ## Scope Exclusions
 
-This phase does not change flexure pivot placement, stiffness calibration,
+This correction changes only the conversion from segment `EI` to individual
+single-axis hinge stiffness. It does not change flexure pivot placement,
 visual deformation, collision, tendon pretension, gravity, attachment mass,
-PCC equations, or control gains.
+PCC equations, damping, or control gains.
 
 ## Validation Contract
 
 Builder tests inspect both freshly generated and committed XML. Each arm must
 contain exactly twelve flexure joints, ordered Y/X for global links 1 through
-12, with no second orthogonal joint on any link. Codex will write these tests
-but will not run them under the user's no-automatic-verification constraint.
+12, with no second orthogonal joint on any link. Every generated and committed
+flexure joint must use `0.01 N m/rad`. Codex will write these tests but will
+not run them under the user's no-automatic-verification constraint.

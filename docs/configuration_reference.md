@@ -9,10 +9,13 @@
 ```powershell
 python scripts/run_scenario.py configs/scenarios/single_analytic_smoke.yaml
 python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml
+python scripts/run_all_scenarios.py
 ```
 
 scenario YAML 负责组合 assembly、backend、scene、task、runtime、hooks 和 artifacts。
 旧 `configs/main_config*.yaml` 索引入口已不再作为运行入口维护。
+`scripts/run_all_scenarios.py` 会按文件名顺序运行所有非 idle scenario 任务，默认关闭 viewer 与实时面板，
+适合无人值守批量检查；`--include-idle` 可包含 viewer/smoke 场景。
 
 ## 四个 MuJoCo tracking 场景
 
@@ -231,8 +234,8 @@ task 中覆盖底层字段，因此实际值来自同一个 profile。
 | `minimum_velocity_scale` | `0.05` | `damping_scale` 接近奇异时的最低速度比例。 | 当前策略下不参与 solve；增大响应更强，降低更保守。 |
 | `decouple_arm_singularity` | `true` | fixed-base 且 `damping_scale` 时按臂分别应用阻尼/缩放。 | 当前 `svd_projection` 下不改变求解结果。 |
 | `enforce_solver_velocity_limits` | `false` | 在 whole-body solver 输出端应用 assembly base/tendon rate limit。 | 启用能加保护，但会改变基线并引入 tracking lag；需结合 saturation 图调 duration/gain。 |
-| `enforce_backend_tendon_limits` | `false` | 只决定非 raw 的 legacy 路径选择 `protected` 还是 `actual_anchored`；新 servo 始终执行自身联合 guard。 | 当前保持 false，使共用 profile 的 navigation/cleaning 保留原 `actual_anchored` 行为；raw debug 使用独立 rate/displacement clipping，不读取此开关。 |
-| `tendon_inner_loop.mode` | `bending_rate_servo` | tracking task 的 MuJoCo tendon target policy。 | 改为 `legacy` 可回到由 backend metadata 选择的旧 policy；navigation/cleaning 即使共用 profile 也不会装配 servo。 |
+| `enforce_backend_tendon_limits` | `false` | 只决定非 raw 的 legacy 路径选择 `protected` 还是 `actual_anchored`；新 servo 始终执行自身联合 guard。 | 当前保持 false，用于隔离 legacy backend 限幅变量；raw debug 使用独立 rate/displacement clipping，不读取此开关。 |
+| `tendon_inner_loop.mode` | `bending_rate_servo` | MuJoCo tendon-position actuator 的执行内环。 | 改为 `legacy` 可回到由 backend metadata 选择的旧 policy；所有 MuJoCo 主任务只要引用该 profile 都会装配 servo。 |
 | `tendon_inner_loop.rate_filter_time_constant_s` | `0.04 s` | 对实际 tendon 位移有限差分得到的 bending rate 做一阶低通。 | 增大可减噪但增加相位滞后；减小响应更快但更易放大差分噪声。 |
 | `tendon_inner_loop.feedforward_lead_time_s` | `0.02 s` | 约束后的 bending-rate reference 到基础 position lead 的时间尺度。 | 增大可提高初始驱动力，也更快触及 lead/force guard。 |
 | `tendon_inner_loop.rate_proportional_time_s` | `0.0 s` | bending-rate error 到额外 position lead 的比例时间尺度；当前保守起点关闭 P。 | 确认 FF 和 lead-slew guard 正常后再小步增加；过大可能因滤波延迟产生 target/force 振荡。 |
@@ -1060,8 +1063,8 @@ wiping_dynamic_active
 
 ### Wiping 轨迹与跟踪调参
 
-scenario 主线中的 `wiping` 任务复用统一底层。任务时序保留在 `task.tracking_control`，底层调参位于
-`configs/control/spatial_low_level.yaml`：
+scenario 主线中的 `wiping` 任务复用统一底层。任务时序保留在 `task.tracking_control`，MuJoCo 主任务底层调参位于
+`configs/control/mujoco_tracking_low_level.yaml`：
 
 | 字段 | 建议用途 |
 | ---- | -------- |

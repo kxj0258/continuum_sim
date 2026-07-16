@@ -2,9 +2,10 @@ schema_version: 1
 scenario:
   name: single_engine_navigation
   assembly_config_path: ../robots/assemblies/single_spatial_mobile.yaml
-  low_level_control_path: ../control/spatial_low_level.yaml
+  low_level_control_path: ../control/mujoco_tracking_low_level.yaml
   backend:
     type: mujoco
+    kinematics_mode: discrete_hinge
     mujoco_config_path: ../mujoco_dual.yaml
     source_xml_path: ../../assets/mujoco/dual_three_segment_arm_tendon_with_visuals_mobile_base.xml
     generated_xml_path: ../../output/generated/scenario_single_engine_navigation.xml
@@ -69,6 +70,7 @@ scenario:
     viewer: mujoco
     keep_viewer_open: false
   artifacts:
+    mujoco_pcc_diagnostics_stride: 10
     enabled: true
     save_npz: true
     save_plots: true

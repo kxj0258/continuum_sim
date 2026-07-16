@@ -49,6 +49,7 @@ scenario:
     viewer: none
     keep_viewer_open: false
   artifacts:
+    mujoco_pcc_diagnostics_stride: 10
     enabled: true
     save_npz: true
     save_plots: true

@@ -41,6 +41,15 @@ python scripts/run_scenario.py configs/scenarios/single_engine_navigation.yaml
 python scripts/run_scenario.py configs/scenarios/dual_engine_navigation.yaml
 ```
 
+批量顺序运行所有非 idle scenario 任务：
+
+```powershell
+python scripts/run_all_scenarios.py
+```
+
+该批量入口默认关闭 viewer 与实时面板，适合无人值守运行；需要保留场景原始 UI 配置时可加
+`--no-headless`。
+
 Python 代码中也可以直接组合应用层：
 
 ```python
@@ -91,7 +100,7 @@ tendon_target_next = clip(integrated_target,
                           actual_tendon_length ± target_lead)
 ```
 
-MuJoCo tracking profile 改用 `bending_rate_servo`。它用相邻控制周期的实际 tendon 位移有限差分
+MuJoCo low-level profile 改用 `bending_rate_servo`。它用相邻控制周期的实际 tendon 位移有限差分
 估计实现速度，投影到 6 维 bending space 并低通滤波，再由 command/realized bending-rate 误差生成
 受限的位置 lead：
 
@@ -116,15 +125,16 @@ l_target = l_actual + delta_l_lead
 `trajectory_duration_s` 等上层调度参数。当前提供两套明确的底层版本：
 
 - `configs/control/spatial_low_level.yaml`：通用 protected 版本，启用目标速度、solver 和 backend 保护。
-- `configs/control/mujoco_tracking_low_level.yaml`：MuJoCo tracking 版本，保留 `1.0` 位置增益和
-  SVD/权重参数，并为 tracking task 显式选择自带联合 guard 的 `bending_rate_servo`。
+- `configs/control/mujoco_tracking_low_level.yaml`：MuJoCo 主任务版本，保留 `1.0` 位置增益和
+  SVD/权重参数，并通过 `tendon_inner_loop.mode: bending_rate_servo` 选择自带联合 guard 的执行内环。
 
-single/dual 的 MuJoCo tracking、engine tracking、MuJoCo navigation 和 engine cleaning 共 8 个场景
-统一引用该文件，但新 servo 只在 `task.type: tracking` 时装配。因此四个 tracking 场景使用新内环，
-navigation 和 cleaning 仍保持原 target policy；dual 中 executor 与 observer 使用各自独立的 servo 状态。
+single/dual 的 MuJoCo tracking、point servo、navigation、wiping、engine tracking、engine cleaning
+和 engine navigation 任务统一引用该文件，并显式使用 `backend.kinematics_mode: discrete_hinge`。
+只要 profile 选择 `bending_rate_servo`，MuJoCo backend 就会装配该执行内环；dual 中 executor 与
+observer 使用各自独立的 servo 状态。
 
 共享 MuJoCo profile 保持 solver/backend legacy 限制开关关闭，以隔离本次 tendon 内环变量；
-tracking servo 不依赖这两个 legacy 开关，是否执行自身 lead/force guard 由 `tendon_inner_loop` 字段决定：
+MuJoCo servo 不依赖这两个 legacy 开关，是否执行自身 lead/force guard 由 `tendon_inner_loop` 字段决定：
 
 ```yaml
 low_level_control:
@@ -220,9 +230,9 @@ tracking_control:
 `bending_rate_servo` 参数。Cartesian target 与 solver/legacy backend 限幅保持关闭；servo 自身的
 lead/force guard 可通过 `tendon_inner_loop.enforce_target_lead_limit`、`soft_force_limit_n` 和
 `hard_force_limit_n` 显式关闭。
-所有 tracking 场景中的每条机械臂各自维护实际速度滤波、rate-error 积分和 anti-windup 状态；
-observer 的上层目标仍来自独立 intent。继续引用 `spatial_low_level.yaml` 的其他场景仍使用
-`arm_position_gain: 1.5` 和 protected tendon target 模式。
+所有 MuJoCo 主任务中的每条机械臂各自维护实际速度滤波、rate-error 积分和 anti-windup 状态；
+observer 的上层目标仍来自独立 intent。继续引用 `spatial_low_level.yaml` 的 analytic 或特殊调试场景
+仍使用 protected tendon target 模式。
 
 ### Engine tracking 的移动基座与反作用隔离
 

@@ -458,7 +458,7 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
     tree.write(output_path, encoding="utf-8", xml_declaration=False)
     inner_loop = config.task.tracking_control.tendon_inner_loop
     tendon_rate_servo_config = None
-    if config.task.type == "tracking" and inner_loop.mode == "bending_rate_servo":
+    if inner_loop.mode == "bending_rate_servo":
         tendon_rate_servo_config = BendingRateServoConfig(
             rate_filter_time_constant_s=inner_loop.rate_filter_time_constant_s,
             feedforward_lead_time_s=inner_loop.feedforward_lead_time_s,

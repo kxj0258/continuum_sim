@@ -30,7 +30,7 @@ scenario:
         plane: xy
         yaw_deg: 15.0
       shape:
-        side_length_m: 0.025
+        side_length_m: 0.040
   runtime:
     controller_dt_s: 0.02
     n_substeps: 20
@@ -46,6 +46,7 @@ scenario:
     viewer: none
     keep_viewer_open: false
   artifacts:
+    mujoco_pcc_diagnostics_stride: 10
     save_gif: true
     video_mode: live_mujoco
     video_fps: 10

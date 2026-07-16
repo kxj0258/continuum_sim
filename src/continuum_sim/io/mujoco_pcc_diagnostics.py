@@ -30,13 +30,38 @@ def build_mujoco_pcc_diagnostic_arrays(
     commands: Sequence[RobotSystemCommand],
     *,
     kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
+    stride: int = 1,
 ) -> dict[str, np.ndarray]:
     """Compare measured MuJoCo motion with PCC FK and Jacobian predictions."""
 
     if not states:
         return {}
+    if stride < 1:
+        raise ValueError("mujoco_pcc_diagnostics stride must be >= 1.")
+    state_indices = tuple(range(0, len(states), stride))
+    sampled_states = tuple(states[index] for index in state_indices)
+    sampled_command_indices = tuple(
+        index for index in state_indices if index < len(commands)
+    )
+    sampled_commands = tuple(commands[index] for index in sampled_command_indices)
     arrays: dict[str, np.ndarray] = {}
-    available_arms = set(states[-1].arms)
+    arrays["mujoco_pcc_diagnostics_state_index"] = np.asarray(
+        state_indices,
+        dtype=int,
+    )
+    arrays["mujoco_pcc_diagnostics_time_s"] = np.asarray(
+        [state.time_s for state in sampled_states],
+        dtype=float,
+    )
+    arrays["mujoco_pcc_diagnostics_command_index"] = np.asarray(
+        sampled_command_indices,
+        dtype=int,
+    )
+    arrays["mujoco_pcc_diagnostics_command_time_s"] = np.asarray(
+        [sampled_states[index].time_s for index in range(len(sampled_commands))],
+        dtype=float,
+    )
+    available_arms = set(sampled_states[-1].arms)
     for arm in assembly.enabled_arms:
         if arm.name not in available_arms:
             continue
@@ -44,8 +69,8 @@ def build_mujoco_pcc_diagnostic_arrays(
             _arm_diagnostic_arrays(
                 assembly,
                 arm.name,
-                states,
-                commands,
+                sampled_states,
+                sampled_commands,
                 kinematics_mode=kinematics_mode,
             )
         )

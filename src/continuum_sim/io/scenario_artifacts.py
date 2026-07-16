@@ -48,7 +48,7 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
     paths.videos_dir.mkdir(parents=True)
     arrays = _flatten_result(application, result)
     errors: list[str] = []
-    if config.backend.type == "mujoco":
+    if config.backend.type == "mujoco" and settings.save_mujoco_pcc_diagnostics:
         try:
             arrays.update(
                 build_mujoco_pcc_diagnostic_arrays(
@@ -56,6 +56,7 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
                     result.states,
                     result.commands,
                     kinematics_mode=config.backend.kinematics_mode,
+                    stride=settings.mujoco_pcc_diagnostics_stride,
                 )
             )
         except Exception as exc:  # Diagnostics must not discard the base artifacts.
@@ -96,6 +97,13 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
         "metrics": _metrics(arrays),
         "npz_keys": sorted(arrays) if settings.save_npz else [],
         "plots": plot_files,
+        "mujoco_pcc_diagnostics": {
+            "enabled": bool(
+                config.backend.type == "mujoco"
+                and settings.save_mujoco_pcc_diagnostics
+            ),
+            "stride": settings.mujoco_pcc_diagnostics_stride,
+        },
         "video": None,
         "video_status": "disabled" if not settings.save_gif else "pending",
         "video_mode": settings.video_mode if settings.save_gif else None,
@@ -1646,8 +1654,12 @@ def _save_mujoco_pcc_diagnostic_plots(
     output_dir: Path,
     plt,
 ) -> list[Path]:
-    state_time = arrays.get("time_s")
-    command_time = arrays.get("command_time_s")
+    state_time = arrays.get("mujoco_pcc_diagnostics_time_s")
+    if state_time is None:
+        state_time = arrays.get("time_s")
+    command_time = arrays.get("mujoco_pcc_diagnostics_command_time_s")
+    if command_time is None:
+        command_time = arrays.get("command_time_s")
     if state_time is None or command_time is None:
         return []
     suffix = "_pcc_mujoco_tip_error_norm_m"

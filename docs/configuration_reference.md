@@ -197,6 +197,8 @@ backend 用 `controller_dt_s` 积分 base/tendon target，但 time controller �
 | `artifacts.save_npz` | engine 显式 `true`；普通默认 `true` | 保存数值历史。 |
 | `artifacts.save_plots` | engine 显式 `true`；普通默认 `true` | 生成误差、tendon 和 safety 图。 |
 | `artifacts.save_gif` | `true` | 启用 GIF；与 `video_mode` 一起决定 live/replay 路径。 |
+| `artifacts.save_mujoco_pcc_diagnostics` | `true` | MuJoCo backend 运行结束后是否导出 PCC-MuJoCo FK/Jacobian/速度残差诊断；设为 `false` 可完全跳过这部分后处理。 |
+| `artifacts.mujoco_pcc_diagnostics_stride` | `1` | MuJoCo-PCC 诊断的 state 采样间隔；例如 `10` 表示只对第 0、10、20... 个 state 计算诊断。 |
 | `artifacts.video_mode` | `live_mujoco` | 仿真运行时直接抓取 MuJoCo 帧，不在结束后重放 qpos。 |
 | `artifacts.video_fps` | `10` | 输出 GIF 播放帧率，不是控制频率。 |
 | `artifacts.video_stride` | `10` | 每 10 个 controller step 抓一帧；当前每 0.2 s 仿真时间取一帧，即 5 capture fps，以 10 fps 播放约为 2 倍速。 |
@@ -358,9 +360,10 @@ NPZ/PNG，失败原因写入 `videos/video_error.txt`，并同步汇总到 `meta
 
 ### MuJoCo–PCC 模型与雅可比诊断
 
-所有 `backend.type: mujoco` 且 `artifacts.enabled: true` 的任务都会在运行结束导出产物时计算
-MuJoCo–PCC 对照诊断。该功能默认启用，不新增 YAML 开关，也不依赖 `hooks.recorder`；它只读取已经
-产生的状态和命令，不参与控制求解。安装座坐标优先使用 state metadata 中的 MuJoCo 实际
+`backend.type: mujoco` 且 `artifacts.enabled: true` 的任务默认会在运行结束导出产物时计算
+MuJoCo–PCC 对照诊断；可用 `artifacts.save_mujoco_pcc_diagnostics: false` 完全关闭，
+或用 `artifacts.mujoco_pcc_diagnostics_stride` 降低采样频率。该诊断不依赖 `hooks.recorder`；
+它只读取已经产生的状态和命令，不参与控制求解。安装座坐标优先使用 state metadata 中的 MuJoCo 实际
 `mobile_base_frame` 位姿，缺失时才回退到软件 base pose。`artifacts.enabled: false` 的纯 viewer
 场景仍不创建运行产物。
 

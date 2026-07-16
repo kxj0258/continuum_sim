@@ -395,6 +395,8 @@ class ScenarioArtifactConfig:
     save_plots: bool
     save_gif: bool
     save_model: bool
+    save_mujoco_pcc_diagnostics: bool = True
+    mujoco_pcc_diagnostics_stride: int = 1
     video_mode: str = "replay"
     video_fps: int = 20
     video_stride: int | None = None
@@ -506,6 +508,11 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     video_mode = str(artifact_values.get("video_mode", "replay"))
     if video_mode not in VIDEO_MODES:
         raise ValueError(f"scenario.artifacts.video_mode must be one of {VIDEO_MODES}.")
+    mujoco_pcc_diagnostics_stride = int(
+        artifact_values.get("mujoco_pcc_diagnostics_stride", 1)
+    )
+    if mujoco_pcc_diagnostics_stride < 1:
+        raise ValueError("scenario.artifacts.mujoco_pcc_diagnostics_stride must be >= 1.")
     if (
         backend_type != "mujoco"
         and bool(artifact_values.get("save_gif", True))
@@ -686,6 +693,10 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             save_plots=bool(artifact_values.get("save_plots", True)),
             save_gif=bool(artifact_values.get("save_gif", True)),
             save_model=bool(artifact_values.get("save_model", True)),
+            save_mujoco_pcc_diagnostics=bool(
+                artifact_values.get("save_mujoco_pcc_diagnostics", True)
+            ),
+            mujoco_pcc_diagnostics_stride=mujoco_pcc_diagnostics_stride,
             video_mode=video_mode,
             video_fps=int(artifact_values.get("video_fps", 20)),
             video_stride=(

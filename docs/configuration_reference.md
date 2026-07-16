@@ -407,7 +407,8 @@ MuJoCo–PCC 对照诊断。该功能默认启用，不新增 YAML 开关，也�
 
 1. 先看 `pcc_mujoco_tip_error_mount_m`，确认固定方向偏差是否在安装座坐标系中仍然存在；若存在，
    它不是移动底座世界位姿造成的假象。
-2. 若雅可比线性化残差远小于 PCC–MuJoCo 模型速度残差，优先检查 PCC 常曲率假设、MuJoCo
+2. 若雅可比线性化残差远小于 PCC–MuJoCo 模型速度残差，优先检查 PCC 的 Y/X/Y/X
+   离散铰链结构、36.5 mm 驱动段长度、3.5 mm 段间/末端直线偏置、MuJoCo
    分布式关节、spatial tendon 路径、neutral tendon length 和安装/末端 site 定义。
 3. 若雅可比线性化残差本身也大，先检查 tendon-to-bending 映射、雅可比坐标系、状态/命令时间对齐；
    同时减小单周期运动量，区分实现错误与局部线性化误差。
@@ -1129,9 +1130,35 @@ PCC 状态使用曲率 `kappa`，因此曲率坐标中的对角刚度为：
 K_kappa = EI * segment_length
 ```
 
-当前每段 `segment_length = 0.04 m`，对应 `K_kappa = 8e-6`。轴向和扭转
+当前每段总长 `segment_length = 0.04 m`，其中 tendon 驱动固定平面位于段底部上方
+`0.0365 m`，其后的 `0.0035 m` 是到下一段底部或 tip site 的直线偏置。用于
+tendon-to-bending 映射的有效驱动长度为 `0.0365 m`，而整段直线姿态长度仍为
+`0.04 m`。若以整段刚度估算，`K_kappa = 8e-6`。轴向和扭转
 刚度没有按该公式映射，因为当前 distributed-link MuJoCo 臂没有对应的
 独立轴向或扭转关节自由度。
+
+基座底部中心到第 1 段底部中心的 `0.02 m` Z 向位移属于 assembly 的
+`mount_pose.position_m`，例如 `configs/robots/assemblies/single_spatial.yaml`。
+PCC local kinematics 从第 1 段底部中心开始，因此不会把这段基座高度计入
+三段 segment 的 `0.04 m` 局部长度。
+
+Scenario backend 可通过 `scenario.backend.kinematics_mode` 选择底层 FK/Jacobian 模式，
+默认值为 `discrete_hinge`。该值会同步传给 analytic backend、whole-body solver、
+navigation CBF、PCC dynamics helper、MuJoCo-PCC artifact diagnostics 和 manual
+PCC/MuJoCo debug overlay：
+
+```yaml
+scenario:
+  backend:
+    type: mujoco
+    kinematics_mode: discrete_hinge
+```
+
+- `constant_curvature`：旧模型，每段一个 `constant_curvature_transform(segment.length)`。
+- `constant_curvature_with_offset`：每段先在 `0.0365 m` 上做一个 constant-curvature
+  transform，再沿局部 Z 接 `0.0035 m` 直线偏置。
+- `discrete_hinge`：当前物理结构模型，每段 `0.0365 m` 上按 Y/X/Y/X 四个离散 hinge
+  分布弯曲，再接 `0.0035 m` 直线偏置。
 
 ### 双臂单轴柔性关节拓扑
 
@@ -1163,12 +1190,13 @@ k_joint = n_axis * EI / segment_length
 k_segment = k_joint / n_axis = EI / segment_length
 ```
 
-当前每个 40 mm segment 含 Y/X/Y/X 四个小节，因此 X、Y 方向分别有两个串联
+当前每个 40 mm segment 含 Y/X/Y/X 四个小节，驱动弯曲部分为 36.5 mm，末端
+3.5 mm 为直线偏置，因此 X、Y 方向分别有两个串联
 hinge。使用 `EI = 0.0002 N·m²` 时：
 
 ```text
-k_joint = 2 * 0.0002 / 0.04 = 0.01 N·m/rad
-k_segment = 0.01 / 2 = 0.005 N·m/rad
+k_joint = 2 * 0.0002 / 0.0365 = 0.01096 N·m/rad
+k_segment = 0.01096 / 2 = 0.00548 N·m/rad
 ```
 
 `configs/mujoco_dual.yaml` 中 `joints.hinge.stiffness: 0.01` 是缺少段级

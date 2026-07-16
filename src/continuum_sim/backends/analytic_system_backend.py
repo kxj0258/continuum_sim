@@ -13,7 +13,11 @@ from continuum_sim.control.tendon_rate_control import (
     CompatibleTendonRateIntegrator,
     TendonRateLimits,
 )
-from continuum_sim.kinematics.pcc import forward_kinematics
+from continuum_sim.kinematics.pcc import (
+    DEFAULT_PCC_KINEMATICS_MODE,
+    PCCKinematicsMode,
+    forward_kinematics,
+)
 from continuum_sim.model.base_pose import Pose6D
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
 from continuum_sim.system.control_layout import ControlLayout
@@ -33,12 +37,14 @@ class AnalyticSystemBackend:
         assembly: RobotAssemblyConfig,
         *,
         samples_per_segment: int = 12,
+        kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
     ) -> None:
         if samples_per_segment < 2:
             raise ValueError("samples_per_segment must be at least 2.")
         self.assembly = assembly
         self.layout = ControlLayout.from_assembly(assembly)
         self.samples_per_segment = samples_per_segment
+        self.kinematics_mode = kinematics_mode
         self._time_s = 0.0
         self._base_state = self._initial_base_state()
         self._integrators = {
@@ -135,6 +141,7 @@ class AnalyticSystemBackend:
                 q,
                 arm.spatial_arm.params,
                 samples_per_segment=self.samples_per_segment,
+                kinematics_mode=self.kinematics_mode,
             )
             world_mount = self._base_state.pose.compose(arm.mount_pose)
             tip_world = world_mount.as_matrix() @ fk.tip_pose
@@ -158,6 +165,7 @@ class AnalyticSystemBackend:
                     "compatibility_residual_m": model.residual(displacement),
                     "compatibility_residual_norm_m": model.residual_norm(displacement),
                     "backend": "analytic",
+                    "kinematics_mode": self.kinematics_mode,
                 },
             )
         return RobotSystemState(
@@ -167,7 +175,11 @@ class AnalyticSystemBackend:
                 twist_world=self._base_state.last_twist,
             ),
             arms=arms,
-            metadata={"backend": "analytic", "control": "bending_compatible"},
+            metadata={
+                "backend": "analytic",
+                "control": "bending_compatible",
+                "kinematics_mode": self.kinematics_mode,
+            },
         )
 
     def _initial_base_state(self) -> MobileBaseState:

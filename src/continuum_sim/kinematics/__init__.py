@@ -16,7 +16,15 @@ from continuum_sim.kinematics.differential import (
     motor_velocity_to_qdot_matrix,
     tip_position_from_q,
 )
-from continuum_sim.kinematics.pcc import PCCForwardKinematicsResult, forward_kinematics
+from continuum_sim.kinematics.pcc import (
+    DEFAULT_PCC_KINEMATICS_MODE,
+    PCC_KINEMATICS_MODES,
+    PCCForwardKinematicsResult,
+    PCCKinematicsMode,
+    constant_curvature_with_offset_segment_transform,
+    forward_kinematics,
+    segment_transform,
+)
 from continuum_sim.kinematics.sdf import (
     damped_pseudoinverse,
     fuse_task_and_nullspace_velocity,
@@ -47,7 +55,11 @@ __all__ = [
     "analytic_position_jacobian",
     "bending_rate_to_motor_velocity",
     "differential_bending_position_jacobian",
+    "DEFAULT_PCC_KINEMATICS_MODE",
+    "PCC_KINEMATICS_MODES",
     "PCCForwardKinematicsResult",
+    "PCCKinematicsMode",
+    "constant_curvature_with_offset_segment_transform",
     "damped_pseudoinverse",
     "finite_difference_position_jacobian",
     "forward_kinematics",
@@ -69,6 +81,7 @@ __all__ = [
     "centerline_point_tendon_jacobian",
     "rotate_position_jacobian_to_world",
     "segment_transform_with_derivatives",
+    "segment_transform",
     "tendon_position_jacobian",
     "tendon_rate_to_shape_rate_matrix",
     "tip_position_from_q",

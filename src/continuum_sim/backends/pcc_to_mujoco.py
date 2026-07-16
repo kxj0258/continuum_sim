@@ -16,8 +16,9 @@ def pcc_q_to_joint_targets(
 
     ``q`` is ordered as ``[kx1, ky1, eps1, kx2, ky2, eps2, kx3, ky3, eps3]``.
     The reduced-order model has x/y hinge pairs for each link, ordered by
-    segment then link. Axial strain ``eps`` is intentionally ignored in this
-    first reduced-order mapping because the MJCF has no axial prismatic DOFs.
+    segment then link. Only the physical flexure axis for each link is driven
+    for the current Y/X/Y/X structure. Axial strain ``eps`` is intentionally
+    ignored because the MJCF has no axial prismatic DOFs.
     """
 
     q_array = np.asarray(q, dtype=float)
@@ -32,8 +33,19 @@ def pcc_q_to_joint_targets(
         zip(q_segments, params.segments, strict=True)
     ):
         kx, ky, _eps = segment_q
-        per_link_angle = segment.length / float(links_per_segment)
-        targets[segment_index, :, 0] = -ky * per_link_angle
-        targets[segment_index, :, 1] = kx * per_link_angle
+        axes = segment.flexure_joint_axes
+        if len(axes) != links_per_segment:
+            axes = tuple(axes[index % len(axes)] for index in range(links_per_segment))
+        x_count = max(1, axes.count("x"))
+        y_count = max(1, axes.count("y"))
+        x_angle = -ky * segment.effective_flexure_length / float(x_count)
+        y_angle = kx * segment.effective_flexure_length / float(y_count)
+        for link_index, axis in enumerate(axes):
+            if axis == "x":
+                targets[segment_index, link_index, 0] = x_angle
+            elif axis == "y":
+                targets[segment_index, link_index, 1] = y_angle
+            else:
+                raise ValueError(f"Unsupported flexure joint axis {axis!r}.")
 
     return targets.reshape(-1)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from numpy.testing import assert_allclose
 
 from continuum_sim.control.waypoint_scheduler import WaypointScheduler
@@ -95,19 +96,23 @@ def test_tracking_control_config_loads_scenario_overrides() -> None:
     assert config.task.tracking_control.decouple_arm_singularity is True
     assert config.task.tracking_control.enforce_solver_velocity_limits is False
     assert config.task.tracking_control.enforce_backend_tendon_limits is False
+    assert config.backend.kinematics_mode == "discrete_hinge"
+    assert config.task.tracking_control.kinematics_mode == "discrete_hinge"
 
 
 def test_mujoco_point_servo_scenario_uses_four_waypoint_step_limited_servo() -> None:
     config = load_scenario_config("configs/scenarios/single_mujoco_point_servo.yaml")
 
     assert config.name == "single_mujoco_point_servo"
+    assert config.backend.kinematics_mode == "discrete_hinge"
+    assert config.task.tracking_control.kinematics_mode == "discrete_hinge"
     assert config.task.type == "tracking"
-    assert config.task.waypoint_tolerance_m == 0.003
+    assert config.task.waypoint_tolerance_m == 0.001
     assert config.task.target_advance_mode == "tolerance"
     assert config.task.tracking_control.tracking_mode == "waypoint"
-    assert config.task.tracking_control.max_steps_per_waypoint == 200
+    assert config.task.tracking_control.max_steps_per_waypoint == 2000
     assert config.task.tracking_control.executor_position_gain == 1.0
-    assert config.task.tracking_control.max_target_speed_mps == 0.005
+    assert config.task.tracking_control.max_target_speed_mps == 0.010
     assert config.task.tracking_control.enforce_target_speed_limit is True
     assert config.task.tracking_control.feedforward_speed_mps == 0.0
     assert config.task.tracking_control.approach_samples == 0
@@ -123,6 +128,58 @@ def test_mujoco_point_servo_scenario_uses_four_waypoint_step_limited_servo() -> 
     assert_allclose(np.linalg.norm(waypoints[1] - waypoints[0]), 0.040)
     assert_allclose(np.linalg.norm(waypoints[2] - waypoints[1]), 0.040)
     assert_allclose(np.linalg.norm(waypoints[3] - waypoints[2]), 0.040)
+
+
+def test_scenario_backend_kinematics_mode_can_select_split_constant_curvature(tmp_path) -> None:
+    scenario_path = tmp_path / "split_constant_curvature.yaml"
+    scenario_path.write_text(
+        """
+schema_version: 1
+scenario:
+  name: split_constant_curvature
+  assembly_config_path: ../configs/robots/assemblies/single_spatial.yaml
+  backend:
+    type: analytic
+    kinematics_mode: constant_curvature_with_offset
+  task:
+    type: idle
+  hooks:
+    viewer: none
+  artifacts:
+    enabled: false
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    config = load_scenario_config(scenario_path)
+
+    assert config.backend.kinematics_mode == "constant_curvature_with_offset"
+    assert config.task.tracking_control.kinematics_mode == "constant_curvature_with_offset"
+
+
+def test_scenario_backend_kinematics_mode_rejects_unknown_value(tmp_path) -> None:
+    scenario_path = tmp_path / "bad_kinematics_mode.yaml"
+    scenario_path.write_text(
+        """
+schema_version: 1
+scenario:
+  name: bad_kinematics_mode
+  assembly_config_path: ../configs/robots/assemblies/single_spatial.yaml
+  backend:
+    type: analytic
+    kinematics_mode: not_a_mode
+  task:
+    type: idle
+  hooks:
+    viewer: none
+  artifacts:
+    enabled: false
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="scenario.backend.kinematics_mode"):
+        load_scenario_config(scenario_path)
 
 
 def test_wiping_controller_accepts_tracking_control_parameters() -> None:

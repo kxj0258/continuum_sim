@@ -9,7 +9,11 @@ from continuum_sim.actuation.motor_mapping import (
     tendon_velocity_to_motor_velocity,
 )
 from continuum_sim.kinematics.analytic_pcc import analytic_bending_position_jacobian
-from continuum_sim.kinematics.pcc import forward_kinematics
+from continuum_sim.kinematics.pcc import (
+    DEFAULT_PCC_KINEMATICS_MODE,
+    PCCKinematicsMode,
+    forward_kinematics,
+)
 from continuum_sim.model.physical_tendon import PhysicalTendonPath
 from continuum_sim.model.bending_space import BendingSpaceModel
 from continuum_sim.model.robot_params import ThreeSegmentRobotParams
@@ -19,9 +23,11 @@ from continuum_sim.model.tendon_coupling import build_coupling_matrix
 def tip_position_from_q(
     q: np.ndarray,
     params: ThreeSegmentRobotParams | None = None,
+    *,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> np.ndarray:
     """Return the 3D tip position from a PCC state."""
-    fk = forward_kinematics(q, params)
+    fk = forward_kinematics(q, params, kinematics_mode=kinematics_mode)
     return fk.tip_pose[:3, 3].copy()
 
 
@@ -29,6 +35,8 @@ def finite_difference_position_jacobian(
     q: np.ndarray,
     params: ThreeSegmentRobotParams,
     step: float = 1.0e-5,
+    *,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> np.ndarray:
     """Compute d tip_position / d q by centered finite differences."""
     q_array = _as_vector(q, "q", expected_size=params.q_size)
@@ -39,8 +47,16 @@ def finite_difference_position_jacobian(
     for index in range(params.q_size):
         offset = np.zeros(params.q_size, dtype=float)
         offset[index] = step
-        position_plus = tip_position_from_q(q_array + offset, params)
-        position_minus = tip_position_from_q(q_array - offset, params)
+        position_plus = tip_position_from_q(
+            q_array + offset,
+            params,
+            kinematics_mode=kinematics_mode,
+        )
+        position_minus = tip_position_from_q(
+            q_array - offset,
+            params,
+            kinematics_mode=kinematics_mode,
+        )
         jacobian[:, index] = (position_plus - position_minus) / (2.0 * step)
     return jacobian
 
@@ -62,9 +78,16 @@ def motor_position_jacobian(
     physical_tendons: tuple[PhysicalTendonPath, ...],
     motor_params: tuple[MotorParams, ...],
     step: float = 1.0e-5,
+    *,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> np.ndarray:
     """Return the tip-position Jacobian with respect to motor velocity."""
-    J_pos = finite_difference_position_jacobian(q, params, step=step)
+    J_pos = finite_difference_position_jacobian(
+        q,
+        params,
+        step=step,
+        kinematics_mode=kinematics_mode,
+    )
     M_qm = motor_velocity_to_qdot_matrix(params, physical_tendons, motor_params)
     return J_pos @ M_qm
 
@@ -75,6 +98,7 @@ def bending_position_jacobian(
     physical_tendons: tuple[PhysicalTendonPath, ...],
     *,
     step: float = 1.0e-5,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> np.ndarray:
     """Return the tip-position Jacobian with respect to bending rate."""
 
@@ -84,6 +108,7 @@ def bending_position_jacobian(
         q,
         params,
         model.selection_matrix,
+        kinematics_mode=kinematics_mode,
     )
 
 

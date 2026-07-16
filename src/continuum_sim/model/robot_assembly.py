@@ -144,6 +144,21 @@ def load_spatial_arm_config(path: str | Path) -> SpatialArmConfig:
                     f"spatial_arm.segments[{index}]",
                 )
             ),
+            flexure_length=(
+                None
+                if segment.get("flexure_length_m") is None
+                else float(segment["flexure_length_m"])
+            ),
+            distal_straight_length=float(
+                segment.get("distal_straight_length_m", 0.0)
+            ),
+            flexure_joint_axes=tuple(
+                str(axis).lower()
+                for axis in segment.get(
+                    "flexure_joint_axes",
+                    ("y", "x", "y", "x"),
+                )
+            ),
             collision_radius=(
                 None
                 if segment.get("collision_radius_m") is None

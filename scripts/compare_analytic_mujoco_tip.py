@@ -41,7 +41,11 @@ def main() -> None:
     executor = next(arm for arm in assembly.enabled_arms if arm.role == "executor")
 
     q0 = np.zeros(executor.spatial_arm.params.q_size, dtype=float)
-    local_tip = forward_kinematics(q0, executor.spatial_arm.params).tip_pose[:3, 3]
+    local_tip = forward_kinematics(
+        q0,
+        executor.spatial_arm.params,
+        kinematics_mode=config.backend.kinematics_mode,
+    ).tip_pose[:3, 3]
     world_mount = assembly.base.initial_pose.compose(executor.mount_pose)
     analytic_tip_world = world_mount.transform_point(local_tip)
 
@@ -50,6 +54,7 @@ def main() -> None:
         load_mujoco_config(config.backend.mujoco_config_path),
         assembly,
         xml_path=xml_path,
+        kinematics_mode=config.backend.kinematics_mode,
     )
     state = backend.reset_system()
     mujoco_tip_world = state.arms[executor.name].tip_pose_world.position
@@ -58,6 +63,7 @@ def main() -> None:
     print(f"scenario: {scenario_path}")
     print(f"mujoco_xml: {xml_path}")
     print(f"executor: {executor.name}")
+    print(f"kinematics_mode: {config.backend.kinematics_mode}")
     print(f"mount_position_m: {_format_vector(executor.mount_pose.position)}")
     print(f"analytic_local_straight_tip_m: {_format_vector(local_tip)}")
     print(f"analytic_straight_tip_world_m: {_format_vector(analytic_tip_world)}")

@@ -3,8 +3,11 @@ from numpy.testing import assert_allclose
 
 from continuum_sim.kinematics.pcc import (
     constant_curvature_transform,
+    constant_curvature_with_offset_segment_transform,
     forward_kinematics,
+    structured_segment_transform,
 )
+from continuum_sim.utils.math_utils import make_transform
 from continuum_sim.model.robot_params import ThreeSegmentRobotParams
 
 
@@ -64,9 +67,9 @@ def test_forward_kinematics_three_segment_composition() -> None:
     q_segments = q.reshape(3, 3)
     expected_tip_pose = np.eye(4)
     for q_segment, segment in zip(q_segments, params.segments, strict=True):
-        expected_tip_pose = expected_tip_pose @ constant_curvature_transform(
+        expected_tip_pose = expected_tip_pose @ structured_segment_transform(
             q_segment,
-            segment.length,
+            segment,
         )
 
     assert result.centerline.shape == (19, 3)
@@ -76,6 +79,74 @@ def test_forward_kinematics_three_segment_composition() -> None:
     assert_allclose(result.segment_centerlines[1][-1], result.segment_centerlines[2][0], atol=1.0e-14)
     assert np.all(np.isfinite(result.tip_pose))
     assert np.linalg.norm(result.tip_pose[:2, 3]) > 0.0
+
+
+def test_forward_kinematics_supports_original_constant_curvature_mode() -> None:
+    params = ThreeSegmentRobotParams.default()
+    q = np.array([5.0, 0.0, 0.0, 0.0, 4.0, 0.0, -3.0, 2.0, 0.01])
+
+    result = forward_kinematics(
+        q,
+        params,
+        samples_per_segment=7,
+        kinematics_mode="constant_curvature",
+    )
+    expected_tip_pose = np.eye(4)
+    for q_segment, segment in zip(q.reshape(3, 3), params.segments, strict=True):
+        expected_tip_pose = expected_tip_pose @ constant_curvature_transform(
+            q_segment,
+            segment.length,
+        )
+
+    assert_allclose(result.tip_pose, expected_tip_pose, atol=1.0e-12)
+
+
+def test_forward_kinematics_supports_constant_curvature_with_offset_mode() -> None:
+    params = ThreeSegmentRobotParams.default()
+    q = np.array([5.0, 0.0, 0.0, 0.0, 4.0, 0.0, -3.0, 2.0, 0.01])
+
+    result = forward_kinematics(
+        q,
+        params,
+        samples_per_segment=7,
+        kinematics_mode="constant_curvature_with_offset",
+    )
+    expected_tip_pose = np.eye(4)
+    for q_segment, segment in zip(q.reshape(3, 3), params.segments, strict=True):
+        eps = float(q_segment[2])
+        expected_tip_pose = (
+            expected_tip_pose
+            @ constant_curvature_transform(q_segment, segment.effective_flexure_length)
+            @ make_transform(
+                np.eye(3),
+                np.array(
+                    [
+                        0.0,
+                        0.0,
+                        segment.effective_distal_straight_length * (1.0 + eps),
+                    ]
+                ),
+            )
+        )
+
+    assert_allclose(result.tip_pose, expected_tip_pose, atol=1.0e-12)
+    assert_allclose(
+        result.tip_pose,
+        np.linalg.multi_dot(
+            [
+                constant_curvature_with_offset_segment_transform(
+                    q_segment,
+                    segment,
+                )
+                for q_segment, segment in zip(
+                    q.reshape(3, 3),
+                    params.segments,
+                    strict=True,
+                )
+            ]
+        ),
+        atol=1.0e-12,
+    )
 
 
 def test_near_zero_curvature_uses_straight_rod_approximation() -> None:

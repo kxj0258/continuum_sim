@@ -42,6 +42,13 @@ from continuum_sim.dynamics import (
     step_dynamics,
 )
 from continuum_sim.kinematics.differential import finite_difference_position_jacobian
+from continuum_sim.kinematics.pcc import forward_kinematics
+from continuum_sim.kinematics.whole_body import (
+    assemble_whole_body_jacobian,
+    base_point_jacobian_world,
+    centerline_point_bending_jacobian,
+    rotate_position_jacobian_to_world,
+)
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
 from continuum_sim.model.robot_params import PCC_VALUES_PER_SEGMENT
 from continuum_sim.scenes.engine_query import EngineSceneQueryProtocol
@@ -164,6 +171,7 @@ class WaypointTrackingController:
         self.executor_velocity_override_world: np.ndarray | None = None
         low_level_config = (
             CoordinatedTrackingConfig(
+                kinematics_mode=solver_config.kinematics_mode,
                 executor_position_gain=executor_position_gain,
                 observer_position_gain=observer_position_gain,
                 max_target_speed_mps=max_target_speed_mps,
@@ -380,6 +388,7 @@ class TimedTrajectoryTrackingController:
         self._done = False
         low_level_config = (
             CoordinatedTrackingConfig(
+                kinematics_mode=solver_config.kinematics_mode,
                 executor_position_gain=executor_position_gain,
                 observer_position_gain=observer_position_gain,
                 max_target_speed_mps=max_target_speed_mps,
@@ -591,6 +600,7 @@ class NavigationController:
         )
         self._layout = ControlLayout.from_assembly(assembly)
         self._assembly = assembly
+        self._kinematics_mode = solver_config.kinematics_mode
 
     @property
     def done(self) -> bool:
@@ -690,6 +700,7 @@ class NavigationController:
                 q,
                 arm.spatial_arm.params,
                 samples_per_segment=6,
+                kinematics_mode=self._kinematics_mode,
             ).centerline
             mount = state.base.pose.compose(arm.mount_pose)
             centerline_world = mount.transform_points(centerline)
@@ -707,6 +718,7 @@ class NavigationController:
                 arm.spatial_arm.params,
                 arm.spatial_arm.tendons,
                 samples_per_segment=6,
+                kinematics_mode=self._kinematics_mode,
             )
             world_jacobian = rotate_position_jacobian_to_world(
                 local_jacobian,
@@ -836,6 +848,7 @@ class WipingController:
         self._executor_bending_model = self._tracking._controller.solver.layout.bending_models[
             self._executor_name
         ]
+        self._kinematics_mode = solver_config.kinematics_mode
         self._dynamics_config = (
             PCCDynamicsConfig.default(executor.spatial_arm.params)
             if dynamics_config is None
@@ -1076,12 +1089,18 @@ class WipingController:
         tip_jacobian = finite_difference_position_jacobian(
             q,
             arm_config.spatial_arm.params,
+            kinematics_mode=self._kinematics_mode,
         )
         active = _bending_dof_mask(arm_config.spatial_arm.params)
         desired_qdot = np.zeros_like(q)
         desired_qdot[active] = np.linalg.pinv(tip_jacobian[:, active]) @ desired_local
         desired_qddot = (desired_qdot - qdot) / max(self.controller_dt_s, 1.0e-12)
-        M = mass_matrix(q, arm_config.spatial_arm.params, self._dynamics_config)
+        M = mass_matrix(
+            q,
+            arm_config.spatial_arm.params,
+            self._dynamics_config,
+            kinematics_mode=self._kinematics_mode,
+        )
         D = damping_matrix(arm_config.spatial_arm.params, self._dynamics_config)
         K = stiffness_matrix(arm_config.spatial_arm.params, self._dynamics_config)
         contact_tau = contact_generalized_force(
@@ -1089,6 +1108,7 @@ class WipingController:
             float(max(0.0, normal_force_n if np.isfinite(normal_force_n) else 0.0))
             * (rotation.T @ np.asarray(normal_world, dtype=float)),
             arm_config.spatial_arm.params,
+            kinematics_mode=self._kinematics_mode,
         )
         tau = M @ desired_qddot + D @ qdot + K @ q - contact_tau
         predicted, _info = step_dynamics(
@@ -1097,6 +1117,7 @@ class WipingController:
             params=arm_config.spatial_arm.params,
             config=self._dynamics_config,
             dt=self.controller_dt_s,
+            kinematics_mode=self._kinematics_mode,
         )
         tendon_rate = model.to_tendon(predicted.qdot[active])
         arms = dict(command.arms)
@@ -1150,6 +1171,7 @@ class EngineCleaningSystemController:
         self._observer_control_mode = str(observer_control_mode)
         low_level_config = (
             CoordinatedTrackingConfig(
+                kinematics_mode=solver_config.kinematics_mode,
                 executor_position_gain=executor_position_gain,
                 observer_position_gain=observer_position_gain,
                 max_target_speed_mps=max_target_speed_mps,

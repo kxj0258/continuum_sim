@@ -171,14 +171,29 @@ def _load_arm_params(arm_name: str, arm_raw: dict[str, object]) -> ThreeSegmentR
         if not isinstance(segment_raw, dict):
             raise ValueError(f"dual_robot.arms.{arm_name}.segments items must be mappings.")
         segments.append(
-            SegmentParams(
-                length=float(segment_raw["length"]),
-                tendon_radius=float(segment_raw["tendon_radius"]),
-                tendon_angles_deg=tuple(float(v) for v in segment_raw["tendon_angles_deg"]),
-                collision_radius=(
-                    None
-                    if segment_raw.get("collision_radius") is None
-                    else float(segment_raw["collision_radius"])
+                SegmentParams(
+                    length=float(segment_raw["length"]),
+                    tendon_radius=float(segment_raw["tendon_radius"]),
+                    tendon_angles_deg=tuple(float(v) for v in segment_raw["tendon_angles_deg"]),
+                    flexure_length=(
+                        None
+                        if segment_raw.get("flexure_length") is None
+                        else float(segment_raw["flexure_length"])
+                    ),
+                    distal_straight_length=float(
+                        segment_raw.get("distal_straight_length", 0.0)
+                    ),
+                    flexure_joint_axes=tuple(
+                        str(axis).lower()
+                        for axis in segment_raw.get(
+                            "flexure_joint_axes",
+                            ("y", "x", "y", "x"),
+                        )
+                    ),
+                    collision_radius=(
+                        None
+                        if segment_raw.get("collision_radius") is None
+                        else float(segment_raw["collision_radius"])
                 ),
                 mass=(
                     None if segment_raw.get("mass") is None else float(segment_raw["mass"])

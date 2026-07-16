@@ -17,6 +17,11 @@ from continuum_sim.control.tendon_rate_control import (
     TENDON_INNER_LOOP_MODES,
 )
 from continuum_sim.control.waypoint_scheduler import WAYPOINT_ADVANCE_MODES
+from continuum_sim.kinematics.pcc import (
+    DEFAULT_PCC_KINEMATICS_MODE,
+    PCC_KINEMATICS_MODES,
+    PCCKinematicsMode,
+)
 from continuum_sim.tasks.engine_cleaning_path import EngineCleaningPathSpec
 from continuum_sim.tasks.engine_navigation import EngineNavigationSpec
 from continuum_sim.tasks.navigation_mission import NavigationMissionSpec
@@ -56,10 +61,17 @@ SINGULARITY_STRATEGIES = ("damping_scale", "svd_projection")
 @dataclass(frozen=True)
 class ScenarioBackendConfig:
     type: str
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE
     mujoco_config_path: Path | None = None
     source_xml_path: Path | None = None
     generated_xml_path: Path | None = None
     retain_arm: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kinematics_mode not in PCC_KINEMATICS_MODES:
+            raise ValueError(
+                f"backend.kinematics_mode must be one of {PCC_KINEMATICS_MODES}."
+            )
 
 
 @dataclass(frozen=True)
@@ -110,6 +122,7 @@ class ScenarioTendonInnerLoopConfig:
 class ScenarioTrackingControlConfig:
     """Scenario-native trajectory-tracking controller parameters."""
 
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE
     approach_samples: int = 0
     tracking_mode: str = "waypoint"
     trajectory_duration_s: float | None = None
@@ -144,6 +157,11 @@ class ScenarioTrackingControlConfig:
     )
 
     def __post_init__(self) -> None:
+        if self.kinematics_mode not in PCC_KINEMATICS_MODES:
+            raise ValueError(
+                "tracking_control.kinematics_mode must be one of "
+                f"{PCC_KINEMATICS_MODES}."
+            )
         if self.approach_samples == 1 or self.approach_samples < 0:
             raise ValueError("tracking_control.approach_samples must be 0 or at least 2.")
         if self.tracking_mode not in TRACKING_MODES:
@@ -413,6 +431,10 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     backend_type = str(backend_values.get("type", "analytic"))
     if backend_type not in BACKEND_TYPES:
         raise ValueError(f"scenario.backend.type must be one of {BACKEND_TYPES}.")
+    kinematics_mode = _kinematics_mode(
+        backend_values.get("kinematics_mode", DEFAULT_PCC_KINEMATICS_MODE),
+        "scenario.backend.kinematics_mode",
+    )
     task_values = _mapping(values.get("task", {}), "scenario.task")
     task_type = str(task_values.get("type", "idle"))
     if task_type not in TASK_TYPES:
@@ -517,6 +539,7 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     tracking_control = _load_tracking_control_config(
         task_values,
         low_level_control_values,
+        kinematics_mode=kinematics_mode,
     )
     observer_control = _load_observer_control_config(task_values)
     contact_admittance = _load_contact_admittance_config(task_values)
@@ -538,6 +561,7 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
         low_level_control_path=low_level_control_path,
         backend=ScenarioBackendConfig(
             type=backend_type,
+            kinematics_mode=kinematics_mode,
             mujoco_config_path=_optional_path(
                 config_path,
                 backend_values.get("mujoco_config_path"),
@@ -679,6 +703,13 @@ def _mapping(value: object, name: str) -> dict:
     return value
 
 
+def _kinematics_mode(value: object, name: str) -> PCCKinematicsMode:
+    mode = str(value)
+    if mode not in PCC_KINEMATICS_MODES:
+        raise ValueError(f"{name} must be one of {PCC_KINEMATICS_MODES}.")
+    return mode  # type: ignore[return-value]
+
+
 def _waypoint_source(task_values: dict[str, Any]) -> str:
     sources = [
         name
@@ -702,6 +733,8 @@ def _waypoint_source(task_values: dict[str, Any]) -> str:
 def _load_tracking_control_config(
     task_values: dict[str, Any],
     low_level_values: dict[str, Any] | None = None,
+    *,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> ScenarioTrackingControlConfig:
     task_control_values = _mapping(
         task_values.get("tracking_control", {}),
@@ -745,6 +778,7 @@ def _load_tracking_control_config(
     tendon_command = {**tendon_command_values, **tendon_command_override}
     execution = {**execution_values, **execution_override}
     return ScenarioTrackingControlConfig(
+        kinematics_mode=kinematics_mode,
         approach_samples=int(task_control_values.get("approach_samples", 0)),
         tracking_mode=str(task_control_values.get("tracking_mode", "waypoint")),
         trajectory_duration_s=_optional_float(

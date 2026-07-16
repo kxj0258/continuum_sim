@@ -12,7 +12,11 @@ from continuum_sim.kinematics.analytic_pcc import (
     analytic_centerline_point_jacobian,
     analytic_position_jacobian,
 )
-from continuum_sim.kinematics.pcc import forward_kinematics
+from continuum_sim.kinematics.pcc import (
+    DEFAULT_PCC_KINEMATICS_MODE,
+    PCCKinematicsMode,
+    forward_kinematics,
+)
 from continuum_sim.model.robot_params import PCC_VALUES_PER_SEGMENT, ThreeSegmentRobotParams
 
 
@@ -85,6 +89,7 @@ def mass_matrix(
     config: PCCDynamicsConfig,
     *,
     step: float = 1.0e-5,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> np.ndarray:
     """Approximate generalized mass from centerline point Jacobians."""
 
@@ -93,6 +98,7 @@ def mass_matrix(
         q_array,
         params,
         samples_per_segment=config.centerline_samples_per_segment,
+        kinematics_mode=kinematics_mode,
     )
     point_count = fk.centerline.shape[0]
     if point_count <= 0:
@@ -106,6 +112,7 @@ def mass_matrix(
             params,
             config.centerline_samples_per_segment,
             step,
+            kinematics_mode,
         )
         matrix += point_mass * (jacobian.T @ jacobian)
     matrix += config.mass_regularization * np.eye(params.q_size, dtype=float)
@@ -120,7 +127,7 @@ def stiffness_matrix(params: ThreeSegmentRobotParams, config: PCCDynamicsConfig)
         base = segment_index * PCC_VALUES_PER_SEGMENT
         bending_stiffness = (
             config.bending_stiffness[segment_index]
-            * params.segments[segment_index].length
+            * params.segments[segment_index].effective_flexure_length
         )
         diagonal[base : base + 3] = (
             bending_stiffness,
@@ -140,13 +147,19 @@ def contact_generalized_force(
     q: np.ndarray,
     force_xyz_n: np.ndarray,
     params: ThreeSegmentRobotParams,
+    *,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> np.ndarray:
     """Project a tip Cartesian force into generalized PCC coordinates."""
 
     force = np.asarray(force_xyz_n, dtype=float)
     if force.shape != (3,):
         raise ValueError(f"force_xyz_n must have shape (3,), got {force.shape}.")
-    return analytic_position_jacobian(_q_vector(q, params, "q"), params).T @ force
+    return analytic_position_jacobian(
+        _q_vector(q, params, "q"),
+        params,
+        kinematics_mode=kinematics_mode,
+    ).T @ force
 
 
 def step_dynamics(
@@ -156,6 +169,7 @@ def step_dynamics(
     params: ThreeSegmentRobotParams,
     config: PCCDynamicsConfig,
     dt: float,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> tuple[PCCDynamicsState, dict[str, np.ndarray]]:
     """Integrate one semi-implicit Euler step."""
 
@@ -164,7 +178,7 @@ def step_dynamics(
     q = _q_vector(state.q, params, "state.q")
     qdot = _q_vector(state.qdot, params, "state.qdot")
     tau = _q_vector(applied_generalized_force, params, "applied_generalized_force")
-    M = mass_matrix(q, params, config)
+    M = mass_matrix(q, params, config, kinematics_mode=kinematics_mode)
     D = damping_matrix(params, config)
     K = stiffness_matrix(params, config)
     qddot = np.linalg.solve(M, tau - D @ qdot - K @ q)
@@ -184,6 +198,7 @@ def _centerline_point_jacobian(
     params: ThreeSegmentRobotParams,
     samples_per_segment: int,
     step: float,
+    kinematics_mode: PCCKinematicsMode,
 ) -> np.ndarray:
     del step
     return analytic_centerline_point_jacobian(
@@ -191,6 +206,7 @@ def _centerline_point_jacobian(
         point_index,
         params,
         samples_per_segment=samples_per_segment,
+        kinematics_mode=kinematics_mode,
     )
 
 

@@ -18,6 +18,10 @@ from continuum_sim.control.tendon_rate_control import (
     BendingRateServoConfig,
 )
 from continuum_sim.execution import MujocoTendonPositionExecutionAdapter
+from continuum_sim.kinematics.pcc import (
+    DEFAULT_PCC_KINEMATICS_MODE,
+    PCCKinematicsMode,
+)
 from continuum_sim.model.base_pose import Pose6D
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig, load_robot_assembly_config
 from continuum_sim.system.control_layout import ControlLayout
@@ -39,6 +43,7 @@ class MujocoSystemBackend:
         *,
         xml_path: str | Path | None = None,
         tendon_rate_servo_config: BendingRateServoConfig | None = None,
+        kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
     ) -> None:
         if len(assembly.enabled_arms) == 1 and mujoco_config.tendon_model.count != 9:
             arm = assembly.enabled_arms[0]
@@ -62,6 +67,7 @@ class MujocoSystemBackend:
             raise ValueError("MujocoSystemBackend requires tendon_position control mode.")
         self.config = mujoco_config
         self.assembly = assembly
+        self.kinematics_mode = kinematics_mode
         self.layout = ControlLayout.from_assembly(assembly)
         if self.layout.tendon_size != mujoco_config.tendon_model.count:
             raise ValueError(
@@ -98,6 +104,7 @@ class MujocoSystemBackend:
         *,
         xml_path: str | Path | None = None,
         tendon_rate_servo_config: BendingRateServoConfig | None = None,
+        kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
     ) -> "MujocoSystemBackend":
         resolved_mujoco = (
             mujoco_config
@@ -114,6 +121,7 @@ class MujocoSystemBackend:
             resolved_assembly,
             xml_path=xml_path,
             tendon_rate_servo_config=tendon_rate_servo_config,
+            kinematics_mode=kinematics_mode,
         )
 
     def reset_system(self) -> RobotSystemState:
@@ -256,6 +264,7 @@ class MujocoSystemBackend:
                     "compatibility_residual_norm_m": self.layout.bending_models[
                         arm.name
                     ].residual_norm(tendon_displacement[tendon_slice]),
+                    "kinematics_mode": self.kinematics_mode,
                 },
             )
         return RobotSystemState(
@@ -272,6 +281,7 @@ class MujocoSystemBackend:
                 "mujoco_mobile_base_frame_pose": self.physics.get_site_pose(
                     "mobile_base_frame"
                 ),
+                "kinematics_mode": self.kinematics_mode,
             },
         )
 

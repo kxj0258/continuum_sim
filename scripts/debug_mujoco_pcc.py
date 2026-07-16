@@ -87,6 +87,7 @@ def main(argv: list[str] | None = None) -> int:
                 backend.assembly,
                 state,
                 samples_per_segment=args.samples_per_segment,
+                kinematics_mode=application.config.backend.kinematics_mode,
             )
             cached_state_identity = state_identity
         return cached_comparisons

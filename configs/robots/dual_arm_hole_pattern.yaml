@@ -31,39 +31,39 @@ hole_pattern:
       exclusive_out_holes: false
       out_holes:
         executor:
-          - {id: hole_03, index: 2, z_m: 0.007}
-          - {id: hole_07, index: 6, z_m: 0.007}
-          - {id: hole_11, index: 10, z_m: 0.007}
+          - {id: hole_03, index: 2, z_m: 0.0065}
+          - {id: hole_07, index: 6, z_m: 0.0065}
+          - {id: hole_11, index: 10, z_m: 0.0065}
         observer:
-          - {id: hole_01, index: 0, z_m: 0.007}
-          - {id: hole_05, index: 4, z_m: 0.007}
-          - {id: hole_09, index: 8, z_m: 0.007}
+          - {id: hole_01, index: 0, z_m: 0.0065}
+          - {id: hole_05, index: 4, z_m: 0.0065}
+          - {id: hole_09, index: 8, z_m: 0.0065}
     - segment_number: 2
       link_number: 4
       in_holes_from: link_even
       exclusive_out_holes: false
       out_holes:
         executor:
-          - {id: hole_01, index: 0, z_m: 0.007}
-          - {id: hole_05, index: 4, z_m: 0.007}
-          - {id: hole_09, index: 8, z_m: 0.007}
+          - {id: hole_01, index: 0, z_m: 0.0065}
+          - {id: hole_05, index: 4, z_m: 0.0065}
+          - {id: hole_09, index: 8, z_m: 0.0065}
         observer:
-          - {id: hole_03, index: 2, z_m: 0.007}
-          - {id: hole_07, index: 6, z_m: 0.007}
-          - {id: hole_11, index: 10, z_m: 0.007}
+          - {id: hole_03, index: 2, z_m: 0.0065}
+          - {id: hole_07, index: 6, z_m: 0.0065}
+          - {id: hole_11, index: 10, z_m: 0.0065}
     - segment_number: 3
       link_number: 4
       in_holes_from: link_even
       exclusive_out_holes: true
       out_holes:
         executor:
-          - {id: hole_04, index: 3, z_m: 0.007}
-          - {id: hole_08, index: 7, z_m: 0.007}
-          - {id: hole_12, index: 11, z_m: 0.007}
+          - {id: hole_04, index: 3, z_m: 0.0065}
+          - {id: hole_08, index: 7, z_m: 0.0065}
+          - {id: hole_12, index: 11, z_m: 0.0065}
         observer:
-          - {id: hole_02, index: 1, z_m: 0.007}
-          - {id: hole_06, index: 5, z_m: 0.007}
-          - {id: hole_10, index: 9, z_m: 0.007}
+          - {id: hole_02, index: 1, z_m: 0.0065}
+          - {id: hole_06, index: 5, z_m: 0.0065}
+          - {id: hole_10, index: 9, z_m: 0.0065}
 
   link_even:
     description: >-

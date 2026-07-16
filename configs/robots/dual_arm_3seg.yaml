@@ -35,6 +35,9 @@ dual_robot:
         - id: executor_segment_1
           index: 0
           length: 0.04
+          flexure_length: 0.0365
+          distal_straight_length: 0.0035
+          flexure_joint_axes: [y, x, y, x]
           backbone_radius: 0.0075
           tendon_radius: 0.005
           collision_radius: 0.00625
@@ -45,6 +48,9 @@ dual_robot:
         - id: executor_segment_2
           index: 1
           length: 0.04
+          flexure_length: 0.0365
+          distal_straight_length: 0.0035
+          flexure_joint_axes: [y, x, y, x]
           backbone_radius: 0.0075
           tendon_radius: 0.005
           collision_radius: 0.00625
@@ -55,6 +61,9 @@ dual_robot:
         - id: executor_segment_3
           index: 2
           length: 0.04
+          flexure_length: 0.0365
+          distal_straight_length: 0.0035
+          flexure_joint_axes: [y, x, y, x]
           backbone_radius: 0.0075
           tendon_radius: 0.005
           collision_radius: 0.00625
@@ -231,6 +240,9 @@ dual_robot:
         - id: observer_segment_1
           index: 0
           length: 0.04
+          flexure_length: 0.0365
+          distal_straight_length: 0.0035
+          flexure_joint_axes: [y, x, y, x]
           backbone_radius: 0.0075
           tendon_radius: 0.005
           collision_radius: 0.00625
@@ -241,6 +253,9 @@ dual_robot:
         - id: observer_segment_2
           index: 1
           length: 0.04
+          flexure_length: 0.0365
+          distal_straight_length: 0.0035
+          flexure_joint_axes: [y, x, y, x]
           backbone_radius: 0.0075
           tendon_radius: 0.005
           collision_radius: 0.00625
@@ -251,6 +266,9 @@ dual_robot:
         - id: observer_segment_3
           index: 2
           length: 0.04
+          flexure_length: 0.0365
+          distal_straight_length: 0.0035
+          flexure_joint_axes: [y, x, y, x]
           backbone_radius: 0.0075
           tendon_radius: 0.005
           collision_radius: 0.00625

@@ -18,7 +18,12 @@ from continuum_sim.control.differential_ik import (
     simulate_position_tracking,
 )
 from continuum_sim.kinematics.differential import motor_position_jacobian, tip_position_from_q
-from continuum_sim.kinematics.pcc import PCCForwardKinematicsResult, forward_kinematics
+from continuum_sim.kinematics.pcc import (
+    DEFAULT_PCC_KINEMATICS_MODE,
+    PCCForwardKinematicsResult,
+    PCCKinematicsMode,
+    forward_kinematics,
+)
 from continuum_sim.model.physical_tendon import (
     PhysicalTendonPath,
     load_physical_tendons_from_yaml,
@@ -71,6 +76,7 @@ class ContinuumKinematicsChain:
         motor_position: np.ndarray,
         *,
         samples_per_segment: int = 21,
+        kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
     ) -> PCCForwardKinematicsResult:
         """Compute PCC forward kinematics from motor positions."""
         q = self.motor_position_to_q(motor_position)
@@ -78,18 +84,29 @@ class ContinuumKinematicsChain:
             q,
             self.params,
             samples_per_segment=samples_per_segment,
+            kinematics_mode=kinematics_mode,
         )
 
-    def tip_position_from_motor(self, motor_position: np.ndarray) -> np.ndarray:
+    def tip_position_from_motor(
+        self,
+        motor_position: np.ndarray,
+        *,
+        kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
+    ) -> np.ndarray:
         """Return the tip position implied by motor positions."""
         q = self.motor_position_to_q(motor_position)
-        return tip_position_from_q(q, self.params)
+        return tip_position_from_q(
+            q,
+            self.params,
+            kinematics_mode=kinematics_mode,
+        )
 
     def motor_position_jacobian(
         self,
         motor_position: np.ndarray,
         *,
         step: float = 1.0e-5,
+        kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
     ) -> np.ndarray:
         """Return d tip_position / d motor_velocity at a motor position."""
         q = self.motor_position_to_q(motor_position)
@@ -99,6 +116,7 @@ class ContinuumKinematicsChain:
             self.physical_tendons,
             self.motor_params,
             step=step,
+            kinematics_mode=kinematics_mode,
         )
 
     def simulate_tracking(

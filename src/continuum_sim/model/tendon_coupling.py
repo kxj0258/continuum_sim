@@ -40,7 +40,7 @@ def build_coupling_matrix(
                 raise ValueError(
                     f"{tendon.id} references invalid segment index {segment_index}."
                 )
-            length = params.segments[segment_index].length
+            length = params.segments[segment_index].effective_flexure_length
             column = PCC_VALUES_PER_SEGMENT * segment_index
             C[tendon.global_index, column : column + PCC_VALUES_PER_SEGMENT] = np.array(
                 [

@@ -1,8 +1,9 @@
-"""Analytic PCC position Jacobians.
+"""PCC position Jacobians.
 
 The PCC state of each segment is ``[kx, ky, eps]``.  The formulas here match
-``constant_curvature_transform`` and differentiate the same SE(3) exponential
-used by the forward kinematics.
+the selected forward-kinematics mode.  The current public Jacobian entry points
+use centered finite differences so split-offset and discrete-hinge kinematics
+stay consistent with ``forward_kinematics``.
 """
 
 from __future__ import annotations
@@ -11,6 +12,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from continuum_sim.kinematics.pcc import (
+    DEFAULT_PCC_KINEMATICS_MODE,
+    PCCKinematicsMode,
+    forward_kinematics,
+)
 from continuum_sim.model.robot_params import (
     PCC_VALUES_PER_SEGMENT,
     ThreeSegmentRobotParams,
@@ -31,25 +37,84 @@ def analytic_position_jacobian(
     params: ThreeSegmentRobotParams,
     *,
     curvature_tol: float = 1.0e-7,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> np.ndarray:
     """Return ``d tip_position / d q`` for the full PCC arm."""
 
-    q_segments = _as_segment_q(q, params)
-    segments = [
-        segment_transform_with_derivatives(
-            segment_q,
-            segment.length,
-            curvature_tol=curvature_tol,
-        )
-        for segment_q, segment in zip(q_segments, params.segments, strict=True)
-    ]
-    return _point_jacobian_from_segment_derivatives(
-        segments,
+    del curvature_tol
+    return _finite_difference_tip_position_jacobian(
+        q,
         params,
-        active_segment=params.segment_count - 1,
-        point_transform=np.eye(4, dtype=float),
-        include_active_segment_full=True,
+        kinematics_mode=kinematics_mode,
     )
+
+
+def _finite_difference_tip_position_jacobian(
+    q: np.ndarray,
+    params: ThreeSegmentRobotParams,
+    *,
+    step: float = 1.0e-6,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
+) -> np.ndarray:
+    q_array = _as_q_vector(q, params)
+    jacobian = np.zeros((3, params.q_size), dtype=float)
+    for index in range(params.q_size):
+        offset = np.zeros(params.q_size, dtype=float)
+        offset[index] = step
+        plus = forward_kinematics(
+            q_array + offset,
+            params,
+            kinematics_mode=kinematics_mode,
+        ).tip_pose[:3, 3]
+        minus = forward_kinematics(
+            q_array - offset,
+            params,
+            kinematics_mode=kinematics_mode,
+        ).tip_pose[:3, 3]
+        jacobian[:, index] = (plus - minus) / (2.0 * step)
+    return jacobian
+
+
+def _finite_difference_centerline_point_jacobian(
+    q: np.ndarray,
+    centerline_index: int,
+    params: ThreeSegmentRobotParams,
+    *,
+    samples_per_segment: int,
+    step: float = 1.0e-6,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
+) -> np.ndarray:
+    q_array = _as_q_vector(q, params)
+    total_points = params.segment_count * (samples_per_segment - 1) + 1
+    if centerline_index < 0 or centerline_index >= total_points:
+        raise ValueError("centerline_index is outside the sampled centerline.")
+    jacobian = np.zeros((3, params.q_size), dtype=float)
+    for index in range(params.q_size):
+        offset = np.zeros(params.q_size, dtype=float)
+        offset[index] = step
+        plus = forward_kinematics(
+            q_array + offset,
+            params,
+            samples_per_segment=samples_per_segment,
+            kinematics_mode=kinematics_mode,
+        ).centerline[centerline_index]
+        minus = forward_kinematics(
+            q_array - offset,
+            params,
+            samples_per_segment=samples_per_segment,
+            kinematics_mode=kinematics_mode,
+        ).centerline[centerline_index]
+        jacobian[:, index] = (plus - minus) / (2.0 * step)
+    return jacobian
+
+
+def _as_q_vector(q: np.ndarray, params: ThreeSegmentRobotParams) -> np.ndarray:
+    q_array = np.asarray(q, dtype=float)
+    if q_array.shape != (params.q_size,):
+        raise ValueError(f"Expected q with shape ({params.q_size},), got {q_array.shape}.")
+    if not np.all(np.isfinite(q_array)):
+        raise ValueError("q must contain only finite values.")
+    return q_array
 
 
 def analytic_bending_position_jacobian(
@@ -58,6 +123,7 @@ def analytic_bending_position_jacobian(
     selection_matrix: np.ndarray,
     *,
     curvature_tol: float = 1.0e-7,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> np.ndarray:
     """Return tip-position Jacobian with respect to bending coordinates."""
 
@@ -70,6 +136,7 @@ def analytic_bending_position_jacobian(
         q,
         params,
         curvature_tol=curvature_tol,
+        kinematics_mode=kinematics_mode,
     ) @ selection
 
 
@@ -80,45 +147,19 @@ def analytic_centerline_point_jacobian(
     *,
     samples_per_segment: int = 6,
     curvature_tol: float = 1.0e-7,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> np.ndarray:
     """Return ``d centerline_point / d q`` for one sampled point."""
 
+    del curvature_tol
     if samples_per_segment < 2:
         raise ValueError("samples_per_segment must be at least 2.")
-    total_points = params.segment_count * (samples_per_segment - 1) + 1
-    if centerline_index < 0 or centerline_index >= total_points:
-        raise ValueError("centerline_index is outside the sampled centerline.")
-
-    q_segments = _as_segment_q(q, params)
-    segment_index, local_sample = _centerline_sample_location(
+    return _finite_difference_centerline_point_jacobian(
+        q,
         centerline_index,
-        samples_per_segment,
-    )
-    partial_length = (
-        params.segments[segment_index].length
-        * float(local_sample)
-        / float(samples_per_segment - 1)
-    )
-    full_segments = [
-        segment_transform_with_derivatives(
-            segment_q,
-            segment.length,
-            curvature_tol=curvature_tol,
-        )
-        for segment_q, segment in zip(q_segments, params.segments, strict=True)
-    ]
-    point_segment = segment_transform_with_derivatives(
-        q_segments[segment_index],
-        partial_length,
-        curvature_tol=curvature_tol,
-    )
-    return _point_jacobian_from_segment_derivatives(
-        full_segments,
         params,
-        active_segment=segment_index,
-        point_transform=point_segment.transform,
-        point_derivatives=point_segment.derivatives,
-        include_active_segment_full=False,
+        samples_per_segment=samples_per_segment,
+        kinematics_mode=kinematics_mode,
     )
 
 
@@ -130,6 +171,7 @@ def analytic_centerline_point_bending_jacobian(
     *,
     samples_per_segment: int = 6,
     curvature_tol: float = 1.0e-7,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> np.ndarray:
     """Return centerline-point Jacobian with respect to bending coordinates."""
 
@@ -144,6 +186,7 @@ def analytic_centerline_point_bending_jacobian(
         params,
         samples_per_segment=samples_per_segment,
         curvature_tol=curvature_tol,
+        kinematics_mode=kinematics_mode,
     ) @ selection
 
 

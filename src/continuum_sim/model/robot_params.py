@@ -20,9 +20,51 @@ class SegmentParams:
     length: float
     tendon_radius: float
     tendon_angles_deg: tuple[float, ...] = (0.0, 120.0, 240.0)
+    flexure_length: float | None = None
+    distal_straight_length: float = 0.0
+    flexure_joint_axes: tuple[str, ...] = ("y", "x", "y", "x")
     collision_radius: float | None = None
     mass: float | None = None
     bending_stiffness: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.length <= 0.0:
+            raise ValueError("segment length must be positive.")
+        if self.tendon_radius <= 0.0:
+            raise ValueError("tendon_radius must be positive.")
+        flexure_length = self.effective_flexure_length
+        distal_straight_length = self.length - flexure_length
+        if flexure_length <= 0.0:
+            raise ValueError("segment flexure_length must be positive.")
+        if distal_straight_length < 0.0:
+            raise ValueError("segment distal straight length cannot be negative.")
+        if (
+            self.flexure_length is not None
+            and self.distal_straight_length != 0.0
+            and abs(self.distal_straight_length - distal_straight_length) > 1.0e-12
+        ):
+            raise ValueError(
+                "segment flexure_length and distal_straight_length must sum to length."
+            )
+        if not self.flexure_joint_axes:
+            raise ValueError("segment flexure_joint_axes cannot be empty.")
+        normalized_axes = tuple(str(axis).lower() for axis in self.flexure_joint_axes)
+        if any(axis not in ("x", "y") for axis in normalized_axes):
+            raise ValueError("segment flexure_joint_axes may only contain 'x' and 'y'.")
+        object.__setattr__(self, "flexure_joint_axes", normalized_axes)
+        object.__setattr__(self, "distal_straight_length", distal_straight_length)
+
+    @property
+    def effective_flexure_length(self) -> float:
+        """Return the length occupied by the articulated flexure cells."""
+        if self.flexure_length is not None:
+            return self.flexure_length
+        return self.length - self.distal_straight_length
+
+    @property
+    def effective_distal_straight_length(self) -> float:
+        """Return the rigid spacer length after the segment flexure cells."""
+        return self.length - self.effective_flexure_length
 
     @property
     def effective_collision_radius(self) -> float:
@@ -43,7 +85,12 @@ class ThreeSegmentRobotParams:
     @classmethod
     def default(cls) -> "ThreeSegmentRobotParams":
         """Return the placeholder 3x40 mm, 5 mm tendon-radius robot."""
-        segment = SegmentParams(length=0.04, tendon_radius=0.005)
+        segment = SegmentParams(
+            length=0.04,
+            tendon_radius=0.005,
+            flexure_length=0.0365,
+            distal_straight_length=0.0035,
+        )
         return cls(segments=(segment, segment, segment))
 
     @classmethod
@@ -61,6 +108,21 @@ class ThreeSegmentRobotParams:
                     length=float(segment["length"]),
                     tendon_radius=float(segment["tendon_radius"]),
                     tendon_angles_deg=tuple(float(v) for v in segment["tendon_angles_deg"]),
+                    flexure_length=(
+                        None
+                        if segment.get("flexure_length") is None
+                        else float(segment["flexure_length"])
+                    ),
+                    distal_straight_length=float(
+                        segment.get("distal_straight_length", 0.0)
+                    ),
+                    flexure_joint_axes=tuple(
+                        str(axis).lower()
+                        for axis in segment.get(
+                            "flexure_joint_axes",
+                            ("y", "x", "y", "x"),
+                        )
+                    ),
                     collision_radius=(
                         None
                         if segment.get("collision_radius") is None

@@ -17,7 +17,11 @@ from continuum_sim.dynamics import (
     load_pcc_dynamics_config,
     step_dynamics,
 )
-from continuum_sim.kinematics.pcc import forward_kinematics
+from continuum_sim.kinematics.pcc import (
+    DEFAULT_PCC_KINEMATICS_MODE,
+    PCCKinematicsMode,
+    forward_kinematics,
+)
 from continuum_sim.model.bending_space import BendingSpaceModel
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
 from continuum_sim.system.types import ArmSystemState
@@ -197,8 +201,10 @@ class DynamicAdaptiveImpedanceStrategy(KinematicHybridForceStrategy):
         assembly: RobotAssemblyConfig,
         *,
         dynamics_config_path: str | None = None,
+        kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
     ) -> None:
         self.executor_arm = _single_executor_arm(assembly)
+        self.kinematics_mode = kinematics_mode
         self.bending_model = BendingSpaceModel.from_arm(
             self.executor_arm.spatial_arm.params,
             self.executor_arm.spatial_arm.tendons,
@@ -234,6 +240,7 @@ class DynamicAdaptiveImpedanceStrategy(KinematicHybridForceStrategy):
                 q,
                 force_error * context.normal_world,
                 self.executor_arm.spatial_arm.params,
+                kinematics_mode=self.kinematics_mode,
             )
             predicted, info = step_dynamics(
                 PCCDynamicsState(q=q, qdot=qdot),
@@ -241,11 +248,17 @@ class DynamicAdaptiveImpedanceStrategy(KinematicHybridForceStrategy):
                 params=self.executor_arm.spatial_arm.params,
                 config=self.dynamics_config,
                 dt=context.controller_dt_s,
+                kinematics_mode=self.kinematics_mode,
             )
-            tip_before = forward_kinematics(q, self.executor_arm.spatial_arm.params).tip_pose[:3, 3]
+            tip_before = forward_kinematics(
+                q,
+                self.executor_arm.spatial_arm.params,
+                kinematics_mode=self.kinematics_mode,
+            ).tip_pose[:3, 3]
             tip_after = forward_kinematics(
                 predicted.q,
                 self.executor_arm.spatial_arm.params,
+                kinematics_mode=self.kinematics_mode,
             ).tip_pose[:3, 3]
             predicted_tip_delta = tip_after - tip_before
             normal_correction = float(predicted_tip_delta @ context.normal_world)
@@ -266,6 +279,7 @@ class DynamicAdaptiveImpedanceStrategy(KinematicHybridForceStrategy):
                     "dynamic_predicted_qdot": predicted.qdot.copy(),
                     "dynamic_predicted_qddot": np.asarray(info["qddot"], dtype=float).copy(),
                     "dynamic_contact_generalized_force": generalized_force.copy(),
+                    "kinematics_mode": self.kinematics_mode,
                 }
             )
             return WipingForceStrategyResult(

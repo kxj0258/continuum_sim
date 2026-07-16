@@ -492,7 +492,7 @@ def _joint_attrs(
         attrs["stiffness"] = _format_float(
             parallel_joint_count
             * segment.bending_stiffness
-            / segment.length
+            / segment.effective_flexure_length
         )
     return attrs
 

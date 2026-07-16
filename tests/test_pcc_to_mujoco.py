@@ -38,14 +38,15 @@ def test_single_segment_bending_only_affects_matching_joint_targets() -> None:
 
     targets = pcc_q_to_joint_targets(q, params, links_per_segment)
     per_segment = targets.reshape(3, links_per_segment, 2)
-    expected_link_targets = np.tile(
-        np.array(
-            [
-                -q[4] * params.segments[1].length / links_per_segment,
-                q[3] * params.segments[1].length / links_per_segment,
-            ]
-        ),
-        (links_per_segment, 1),
+    segment = params.segments[1]
+    expected_link_targets = np.array(
+        [
+            [0.0, q[3] * segment.effective_flexure_length / 2.0],
+            [-q[4] * segment.effective_flexure_length / 2.0, 0.0],
+            [0.0, q[3] * segment.effective_flexure_length / 2.0],
+            [-q[4] * segment.effective_flexure_length / 2.0, 0.0],
+        ],
+        dtype=float,
     )
 
     assert_allclose(per_segment[0], 0.0, atol=1.0e-14)

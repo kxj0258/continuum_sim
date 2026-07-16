@@ -43,6 +43,7 @@ class UnifiedLowLevelController:
             )
         )
         tendon_config = CoordinatedTrackingConfig(
+            kinematics_mode=coordinated_config.kinematics_mode,
             executor_position_gain=0.0,
             observer_position_gain=coordinated_config.observer_position_gain,
             feedforward_gain=1.0,

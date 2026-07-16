@@ -34,6 +34,23 @@ def test_finite_difference_position_jacobian_shape_at_zero_q() -> None:
     assert J.shape == (3, 9)
 
 
+def test_finite_difference_position_jacobian_supports_all_pcc_modes() -> None:
+    params, _physical_tendons, _motor_params = _robot_chain()
+
+    for mode in (
+        "constant_curvature",
+        "constant_curvature_with_offset",
+        "discrete_hinge",
+    ):
+        J = finite_difference_position_jacobian(
+            np.zeros(9),
+            params,
+            kinematics_mode=mode,
+        )
+
+        assert J.shape == (3, 9)
+
+
 def test_position_jacobian_predicts_small_q_step_near_zero() -> None:
     params, _physical_tendons, _motor_params = _robot_chain()
     q = np.zeros(9, dtype=float)

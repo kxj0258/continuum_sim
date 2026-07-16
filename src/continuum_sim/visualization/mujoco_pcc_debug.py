@@ -10,7 +10,11 @@ from typing import Mapping
 
 import numpy as np
 
-from continuum_sim.kinematics.pcc import forward_kinematics
+from continuum_sim.kinematics.pcc import (
+    DEFAULT_PCC_KINEMATICS_MODE,
+    PCCKinematicsMode,
+    forward_kinematics,
+)
 from continuum_sim.model.base_pose import Pose6D
 from continuum_sim.model.bending_space import BendingSpaceModel
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
@@ -39,6 +43,7 @@ def compare_pcc_mujoco_state(
     state: RobotSystemState,
     *,
     samples_per_segment: int = 21,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> dict[str, ArmPccMujocoComparison]:
     """Compare PCC FK with measured MuJoCo sites for every enabled arm."""
 
@@ -78,6 +83,7 @@ def compare_pcc_mujoco_state(
             model.to_q(bending),
             arm_config.spatial_arm.params,
             samples_per_segment=samples_per_segment,
+            kinematics_mode=kinematics_mode,
         )
         world_mount = base_pose.compose(arm_config.mount_pose)
         pcc_centerline = world_mount.transform_points(fk.centerline)

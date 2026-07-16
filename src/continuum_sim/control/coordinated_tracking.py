@@ -19,7 +19,11 @@ from continuum_sim.kinematics.whole_body import (
     centerline_point_bending_jacobian,
     rotate_position_jacobian_to_world,
 )
-from continuum_sim.kinematics.pcc import forward_kinematics
+from continuum_sim.kinematics.pcc import (
+    DEFAULT_PCC_KINEMATICS_MODE,
+    PCCKinematicsMode,
+    forward_kinematics,
+)
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
 from continuum_sim.scenes.engine_query import EngineSceneQueryProtocol
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
@@ -87,6 +91,7 @@ class CoordinatedTrackingConfig:
     executor or shared base away from the tracking trajectory.
     """
 
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE
     executor_position_gain: float = 4.0
     observer_position_gain: float = 5.0
     feedforward_gain: float = 1.0
@@ -387,6 +392,7 @@ class CoordinatedTrackingController:
             "disable_backend_tendon_limits": (
                 not self.config.enforce_backend_tendon_limits
             ),
+            "kinematics_mode": self.solver.config.kinematics_mode,
         }
         return RobotSystemCommand(
             base_twist_world=executor_result.command.base_twist_world,
@@ -422,6 +428,7 @@ class CoordinatedTrackingController:
             q,
             arm_config.spatial_arm.params,
             arm_config.spatial_arm.tendons,
+            kinematics_mode=self.solver.config.kinematics_mode,
         )
         world_mount = state.base.pose.compose(arm_config.mount_pose)
         jacobian_world = rotate_position_jacobian_to_world(
@@ -545,6 +552,7 @@ class CoordinatedTrackingController:
             q,
             arm.spatial_arm.params,
             samples_per_segment=self.config.centerline_samples_per_segment,
+            kinematics_mode=self.solver.config.kinematics_mode,
         ).centerline
         mount = state.base.pose.compose(arm.mount_pose)
         return mount.transform_points(local), q, mount
@@ -565,6 +573,7 @@ class CoordinatedTrackingController:
             arm.spatial_arm.params,
             arm.spatial_arm.tendons,
             samples_per_segment=self.config.centerline_samples_per_segment,
+            kinematics_mode=self.solver.config.kinematics_mode,
         )
         world_jacobian = rotate_position_jacobian_to_world(
             local_jacobian,

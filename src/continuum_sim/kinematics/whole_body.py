@@ -16,6 +16,7 @@ from continuum_sim.model.bending_space import BendingSpaceModel
 from continuum_sim.model.robot_params import ThreeSegmentRobotParams
 from continuum_sim.model.tendon_coupling import TendonPathLike, build_coupling_matrix
 from continuum_sim.system.control_layout import ControlLayout
+from continuum_sim.kinematics.pcc import DEFAULT_PCC_KINEMATICS_MODE, PCCKinematicsMode
 
 
 @dataclass(frozen=True)
@@ -69,11 +70,16 @@ def tendon_position_jacobian(
     physical_tendons: tuple[TendonPathLike, ...],
     *,
     step: float = 1.0e-5,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> np.ndarray:
     """Map direct tendon-length rates to local tip linear velocity."""
 
     del step
-    position_jacobian = analytic_position_jacobian(q, params)
+    position_jacobian = analytic_position_jacobian(
+        q,
+        params,
+        kinematics_mode=kinematics_mode,
+    )
     return position_jacobian @ tendon_rate_to_shape_rate_matrix(params, physical_tendons)
 
 
@@ -83,6 +89,7 @@ def bending_position_jacobian(
     physical_tendons: tuple[TendonPathLike, ...],
     *,
     step: float = 1.0e-5,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> np.ndarray:
     """Map bending-coordinate rates to local tip linear velocity."""
 
@@ -92,6 +99,7 @@ def bending_position_jacobian(
         q,
         params,
         model.selection_matrix,
+        kinematics_mode=kinematics_mode,
     )
 
 
@@ -103,6 +111,7 @@ def centerline_point_tendon_jacobian(
     *,
     samples_per_segment: int = 6,
     step: float = 1.0e-5,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> np.ndarray:
     """Map tendon rates to one sampled local centerline point velocity."""
 
@@ -112,6 +121,7 @@ def centerline_point_tendon_jacobian(
         centerline_index,
         params,
         samples_per_segment=samples_per_segment,
+        kinematics_mode=kinematics_mode,
     )
     return jacobian_q @ tendon_rate_to_shape_rate_matrix(params, physical_tendons)
 
@@ -124,6 +134,7 @@ def centerline_point_bending_jacobian(
     *,
     samples_per_segment: int = 6,
     step: float = 1.0e-5,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> np.ndarray:
     """Map bending rates to one sampled local centerline point velocity."""
 
@@ -135,6 +146,7 @@ def centerline_point_bending_jacobian(
         params,
         model.selection_matrix,
         samples_per_segment=samples_per_segment,
+        kinematics_mode=kinematics_mode,
     )
 
 

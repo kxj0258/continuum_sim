@@ -11,6 +11,10 @@ from continuum_sim.kinematics.whole_body import (
     SingularityReport,
     analyze_singularity,
 )
+from continuum_sim.kinematics.pcc import (
+    DEFAULT_PCC_KINEMATICS_MODE,
+    PCCKinematicsMode,
+)
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
 from continuum_sim.system.control_layout import ControlLayout
 from continuum_sim.system.types import RobotSystemCommand
@@ -42,6 +46,7 @@ class WholeBodyTask:
 class WholeBodyControllerConfig:
     """Numerical and objective weighting settings."""
 
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE
     executor_tracking_weight: float = 100.0
     observer_tracking_weight: float = 40.0
     executor_collision_avoidance_weight: float = 80.0

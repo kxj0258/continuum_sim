@@ -5,12 +5,21 @@ spatial_arm:
   tendon_count: 9
   segments:
     - length_m: 0.04
+      flexure_length_m: 0.0365
+      distal_straight_length_m: 0.0035
+      flexure_joint_axes: [y, x, y, x]
       tendon_radius_m: 0.005
       tendon_angles_deg: [60.0, 180.0, 300.0]
     - length_m: 0.04
+      flexure_length_m: 0.0365
+      distal_straight_length_m: 0.0035
+      flexure_joint_axes: [y, x, y, x]
       tendon_radius_m: 0.005
       tendon_angles_deg: [0.0, 120.0, 240.0]
     - length_m: 0.04
+      flexure_length_m: 0.0365
+      distal_straight_length_m: 0.0035
+      flexure_joint_axes: [y, x, y, x]
       tendon_radius_m: 0.005
       tendon_angles_deg: [90.0, 210.0, 330.0]
   tendons:

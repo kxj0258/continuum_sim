@@ -55,6 +55,7 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
                     application.loop.backend.assembly,
                     result.states,
                     result.commands,
+                    kinematics_mode=config.backend.kinematics_mode,
                 )
             )
         except Exception as exc:  # Diagnostics must not discard the base artifacts.
@@ -85,6 +86,7 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
         "scenario": config.name,
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "backend": config.backend.type,
+        "kinematics_mode": config.backend.kinematics_mode,
         "task": config.task.type,
         "arms": sorted(result.states[-1].arms),
         "samples": len(result.states),
@@ -574,6 +576,7 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
         command_metadata = [command.metadata for command in result.commands]
         for key, dtype in (
             ("observer_control_mode", str),
+            ("kinematics_mode", str),
             ("observer_collision_active", bool),
             ("observer_tracking_active", bool),
             ("inter_arm_safety_mode", str),

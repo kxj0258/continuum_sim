@@ -116,7 +116,10 @@ class SimulationApplication:
         if engine_scene is not None and structured_scene is not None:
             raise ValueError("A scenario cannot select engine and structured scenes together.")
         if config.backend.type == "analytic":
-            backend = AnalyticSystemBackend(assembly)
+            backend = AnalyticSystemBackend(
+                assembly,
+                kinematics_mode=config.backend.kinematics_mode,
+            )
         else:
             backend = _build_mujoco_backend(
                 config,
@@ -474,6 +477,7 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
         assembly,
         xml_path=output_path,
         tendon_rate_servo_config=tendon_rate_servo_config,
+        kinematics_mode=config.backend.kinematics_mode,
     )
 
 
@@ -536,6 +540,7 @@ def _build_wiping_force_strategy(config, assembly):
                 if config.task.dynamics_config_path is None
                 else str(config.task.dynamics_config_path)
             ),
+            kinematics_mode=config.backend.kinematics_mode,
         )
     raise ValueError(f"Unsupported wiping force strategy {strategy_type!r}.")
 
@@ -562,6 +567,7 @@ def _tracking_solver_config(
         singularity_strategy=tracking.singularity_strategy,
         enforce_base_velocity_limits=tracking.enforce_solver_velocity_limits,
         enforce_tendon_rate_limits=tracking.enforce_solver_velocity_limits,
+        kinematics_mode=tracking.kinematics_mode,
     )
 
 
@@ -571,6 +577,7 @@ def _tracking_coordinated_config(
 ) -> CoordinatedTrackingConfig:
     observer = ScenarioObserverControlConfig() if observer is None else observer
     return CoordinatedTrackingConfig(
+        kinematics_mode=tracking.kinematics_mode,
         executor_position_gain=tracking.executor_position_gain,
         observer_position_gain=tracking.observer_position_gain,
         feedforward_gain=tracking.feedforward_gain,

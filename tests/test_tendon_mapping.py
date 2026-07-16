@@ -19,11 +19,11 @@ def test_single_segment_tendon_mapping_matches_closed_form() -> None:
 
     tendon_delta = q_to_tendon_delta(q, params)
 
-    expected_first_segment = np.array([-0.002, 0.001, 0.001])
+    expected_first_segment = np.array([-0.001825, 0.0009125, 0.0009125])
     assert_allclose(tendon_delta[:3], expected_first_segment, atol=1.0e-12)
     assert_allclose(tendon_delta[3:], np.zeros(6), atol=1.0e-14)
 
-    expected_sum = 3.0 * segment.length * q[2]
+    expected_sum = 3.0 * segment.effective_flexure_length * q[2]
     assert_allclose(np.sum(tendon_delta[:3]), expected_sum, atol=1.0e-14)
 
 
@@ -31,7 +31,7 @@ def test_uniform_tendon_delta_maps_to_axial_extension() -> None:
     params = ThreeSegmentRobotParams.default()
     segment = params.segments[0]
     eps = 0.01
-    tendon_delta = np.full(9, segment.length * eps)
+    tendon_delta = np.full(9, segment.effective_flexure_length * eps)
 
     q = tendon_delta_to_q(tendon_delta, params)
 

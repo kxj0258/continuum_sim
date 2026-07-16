@@ -6,7 +6,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from continuum_sim.kinematics.pcc import constant_curvature_transform, forward_kinematics
+from continuum_sim.kinematics.pcc import (
+    DEFAULT_PCC_KINEMATICS_MODE,
+    PCCKinematicsMode,
+    forward_kinematics,
+    segment_transform,
+)
 from continuum_sim.model.robot_params import ThreeSegmentRobotParams
 
 
@@ -43,8 +48,8 @@ def segment_2dof_q_to_pcc_q(
     segment_angles = q_array.reshape(params.segment_count, 2)
     for segment_index, segment in enumerate(params.segments):
         hinge_x, hinge_y = segment_angles[segment_index]
-        pcc_q[segment_index, 0] = hinge_y / segment.length
-        pcc_q[segment_index, 1] = -hinge_x / segment.length
+        pcc_q[segment_index, 0] = hinge_y / segment.effective_flexure_length
+        pcc_q[segment_index, 1] = -hinge_x / segment.effective_flexure_length
     return pcc_q.reshape(-1)
 
 
@@ -53,6 +58,7 @@ def segment_2dof_forward_kinematics(
     params: ThreeSegmentRobotParams,
     *,
     samples_per_segment: int = 21,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> tuple[np.ndarray, tuple[np.ndarray, ...]]:
     """Return tip and segment-tip poses for a 6D segment-angle state."""
 
@@ -60,6 +66,7 @@ def segment_2dof_forward_kinematics(
         segment_2dof_q_to_pcc_q(q, params),
         params,
         samples_per_segment=samples_per_segment,
+        kinematics_mode=kinematics_mode,
     )
     return fk.tip_pose, fk.segment_poses
 
@@ -70,6 +77,7 @@ def sample_segment_followers(
     samples_per_segment: int = 4,
     *,
     follower_radius: float | None = None,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> tuple[SegmentFollowerPose, ...]:
     """Sample follower body poses along each PCC segment."""
 
@@ -90,8 +98,8 @@ def sample_segment_followers(
     for segment_index, segment in enumerate(params.segments):
         pcc_segment_q = np.array(
             [
-                segment_angles[segment_index, 1] / segment.length,
-                -segment_angles[segment_index, 0] / segment.length,
+                segment_angles[segment_index, 1] / segment.effective_flexure_length,
+                -segment_angles[segment_index, 0] / segment.effective_flexure_length,
                 0.0,
             ],
             dtype=float,
@@ -104,9 +112,11 @@ def sample_segment_followers(
         )
         for sample_index in range(samples_per_segment):
             s = (sample_index + 0.5) / float(samples_per_segment)
-            local_pose = constant_curvature_transform(
+            local_pose = segment_transform(
                 pcc_segment_q,
-                segment.length * s,
+                segment,
+                kinematics_mode=kinematics_mode,
+                partial_length=segment.length * s,
             )
             world_pose = base_to_segment @ local_pose
             followers.append(
@@ -121,8 +131,9 @@ def sample_segment_followers(
                     length=sample_length,
                 )
             )
-        base_to_segment = base_to_segment @ constant_curvature_transform(
+        base_to_segment = base_to_segment @ segment_transform(
             pcc_segment_q,
-            segment.length,
+            segment,
+            kinematics_mode=kinematics_mode,
         )
     return tuple(followers)

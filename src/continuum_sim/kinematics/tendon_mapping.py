@@ -71,7 +71,7 @@ def q_to_tendon_delta(
         deltas.append(
             segment_q_to_tendon_delta(
                 q_segment=q_segment,
-                length=segment.length,
+                length=segment.effective_flexure_length,
                 radius=segment.tendon_radius,
                 angles_rad=segment.routing.angles_rad,
             )
@@ -91,7 +91,7 @@ def tendon_delta_to_q(
         q_segments.append(
             segment_tendon_delta_to_q(
                 tendon_delta_segment=delta_segment,
-                length=segment.length,
+                length=segment.effective_flexure_length,
                 radius=segment.tendon_radius,
                 angles_rad=segment.routing.angles_rad,
             )

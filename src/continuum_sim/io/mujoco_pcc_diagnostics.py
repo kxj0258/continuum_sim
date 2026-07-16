@@ -6,7 +6,11 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from continuum_sim.kinematics.pcc import forward_kinematics
+from continuum_sim.kinematics.pcc import (
+    DEFAULT_PCC_KINEMATICS_MODE,
+    PCCKinematicsMode,
+    forward_kinematics,
+)
 from continuum_sim.kinematics.whole_body import (
     assemble_whole_body_jacobian,
     base_point_jacobian_world,
@@ -24,6 +28,8 @@ def build_mujoco_pcc_diagnostic_arrays(
     assembly: RobotAssemblyConfig,
     states: Sequence[RobotSystemState],
     commands: Sequence[RobotSystemCommand],
+    *,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> dict[str, np.ndarray]:
     """Compare measured MuJoCo motion with PCC FK and Jacobian predictions."""
 
@@ -40,6 +46,7 @@ def build_mujoco_pcc_diagnostic_arrays(
                 arm.name,
                 states,
                 commands,
+                kinematics_mode=kinematics_mode,
             )
         )
     return arrays
@@ -50,6 +57,8 @@ def _arm_diagnostic_arrays(
     arm_name: str,
     states: Sequence[RobotSystemState],
     commands: Sequence[RobotSystemCommand],
+    *,
+    kinematics_mode: PCCKinematicsMode,
 ) -> dict[str, np.ndarray]:
     arm_config = assembly.arms[arm_name]
     params = arm_config.spatial_arm.params
@@ -102,8 +111,17 @@ def _arm_diagnostic_arrays(
         )
         bending = model.estimate(arm_state.tendon_displacement_m)
         q = model.to_q(bending)
-        pcc_mount = forward_kinematics(q, params).tip_pose[:3, 3]
-        jacobian_mount = bending_position_jacobian(q, params, tendons)
+        pcc_mount = forward_kinematics(
+            q,
+            params,
+            kinematics_mode=kinematics_mode,
+        ).tip_pose[:3, 3]
+        jacobian_mount = bending_position_jacobian(
+            q,
+            params,
+            tendons,
+            kinematics_mode=kinematics_mode,
+        )
         jacobian_world = rotate_position_jacobian_to_world(
             jacobian_mount,
             rotation_world_from_mount,

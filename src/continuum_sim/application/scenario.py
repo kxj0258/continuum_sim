@@ -12,6 +12,10 @@ from continuum_sim.config import load_yaml
 from continuum_sim.config_validation import resolve_path
 from continuum_sim.control.contact_triggered_admittance import ContactTriggeredAdmittanceConfig
 from continuum_sim.control.engine_cleaning_types import EngineCleaningControllerGains
+from continuum_sim.control.tendon_rate_control import (
+    BendingRateServoConfig,
+    TENDON_INNER_LOOP_MODES,
+)
 from continuum_sim.control.waypoint_scheduler import WAYPOINT_ADVANCE_MODES
 from continuum_sim.tasks.engine_cleaning_path import EngineCleaningPathSpec
 from continuum_sim.tasks.engine_navigation import EngineNavigationSpec
@@ -65,6 +69,42 @@ class ScenarioSceneConfig:
 
 
 @dataclass(frozen=True)
+class ScenarioTendonInnerLoopConfig:
+    """MuJoCo tracking-only tendon target servo configuration."""
+
+    mode: str = "legacy"
+    rate_filter_time_constant_s: float = 0.06
+    feedforward_lead_time_s: float = 0.0
+    rate_proportional_time_s: float = 0.0
+    rate_integral_gain: float = 1.0
+    anti_windup_gain: float = 1.0
+    max_target_lead_m: float | None = None
+    soft_force_limit_n: float | None = None
+    hard_force_limit_n: float | None = None
+    zero_command_mode: str = "hold"
+    zero_rate_tolerance_mps: float = 1.0e-7
+
+    def __post_init__(self) -> None:
+        if self.mode not in TENDON_INNER_LOOP_MODES:
+            raise ValueError(
+                "tracking_control.tendon_inner_loop.mode must be one of "
+                f"{TENDON_INNER_LOOP_MODES}."
+            )
+        BendingRateServoConfig(
+            rate_filter_time_constant_s=self.rate_filter_time_constant_s,
+            feedforward_lead_time_s=self.feedforward_lead_time_s,
+            rate_proportional_time_s=self.rate_proportional_time_s,
+            rate_integral_gain=self.rate_integral_gain,
+            anti_windup_gain=self.anti_windup_gain,
+            max_target_lead_m=self.max_target_lead_m,
+            soft_force_limit_n=self.soft_force_limit_n,
+            hard_force_limit_n=self.hard_force_limit_n,
+            zero_command_mode=self.zero_command_mode,
+            zero_rate_tolerance_mps=self.zero_rate_tolerance_mps,
+        )
+
+
+@dataclass(frozen=True)
 class ScenarioTrackingControlConfig:
     """Scenario-native trajectory-tracking controller parameters."""
 
@@ -96,6 +136,9 @@ class ScenarioTrackingControlConfig:
     enforce_target_speed_limit: bool = False
     enforce_solver_velocity_limits: bool = False
     enforce_backend_tendon_limits: bool = False
+    tendon_inner_loop: ScenarioTendonInnerLoopConfig = field(
+        default_factory=ScenarioTendonInnerLoopConfig
+    )
 
     def __post_init__(self) -> None:
         if self.approach_samples == 1 or self.approach_samples < 0:
@@ -654,10 +697,20 @@ def _load_tracking_control_config(
         task_values.get("tracking_control", {}),
         "scenario.task.tracking_control",
     )
+    low_level_control_values = {} if low_level_values is None else low_level_values
     values = {
-        **({} if low_level_values is None else low_level_values),
+        **low_level_control_values,
         **task_control_values,
     }
+    low_level_inner_loop = _mapping(
+        low_level_control_values.get("tendon_inner_loop", {}),
+        "low_level_control.tendon_inner_loop",
+    )
+    task_inner_loop = _mapping(
+        task_control_values.get("tendon_inner_loop", {}),
+        "scenario.task.tracking_control.tendon_inner_loop",
+    )
+    inner_loop_values = {**low_level_inner_loop, **task_inner_loop}
     return ScenarioTrackingControlConfig(
         approach_samples=int(values.get("approach_samples", 0)),
         tracking_mode=str(values.get("tracking_mode", "waypoint")),
@@ -712,6 +765,37 @@ def _load_tracking_control_config(
         ),
         enforce_backend_tendon_limits=bool(
             values.get("enforce_backend_tendon_limits", False)
+        ),
+        tendon_inner_loop=ScenarioTendonInnerLoopConfig(
+            mode=str(inner_loop_values.get("mode", "legacy")),
+            rate_filter_time_constant_s=float(
+                inner_loop_values.get("rate_filter_time_constant_s", 0.06)
+            ),
+            feedforward_lead_time_s=float(
+                inner_loop_values.get("feedforward_lead_time_s", 0.0)
+            ),
+            rate_proportional_time_s=float(
+                inner_loop_values.get("rate_proportional_time_s", 0.0)
+            ),
+            rate_integral_gain=float(
+                inner_loop_values.get("rate_integral_gain", 1.0)
+            ),
+            anti_windup_gain=float(inner_loop_values.get("anti_windup_gain", 1.0)),
+            max_target_lead_m=_optional_float(
+                inner_loop_values.get("max_target_lead_m")
+            ),
+            soft_force_limit_n=_optional_float(
+                inner_loop_values.get("soft_force_limit_n")
+            ),
+            hard_force_limit_n=_optional_float(
+                inner_loop_values.get("hard_force_limit_n")
+            ),
+            zero_command_mode=str(
+                inner_loop_values.get("zero_command_mode", "hold")
+            ),
+            zero_rate_tolerance_mps=float(
+                inner_loop_values.get("zero_rate_tolerance_mps", 1.0e-7)
+            ),
         ),
     )
 

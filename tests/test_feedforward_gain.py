@@ -26,6 +26,10 @@ def test_mujoco_low_level_profile_loads_unit_feedforward_gain() -> None:
     config = load_scenario_config("configs/scenarios/single_mujoco_tracking.yaml")
 
     assert config.task.tracking_control.feedforward_gain == 1.0
+    inner_loop = config.task.tracking_control.tendon_inner_loop
+    assert inner_loop.mode == "bending_rate_servo"
+    assert inner_loop.max_target_lead_m == 0.00024
+    assert inner_loop.soft_force_limit_n == 24.0
 
 
 def test_task_feedforward_gain_overrides_low_level_profile() -> None:

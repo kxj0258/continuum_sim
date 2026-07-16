@@ -13,6 +13,8 @@ from continuum_sim.model.bending_space import BendingSpaceModel
 DEFAULT_TARGET_LEAD_M = 0.0005
 _BENDING_LIMIT_PROJECTION_CONFIG = CBFQPConfig(max_projection_iterations=32)
 TENDON_TARGET_MODES = ("protected", "free_integrated", "actual_anchored")
+TENDON_INNER_LOOP_MODES = ("legacy", "bending_rate_servo")
+ZERO_COMMAND_MODES = ("hold", "relax")
 
 
 @dataclass(frozen=True)
@@ -136,6 +138,539 @@ class CompatibleTendonRateStep:
     raw_debug: bool
 
 
+@dataclass(frozen=True)
+class BendingRateServoConfig:
+    """Configuration for the bending-space tendon rate servo."""
+
+    rate_filter_time_constant_s: float = 0.06
+    feedforward_lead_time_s: float = 0.0
+    rate_proportional_time_s: float = 0.0
+    rate_integral_gain: float = 1.0
+    anti_windup_gain: float = 1.0
+    max_target_lead_m: float | np.ndarray | None = None
+    soft_force_limit_n: float | None = None
+    hard_force_limit_n: float | None = None
+    zero_command_mode: str = "hold"
+    zero_rate_tolerance_mps: float = 1.0e-7
+
+    def __post_init__(self) -> None:
+        nonnegative = {
+            "rate_filter_time_constant_s": self.rate_filter_time_constant_s,
+            "feedforward_lead_time_s": self.feedforward_lead_time_s,
+            "rate_proportional_time_s": self.rate_proportional_time_s,
+            "rate_integral_gain": self.rate_integral_gain,
+            "anti_windup_gain": self.anti_windup_gain,
+            "zero_rate_tolerance_mps": self.zero_rate_tolerance_mps,
+        }
+        for name, value in nonnegative.items():
+            if not np.isfinite(value) or value < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative.")
+        if self.anti_windup_gain > 1.0:
+            raise ValueError("anti_windup_gain must be in [0, 1].")
+        if self.max_target_lead_m is not None:
+            lead = np.asarray(self.max_target_lead_m, dtype=float)
+            if not np.all(np.isfinite(lead)) or np.any(lead <= 0.0):
+                raise ValueError("max_target_lead_m must contain positive finite values.")
+            object.__setattr__(self, "max_target_lead_m", lead.copy())
+        for name, value in (
+            ("soft_force_limit_n", self.soft_force_limit_n),
+            ("hard_force_limit_n", self.hard_force_limit_n),
+        ):
+            if value is not None and (not np.isfinite(value) or value <= 0.0):
+                raise ValueError(f"{name} must be positive and finite when set.")
+        if (
+            self.soft_force_limit_n is not None
+            and self.hard_force_limit_n is not None
+            and self.soft_force_limit_n > self.hard_force_limit_n
+        ):
+            raise ValueError("soft_force_limit_n cannot exceed hard_force_limit_n.")
+        if self.zero_command_mode not in ZERO_COMMAND_MODES:
+            raise ValueError(
+                f"zero_command_mode must be one of {ZERO_COMMAND_MODES}."
+            )
+
+
+@dataclass(frozen=True)
+class CompatibleBendingRateServoStep:
+    """One bending-space rate-servo result and its anti-windup diagnostics."""
+
+    requested_rate_mps: np.ndarray
+    compatible_rate_mps: np.ndarray
+    constrained_rate_mps: np.ndarray
+    measured_rate_mps: np.ndarray
+    measured_rate_raw_mps: np.ndarray
+    target_rate_mps: np.ndarray
+    raw_target_m: np.ndarray
+    displacement_m: np.ndarray
+    target_lead_m: np.ndarray
+    target_lead_limit_m: np.ndarray
+    bending_requested_rate: np.ndarray
+    bending_constrained_rate: np.ndarray
+    bending_measured_rate: np.ndarray
+    bending_rate_error: np.ndarray
+    bending_integral: np.ndarray
+    anti_windup_correction: np.ndarray
+    common_scale: float
+    compatibility_residual_mps: np.ndarray
+    rate_saturated: np.ndarray
+    target_rate_saturated: np.ndarray
+    displacement_saturated: np.ndarray
+    lead_saturated: np.ndarray
+    force_saturated: np.ndarray
+    hard_force_saturated: np.ndarray
+    force_scale: float
+    guard_feasible: bool
+    max_constraint_violation_m: float
+    compatibility_bypassed_for_safety: bool
+    hold_target_retained: bool
+
+
+class CompatibleBendingRateServo:
+    """Track compatible tendon rates using measured bending-rate feedback.
+
+    The actuator target is anchored to the measured tendon displacement.  A
+    persistent bending-space integral stores only the lead required to close
+    the rate error, so motion that MuJoCo could not realize in one controller
+    period is retained instead of being discarded.  Tracking targets are
+    projected through compatible tendon bounds; HOLD preserves the last full
+    target, while an infeasible guard falls back to an explicitly diagnosed
+    per-tendon safety recovery.
+    """
+
+    def __init__(
+        self,
+        model: BendingSpaceModel,
+        limits: TendonRateLimits,
+        config: BendingRateServoConfig | None = None,
+    ) -> None:
+        if limits.max_rate_mps.shape != (model.tendon_count,):
+            raise ValueError("Bending model and tendon limits must have matching sizes.")
+        self.model = model
+        self.limits = limits
+        self.config = BendingRateServoConfig() if config is None else config
+        configured_lead = (
+            limits.target_lead_m
+            if self.config.max_target_lead_m is None
+            else _as_vector_or_scalar(
+                self.config.max_target_lead_m,
+                "max_target_lead_m",
+                model.tendon_count,
+            )
+        )
+        self._target_lead_limit_m = np.minimum(
+            limits.target_lead_m,
+            configured_lead,
+        )
+        self._integral_bending = np.zeros(model.bending_size, dtype=float)
+        self._filtered_bending_rate = np.zeros(model.bending_size, dtype=float)
+        self._previous_actual_bending = np.zeros(model.bending_size, dtype=float)
+        self._target_m = np.zeros(model.tendon_count, dtype=float)
+        self._previous_target_m = np.zeros(model.tendon_count, dtype=float)
+        self._has_actual_observation = False
+        self.reset()
+
+    @property
+    def displacement_m(self) -> np.ndarray:
+        return self._target_m.copy()
+
+    @property
+    def bending_integral(self) -> np.ndarray:
+        return self._integral_bending.copy()
+
+    @property
+    def target_lead_limit_m(self) -> np.ndarray:
+        return self._target_lead_limit_m.copy()
+
+    def reset(
+        self,
+        actual_displacement_m: np.ndarray | None = None,
+        *,
+        retained_target_m: np.ndarray | None = None,
+    ) -> np.ndarray:
+        actual = (
+            np.zeros(self.model.tendon_count, dtype=float)
+            if actual_displacement_m is None
+            else _as_vector(
+                actual_displacement_m,
+                "actual_displacement_m",
+                self.model.tendon_count,
+            )
+        )
+        target = (
+            actual
+            if retained_target_m is None
+            else _as_vector(
+                retained_target_m,
+                "retained_target_m",
+                self.model.tendon_count,
+            )
+        )
+        self._integral_bending.fill(0.0)
+        self._filtered_bending_rate.fill(0.0)
+        self._previous_actual_bending = self.model.estimate(actual)
+        self._target_m = target.copy()
+        self._previous_target_m = target.copy()
+        self._has_actual_observation = actual_displacement_m is not None
+        return self.displacement_m
+
+    def step(
+        self,
+        requested_rate_mps: np.ndarray,
+        dt: float,
+        *,
+        actual_displacement_m: np.ndarray,
+        actuator_force_n: np.ndarray | None = None,
+    ) -> CompatibleBendingRateServoStep:
+        if dt <= 0.0:
+            raise ValueError(f"dt must be positive, got {dt}.")
+        requested = _as_vector(
+            requested_rate_mps,
+            "requested_rate_mps",
+            self.model.tendon_count,
+        )
+        actual = _as_vector(
+            actual_displacement_m,
+            "actual_displacement_m",
+            self.model.tendon_count,
+        )
+        force = (
+            np.zeros(self.model.tendon_count, dtype=float)
+            if actuator_force_n is None
+            else _as_vector(
+                actuator_force_n,
+                "actuator_force_n",
+                self.model.tendon_count,
+            )
+        )
+        residual = self.model.residual(requested)
+        if not self.model.is_compatible(requested):
+            raise ValueError(
+                "Normal tendon-rate command is outside bending space: "
+                f"residual={np.linalg.norm(residual):.6e} m/s, "
+                f"tolerance={self.model.compatibility_tolerance(requested):.6e} m/s."
+            )
+
+        bending_requested = self.model.estimate(requested)
+        compatible_rate = self.model.to_tendon(bending_requested)
+        actual_bending = self.model.estimate(actual)
+        if self._has_actual_observation:
+            measured_bending_raw = (
+                actual_bending - self._previous_actual_bending
+            ) / float(dt)
+        else:
+            measured_bending_raw = np.zeros(self.model.bending_size, dtype=float)
+            self._has_actual_observation = True
+        filter_tau = self.config.rate_filter_time_constant_s
+        filter_alpha = 1.0 if filter_tau <= 0.0 else float(dt) / (filter_tau + float(dt))
+        self._filtered_bending_rate = self._filtered_bending_rate + filter_alpha * (
+            measured_bending_raw - self._filtered_bending_rate
+        )
+
+        (
+            bending_constrained,
+            rate_constraint_violation,
+            rate_guard_feasible,
+        ) = _project_bending_rate_checked(
+            self.model,
+            bending_requested,
+            actual,
+            float(dt),
+            self.limits.displacement_min_m,
+            self.limits.displacement_max_m,
+            self.limits.max_rate_mps,
+            actual,
+            self._target_lead_limit_m,
+        )
+        constrained_rate = self.model.to_tendon(bending_constrained)
+        measured_rate_raw = self.model.to_tendon(measured_bending_raw)
+        measured_rate = self.model.to_tendon(self._filtered_bending_rate)
+        bending_rate_error = bending_constrained - self._filtered_bending_rate
+
+        soft_force_saturated = (
+            np.zeros(self.model.tendon_count, dtype=bool)
+            if self.config.soft_force_limit_n is None
+            else np.abs(force) >= self.config.soft_force_limit_n
+        )
+        hard_force_saturated = (
+            np.zeros(self.model.tendon_count, dtype=bool)
+            if self.config.hard_force_limit_n is None
+            else np.abs(force) >= self.config.hard_force_limit_n
+        )
+        request_is_zero = (
+            np.max(np.abs(compatible_rate)) <= self.config.zero_rate_tolerance_mps
+        )
+        relax_requested = (
+            self.config.zero_command_mode == "relax" and request_is_zero
+        )
+        if relax_requested:
+            integral_candidate = np.zeros_like(self._integral_bending)
+        elif np.any(soft_force_saturated):
+            integral_candidate = self._integral_bending.copy()
+        elif request_is_zero:
+            integral_candidate = self._integral_bending.copy()
+        else:
+            integral_candidate = (
+                self._integral_bending + float(dt) * bending_rate_error
+            )
+
+        feedforward_lead = (
+            self.config.feedforward_lead_time_s * bending_constrained
+        )
+        proportional_lead = (
+            self.config.rate_proportional_time_s * bending_rate_error
+        )
+        integral_lead = self.config.rate_integral_gain * integral_candidate
+        raw_lead_bending = feedforward_lead + proportional_lead + integral_lead
+        if relax_requested:
+            feedforward_lead.fill(0.0)
+            proportional_lead.fill(0.0)
+            raw_lead_bending.fill(0.0)
+        elif self.config.zero_command_mode == "hold" and request_is_zero:
+            feedforward_lead.fill(0.0)
+            proportional_lead.fill(0.0)
+            raw_lead_bending = self.model.estimate(
+                self._previous_target_m - actual
+            )
+
+        lead_lower = np.maximum(
+            self.limits.displacement_min_m - actual,
+            -self._target_lead_limit_m,
+        )
+        lead_lower = np.maximum(
+            lead_lower,
+            self._previous_target_m - float(dt) * self.limits.max_rate_mps - actual,
+        )
+        lead_upper = np.minimum(
+            self.limits.displacement_max_m - actual,
+            self._target_lead_limit_m,
+        )
+        lead_upper = np.minimum(
+            lead_upper,
+            self._previous_target_m + float(dt) * self.limits.max_rate_mps - actual,
+        )
+        raw_lead = self.model.to_tendon(raw_lead_bending)
+        raw_target = actual + raw_lead
+        peak_force = float(np.max(np.abs(force)))
+        force_scale = 1.0
+        hard_force_recovery = (
+            self.config.hard_force_limit_n is not None
+            and peak_force >= self.config.hard_force_limit_n
+        )
+        hold_requested = (
+            self.config.zero_command_mode == "hold" and request_is_zero
+        )
+        retained_lead = self._previous_target_m - actual
+        hold_target_retained = bool(
+            hold_requested
+            and not hard_force_recovery
+            and np.all(
+                self._previous_target_m >= self.limits.displacement_min_m
+            )
+            and np.all(
+                self._previous_target_m <= self.limits.displacement_max_m
+            )
+            and np.all(np.abs(retained_lead) <= self._target_lead_limit_m)
+        )
+        compatibility_bypassed_for_safety = False
+        if hold_target_retained:
+            projected_lead = retained_lead.copy()
+            projected_lead_bending = self.model.estimate(projected_lead)
+            target = self._previous_target_m.copy()
+            raw_lead = retained_lead.copy()
+            raw_target = target.copy()
+            guard_feasible = True
+            max_constraint_violation = 0.0
+        else:
+            (
+                projected_lead_bending,
+                lead_constraint_violation,
+                lead_guard_feasible,
+            ) = _project_with_tendon_bounds_checked(
+                self.model,
+                raw_lead_bending,
+                lead_lower,
+                lead_upper,
+            )
+            guard_feasible = lead_guard_feasible and rate_guard_feasible
+            max_constraint_violation = max(
+                lead_constraint_violation,
+                rate_constraint_violation * float(dt),
+            )
+            projected_lead = self.model.to_tendon(projected_lead_bending)
+            target = actual + projected_lead
+        if hard_force_recovery:
+            recovery_force = (
+                0.9 * self.config.hard_force_limit_n
+                if self.config.soft_force_limit_n is None
+                else self.config.soft_force_limit_n
+            )
+            force_scale = float(recovery_force / peak_force)
+            previous_guard_feasible = guard_feasible
+            previous_constraint_violation = max_constraint_violation
+            (
+                projected_lead_bending,
+                recovery_constraint_violation,
+                recovery_guard_feasible,
+            ) = _project_with_tendon_bounds_checked(
+                self.model,
+                force_scale * projected_lead_bending,
+                lead_lower,
+                lead_upper,
+            )
+            guard_feasible = (
+                previous_guard_feasible
+                and recovery_guard_feasible
+                and rate_guard_feasible
+            )
+            max_constraint_violation = max(
+                previous_constraint_violation,
+                recovery_constraint_violation,
+                rate_constraint_violation * float(dt),
+            )
+            projected_lead = self.model.to_tendon(projected_lead_bending)
+            target = actual + projected_lead
+        if not guard_feasible:
+            safe_target_lower = np.maximum(
+                self.limits.displacement_min_m,
+                actual - self._target_lead_limit_m,
+            )
+            safe_target_upper = np.minimum(
+                self.limits.displacement_max_m,
+                actual + self._target_lead_limit_m,
+            )
+            recovery_reference = (
+                actual + force_scale * (self._previous_target_m - actual)
+                if hard_force_recovery
+                else self._previous_target_m
+            )
+            rate_target_lower = (
+                self._previous_target_m - float(dt) * self.limits.max_rate_mps
+            )
+            rate_target_upper = (
+                self._previous_target_m + float(dt) * self.limits.max_rate_mps
+            )
+            bounded_target_lower = np.maximum(
+                safe_target_lower,
+                rate_target_lower,
+            )
+            bounded_target_upper = np.minimum(
+                safe_target_upper,
+                rate_target_upper,
+            )
+            safe_box_feasible = safe_target_lower <= safe_target_upper
+            bounded_box_feasible = safe_box_feasible & (
+                bounded_target_lower <= bounded_target_upper
+            )
+            target = actual.copy()
+            if np.any(bounded_box_feasible):
+                target[bounded_box_feasible] = np.clip(
+                    recovery_reference[bounded_box_feasible],
+                    bounded_target_lower[bounded_box_feasible],
+                    bounded_target_upper[bounded_box_feasible],
+                )
+            safety_only = safe_box_feasible & ~bounded_box_feasible
+            if np.any(safety_only):
+                # Lead/force safety takes precedence where actual tendon motion
+                # makes the cross-cycle target-rate box temporarily infeasible.
+                target[safety_only] = np.clip(
+                    recovery_reference[safety_only],
+                    safe_target_lower[safety_only],
+                    safe_target_upper[safety_only],
+                )
+            projected_lead = target - actual
+            projected_lead_bending = self.model.estimate(projected_lead)
+            target_rate_violation_m = float(
+                np.max(
+                    np.maximum(
+                        np.abs(target - self._previous_target_m)
+                        - float(dt) * self.limits.max_rate_mps,
+                        0.0,
+                    )
+                )
+            )
+            max_constraint_violation = max(
+                max_constraint_violation,
+                target_rate_violation_m,
+                _maximum_box_violation(
+                    target,
+                    self.limits.displacement_min_m,
+                    self.limits.displacement_max_m,
+                ),
+                _maximum_box_violation(
+                    projected_lead,
+                    -self._target_lead_limit_m,
+                    self._target_lead_limit_m,
+                ),
+            )
+            compatibility_bypassed_for_safety = not self.model.is_compatible(
+                projected_lead
+            )
+        anti_windup_correction = np.zeros_like(self._integral_bending)
+        if relax_requested:
+            self._integral_bending.fill(0.0)
+        elif self.config.rate_integral_gain > 0.0:
+            desired_integral = (
+                projected_lead_bending - feedforward_lead - proportional_lead
+            ) / self.config.rate_integral_gain
+            anti_windup_correction = self.config.anti_windup_gain * (
+                desired_integral - integral_candidate
+            )
+            self._integral_bending = (
+                integral_candidate + anti_windup_correction
+            )
+        else:
+            self._integral_bending.fill(0.0)
+
+        target_rate = (target - self._previous_target_m) / float(dt)
+        raw_target_rate = (raw_target - self._previous_target_m) / float(dt)
+        tolerance = 1.0e-12
+        rate_saturated = np.abs(constrained_rate - compatible_rate) > tolerance
+        target_rate_saturated = np.abs(target_rate - raw_target_rate) > tolerance
+        displacement_saturated = (
+            target <= self.limits.displacement_min_m + tolerance
+        ) | (target >= self.limits.displacement_max_m - tolerance)
+        lead_saturated = (
+            np.abs(projected_lead - raw_lead) > tolerance
+        ) | (
+            np.abs(projected_lead) >= self._target_lead_limit_m - tolerance
+        )
+        result = CompatibleBendingRateServoStep(
+            requested_rate_mps=requested.copy(),
+            compatible_rate_mps=compatible_rate,
+            constrained_rate_mps=constrained_rate,
+            measured_rate_mps=measured_rate,
+            measured_rate_raw_mps=measured_rate_raw,
+            target_rate_mps=target_rate,
+            raw_target_m=raw_target,
+            displacement_m=target.copy(),
+            target_lead_m=projected_lead,
+            target_lead_limit_m=self._target_lead_limit_m.copy(),
+            bending_requested_rate=bending_requested,
+            bending_constrained_rate=bending_constrained,
+            bending_measured_rate=self._filtered_bending_rate.copy(),
+            bending_rate_error=bending_rate_error,
+            bending_integral=self._integral_bending.copy(),
+            anti_windup_correction=anti_windup_correction,
+            common_scale=_effective_scale(compatible_rate, constrained_rate),
+            compatibility_residual_mps=residual,
+            rate_saturated=rate_saturated,
+            target_rate_saturated=target_rate_saturated,
+            displacement_saturated=displacement_saturated,
+            lead_saturated=lead_saturated,
+            force_saturated=soft_force_saturated | hard_force_saturated,
+            hard_force_saturated=hard_force_saturated,
+            force_scale=force_scale,
+            guard_feasible=guard_feasible,
+            max_constraint_violation_m=max_constraint_violation,
+            compatibility_bypassed_for_safety=compatibility_bypassed_for_safety,
+            hold_target_retained=hold_target_retained,
+        )
+        self._previous_actual_bending = actual_bending
+        self._previous_target_m = target.copy()
+        self._target_m = target.copy()
+        return result
+
+
 class CompatibleTendonRateIntegrator:
     """Integrate bending-compatible tendon targets with common-scale limits."""
 
@@ -176,6 +711,24 @@ class CompatibleTendonRateIntegrator:
         self._bending = self.model.estimate(values)
         self._raw_target = values.copy()
         self._raw_mode = False
+        return self.displacement_m
+
+    def reset_raw(self, displacement_m: np.ndarray) -> np.ndarray:
+        """Rebase raw-debug integration without creating a target jump."""
+
+        values = _as_vector(
+            displacement_m,
+            "displacement_m",
+            self.model.tendon_count,
+        )
+        values = np.clip(
+            values,
+            self.limits.displacement_min_m,
+            self.limits.displacement_max_m,
+        )
+        self._bending = self.model.estimate(values)
+        self._raw_target = values.copy()
+        self._raw_mode = True
         return self.displacement_m
 
     def step(
@@ -417,20 +970,15 @@ def _project_bending_rate(
     actual: np.ndarray | None,
     target_lead: np.ndarray,
 ) -> np.ndarray:
-    rate_lower = np.maximum(-max_rate, (lower - current) / dt)
-    rate_upper = np.minimum(max_rate, (upper - current) / dt)
-    if actual is not None:
-        finite_lead = np.isfinite(target_lead)
-        rate_lower[finite_lead] = np.maximum(
-            rate_lower[finite_lead],
-            (actual[finite_lead] - target_lead[finite_lead] - current[finite_lead])
-            / dt,
-        )
-        rate_upper[finite_lead] = np.minimum(
-            rate_upper[finite_lead],
-            (actual[finite_lead] + target_lead[finite_lead] - current[finite_lead])
-            / dt,
-        )
+    rate_lower, rate_upper = _bending_rate_bounds(
+        current,
+        dt,
+        lower,
+        upper,
+        max_rate,
+        actual,
+        target_lead,
+    )
     rate_lower, rate_upper = _ensure_feasible_bounds(
         rate_lower,
         rate_upper,
@@ -458,6 +1006,154 @@ def _project_with_tendon_bounds(
         barrier_jacobian=barrier_jacobian,
         barrier_lower_bound=barrier_lower_bound,
         config=_BENDING_LIMIT_PROJECTION_CONFIG,
+    )
+
+
+def _project_bending_rate_checked(
+    model: BendingSpaceModel,
+    bending_rate: np.ndarray,
+    current: np.ndarray,
+    dt: float,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    max_rate: np.ndarray,
+    actual: np.ndarray | None,
+    target_lead: np.ndarray,
+) -> tuple[np.ndarray, float, bool]:
+    rate_lower, rate_upper = _bending_rate_bounds(
+        current,
+        dt,
+        lower,
+        upper,
+        max_rate,
+        actual,
+        target_lead,
+    )
+    return _project_with_tendon_bounds_checked(
+        model,
+        bending_rate,
+        rate_lower,
+        rate_upper,
+    )
+
+
+def _bending_rate_bounds(
+    current: np.ndarray,
+    dt: float,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    max_rate: np.ndarray,
+    actual: np.ndarray | None,
+    target_lead: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    rate_lower = np.maximum(-max_rate, (lower - current) / dt)
+    rate_upper = np.minimum(max_rate, (upper - current) / dt)
+    if actual is not None:
+        finite_lead = np.isfinite(target_lead)
+        rate_lower[finite_lead] = np.maximum(
+            rate_lower[finite_lead],
+            (actual[finite_lead] - target_lead[finite_lead] - current[finite_lead])
+            / dt,
+        )
+        rate_upper[finite_lead] = np.minimum(
+            rate_upper[finite_lead],
+            (actual[finite_lead] + target_lead[finite_lead] - current[finite_lead])
+            / dt,
+        )
+    return rate_lower, rate_upper
+
+
+def _project_with_tendon_bounds_checked(
+    model: BendingSpaceModel,
+    reference_bending: np.ndarray,
+    tendon_lower: np.ndarray,
+    tendon_upper: np.ndarray,
+) -> tuple[np.ndarray, float, bool]:
+    """Project a bending vector and report whether its tendon box is feasible."""
+
+    tolerance = 1.0e-10
+    if np.any(tendon_lower > tendon_upper):
+        zero = np.zeros(model.bending_size, dtype=float)
+        violation = _maximum_box_violation(
+            model.to_tendon(zero),
+            tendon_lower,
+            tendon_upper,
+        )
+        return zero, violation, False
+    projected = _project_with_tendon_bounds(
+        model,
+        reference_bending,
+        tendon_lower,
+        tendon_upper,
+    )
+    projected_tendon = model.to_tendon(projected)
+    violation = _maximum_box_violation(
+        projected_tendon,
+        tendon_lower,
+        tendon_upper,
+    )
+    if violation <= tolerance:
+        return projected, violation, True
+
+    zero_is_feasible = bool(
+        np.all(tendon_lower <= tolerance) and np.all(tendon_upper >= -tolerance)
+    )
+    if zero_is_feasible:
+        reference_tendon = model.to_tendon(reference_bending)
+        scale = _common_box_scale_from_zero(
+            reference_tendon,
+            tendon_lower,
+            tendon_upper,
+        )
+        fallback = scale * reference_bending
+        fallback_violation = _maximum_box_violation(
+            model.to_tendon(fallback),
+            tendon_lower,
+            tendon_upper,
+        )
+        return fallback, fallback_violation, fallback_violation <= tolerance
+
+    zero = np.zeros(model.bending_size, dtype=float)
+    zero_violation = _maximum_box_violation(
+        model.to_tendon(zero),
+        tendon_lower,
+        tendon_upper,
+    )
+    return zero, zero_violation, False
+
+
+def _common_box_scale_from_zero(
+    reference: np.ndarray,
+    lower: np.ndarray,
+    upper: np.ndarray,
+) -> float:
+    scale = 1.0
+    positive = reference > 0.0
+    negative = reference < 0.0
+    if np.any(positive):
+        scale = min(scale, float(np.min(upper[positive] / reference[positive])))
+    if np.any(negative):
+        scale = min(scale, float(np.min(lower[negative] / reference[negative])))
+    return float(np.clip(scale, 0.0, 1.0))
+
+
+def _maximum_box_violation(
+    values: np.ndarray,
+    lower: np.ndarray,
+    upper: np.ndarray,
+) -> float:
+    if not (
+        np.all(np.isfinite(values))
+        and np.all(np.isfinite(lower))
+        and np.all(np.isfinite(upper))
+    ):
+        return float("inf")
+    return float(
+        max(
+            0.0,
+            float(np.max(lower - values)),
+            float(np.max(values - upper)),
+        )
     )
 
 

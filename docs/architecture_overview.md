@@ -94,7 +94,9 @@ tracking / navigation / wiping / cleaning / engine-navigation 上层策略
   -> executor active-subspace solve + observer active-subspace solve
   -> WholeBodyController（每臂独立 Jacobian / SVD / 正则化 / 限幅）
   -> ControlLayout 映射 base twist 和相容 tendon-rate
-  -> 后端应用底座位姿和 tendon 目标
+  -> 每臂 tendon target policy
+     (actual_anchored / protected / free_integrated / bending_rate_servo)
+  -> 后端应用底座位姿和绝对 tendon position target
   -> RobotSystemState 回报末端位姿、tendon 状态、metadata
   -> hooks 记录诊断数据和运行产物
 ```
@@ -103,12 +105,18 @@ tracking / navigation / wiping / cleaning / engine-navigation 上层策略
 位置伺服锚定到当前 TCP，只执行速度意图。Engine cleaning 使用后者，因此 task-space cleaning
 controller 的闭环速度不会再与通用位置 P 重复叠加。
 
+职责边界保持单向：`WholeBodyController` 负责 task velocity 到相容 bending/tendon rate；
+`CompatibleBendingRateServo` 只把 rate command 变成 MuJoCo position actuator 可执行的受限 target；
+MuJoCo backend 负责读取 tendon/force 状态、写入 actuator target 并推进物理步。servo 不修改 Cartesian
+轨迹，也不吸收 PCC–MuJoCo tip residual；模型残差仍由独立诊断链路测量和标定。
+
 双臂控制不再把两臂任务堆叠到一次全局 SVD。executor solve 允许 base 和 executor，自身数学路径与
 single 保持一致；observer solve 只允许 observer tendon。observer 的 collision-only 策略从实际中心线
 最近点构造排斥速度，在 influence distance 外输出零速度，并且不能触发 executor freeze 或全局 hard stop。
 
-共享低层参数只在 `configs/control/spatial_low_level.yaml` 定义，包含笛卡尔增益、速度上限、
-whole-body 权重、奇异性策略、阻尼和 tendon/backend 限制开关。任务 YAML 保留路径、时序、
+共享低层 profile 位于 `configs/control/`：通用任务使用 `spatial_low_level.yaml`，MuJoCo tracking
+使用 `mujoco_tracking_low_level.yaml`。profile 包含笛卡尔增益、速度上限、whole-body 权重、
+奇异性策略、阻尼和 tendon/backend 内环参数。任务 YAML 保留路径、时序、
 waypoint 推进、clearance、接触/力目标和阶段状态。旧配置可用 `task.tracking_control` 覆盖 profile，
 该能力仅用于兼容，不建议新场景复制底层参数。
 
@@ -132,8 +140,9 @@ contact-triggered admittance、engine-cleaning task-space scaffold 和 dynamic a
 - `MujocoViewerHook`、`MatplotlibSystemViewerHook`：交互式查看。
 - 实时面板：tendon、擦拭力、诊断数据。
 
-运行产物按 `time_s`（state）和 `command_time_s`（command）分别对齐，逐臂保存 tendon target/actual、
-requested/applied rate、实际速度和 actuator force；双臂命令 metadata 还保存 observer mode、最近点、
+运行产物按 `time_s`（state）和 `command_time_s`（command transition）分别对齐，逐臂保存 tendon
+target/actual、requested/constrained/target-FD/realized-FD rate、raw velocity sensor、target lead、
+anti-windup、guard 状态和 actuator force；双臂命令 metadata 还保存 observer mode、最近点、
 臂间距离、阈值和避碰速度，用于同步控制图。
 
 新增调试字段时，优先放入控制器命令 metadata，再由 recorder/hooks 消费。这样不会把具体任务逻辑

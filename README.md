@@ -75,14 +75,14 @@ xdot_projected = U_valid U_valid^T xdot_des
 
 这会丢弃 Jacobian 弱可控方向上的目标速度分量，而不是继续使用 damping/velocity-scale 硬追。
 
-- 共享底层 profile 使用保守的末端目标速度限幅：
+- 通用 `spatial_low_level.yaml` profile 使用保守的末端目标速度限幅：
   - 目标末端速度上限为 `0.015 m/s`。
   - whole-body solver 的 base/tendon rate 限幅开启。
   - backend tendon target 的 rate/displacement/target-lead 保护开启。
   - staged engine navigation 的基座 pose controller 速度裁剪关闭。
   - 接触导纳内部的切向/法向速度裁剪默认关闭。
 
-- MuJoCo system backend 默认使用 measured-feedback `protected` tendon target 模式：
+- 通用 spatial profile 继续使用 measured-feedback `protected` tendon target 模式：
 
 ```text
 tendon_rate_applied = clip_compatible_rate(tendon_rate_requested)
@@ -90,28 +90,41 @@ tendon_target_next = clip(integrated_target,
                           actual_tendon_length ± target_lead)
 ```
 
-该模式每个控制周期读取实际 tendon length，并同时限制 rate、位移和目标领先量。关闭 backend
-保护时仍可使用 `actual_anchored`，但不再是共享 profile 的默认行为。
+MuJoCo tracking profile 改用 `bending_rate_servo`。它用相邻控制周期的实际 tendon 位移有限差分
+估计实现速度，投影到 6 维 bending space 并低通滤波，再由 command/realized bending-rate 误差生成
+受限的位置 lead：
+
+```text
+b_dot_realized = LPF(C_b^+ (l_actual[k] - l_actual[k-1]) / dt)
+b_dot_ref = project_rate_and_displacement_limits(b_dot_command)
+e_rate = b_dot_ref - b_dot_realized
+delta_b_lead = T_ff b_dot_ref + T_p e_rate + K_i integral(e_rate)
+l_target = l_actual + C_b project(delta_b_lead)
+```
+
+最终 target 同时受 tendon rate、绝对位移、target lead 和 actuator force guard 约束；投影修改会通过
+向量 back-calculation 回写积分状态，避免 actuator 已受限时继续 windup。`actual_anchored`、
+`free_integrated` 和 `protected` 仍保留为兼容模式。
 
 底层参数通过 `scenario.low_level_control_path` 引用共享 profile；
 `task.tracking_control` 只保留 `approach_samples`、`tracking_mode`、
 `trajectory_duration_s` 等上层调度参数。当前提供两套明确的底层版本：
 
 - `configs/control/spatial_low_level.yaml`：通用 protected 版本，启用目标速度、solver 和 backend 保护。
-- `configs/control/mujoco_tracking_low_level.yaml`：MuJoCo tracking 基线版本，完整保留已验证的
-  `1.0` 位置增益、SVD/权重参数，关闭 target/solver/backend 限制并使用
-  MuJoCo `actual_anchored` tendon target 模式。
+- `configs/control/mujoco_tracking_low_level.yaml`：MuJoCo tracking 版本，保留 `1.0` 位置增益和
+  SVD/权重参数，并为 tracking task 显式选择自带联合 guard 的 `bending_rate_servo`。
 
 single/dual 的 MuJoCo tracking、engine tracking、MuJoCo navigation 和 engine cleaning 共 8 个场景
-统一引用 MuJoCo tracking 基线。dual 中 executor 与 observer 共用这套底层参数，但保留各自独立的
-上层任务。
+统一引用该文件，但新 servo 只在 `task.type: tracking` 时装配。因此四个 tracking 场景使用新内环，
+navigation 和 cleaning 仍保持原 target policy；dual 中 executor 与 observer 使用各自独立的 servo 状态。
 
-共享 profile 当前显式启用 solver/backend 物理限幅：
+共享 MuJoCo profile 保持 solver/backend legacy 限制开关关闭，以隔离本次 tendon 内环变量；
+tracking servo 不依赖这两个 legacy 开关，始终执行自身联合 guard：
 
 ```yaml
 low_level_control:
-  enforce_solver_velocity_limits: true
-  enforce_backend_tendon_limits: true
+  enforce_solver_velocity_limits: false
+  enforce_backend_tendon_limits: false
 ```
 
 接触导纳速度裁剪可通过：
@@ -133,7 +146,8 @@ task:
   -> shared Cartesian servo + per-arm speed limit
   -> isolated executor / observer Jacobian-SVD solves
   -> RobotSystemCommand(base twist + compatible tendon rates)
-  -> analytic backend 或 MuJoCo measured-feedback protected tendon targets
+  -> analytic target integration 或 MuJoCo tendon target policy
+     (actual_anchored / protected / free_integrated / bending_rate_servo)
 ```
 
 各任务的上层控制过程如下：
@@ -178,7 +192,7 @@ task:
 ```yaml
 tracking_control:
   tracking_mode: time
-  trajectory_duration_s: 80.0
+  trajectory_duration_s: 30.0
 ```
 
 控制器每个控制周期按仿真时间采样：
@@ -198,9 +212,11 @@ tracking_control:
 恢复。
 
 `mujoco_tracking_low_level.yaml` 统一定义 `1.0` 位置增益、SVD 参数、权重和
-`actual_anchored` tendon target 模式，并关闭 Cartesian、solver 和 backend 限幅。所有引用它的 dual
-场景中，两条机械臂共用这些底层参数；observer 的差异只来自独立的上层 intent。继续引用
-`spatial_low_level.yaml` 的其他场景仍使用 `arm_position_gain: 1.5` 和 protected tendon target 模式。
+`bending_rate_servo` 参数。Cartesian target 与 solver/legacy backend 限幅保持关闭；servo 自身的
+rate/displacement/lead/force guard 始终开启。
+所有 tracking 场景中的每条机械臂各自维护实际速度滤波、rate-error 积分和 anti-windup 状态；
+observer 的上层目标仍来自独立 intent。继续引用 `spatial_low_level.yaml` 的其他场景仍使用
+`arm_position_gain: 1.5` 和 protected tendon target 模式。
 
 ### Engine tracking 的移动基座与反作用隔离
 
@@ -213,7 +229,7 @@ base_approach
   -> 到位条件：位置误差 <= 5 mm，姿态误差 <= 0.035 rad
 
 tracking
-  -> TimedTrajectoryTrackingController（80 s）
+  -> TimedTrajectoryTrackingController（30 s）
   -> UnifiedLowLevelController + mujoco_tracking_low_level.yaml
   -> 固定基座装配模型求解 tendon rate
   -> 发给 MuJoCo 的 base_twist_world 恒为 0
@@ -307,7 +323,13 @@ output/runs/<scenario>_<timestamp>/
 1. 检查 `configs/scenarios/<name>.yaml` 的 `backend`、`task`、`runtime` 和 `hooks`。
 2. 打开 `recorder`、`tendon_debug` 和 `show_live_diagnostics_panel`，观察误差、奇异值、投影残差、tendon target/current。
 3. 查看 `output/runs/<scenario>_<timestamp>/metadata.json`、`result.npz` 和 `plots/`。
-4. 如果 tendon target 和 current 差距异常，优先看同步图中的 requested/applied rate、target/actual、actuator force 和 limit scale。
+4. 如果 tendon target 和 current 差距异常，依次比较 requested、constrained、target FD、realized FD、
+   servo 使用的 filtered measured rate 和 raw sensor rate，再检查 target lead、anti-windup、actuator
+   force utilization 与 guard feasibility。
+
+`applied_rate_mps` 只是软件内环接受的兼容 reference，不代表物理实现速度；
+`tendon_velocity_mps` 是 MuJoCo 周期末的瞬时 sensor。判断执行速度应优先使用跨 state 的
+`tendon_realized_rate_fd_mps`。
 
 更多细节见：
 

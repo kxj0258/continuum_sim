@@ -44,8 +44,11 @@ hooks:
 双臂 tracking 优先查看 `result.npz` 中的：
 
 - `arm_observer_tendon_target_m` / `arm_observer_tendon_displacement_m`
-- `arm_observer_command_rate_mps` / `arm_observer_applied_rate_mps`
-- `arm_observer_tendon_velocity_mps` / `arm_observer_actuator_force_n`
+- `arm_observer_tendon_inner_loop_mode` / `arm_observer_tendon_servo_evaluated`
+- `arm_observer_command_rate_mps` / `arm_observer_constrained_command_rate_mps`
+- `arm_observer_tendon_target_rate_fd_mps` / `arm_observer_tendon_realized_rate_fd_mps`
+- `arm_observer_tendon_measured_rate_filtered_mps`
+- `arm_observer_tendon_velocity_sensor_raw_mps` / `arm_observer_actuator_force_n`
 - `observer_control_mode` / `observer_collision_active`
 - `inter_arm_distance_m` 与 influence/minimum/critical 阈值
 
@@ -67,6 +70,42 @@ output/runs/<scenario>_<timestamp>/
 如果只改控制器，优先比较 `tracking_error_m`、`achieved_waypoint_error_m`、
 `arm_tendon_target_error_norm_m` 和 `arm_saturation_scale`。如果只改场景或路径生成，优先看
 waypoints、local path plots 和 generated XML。
+
+### Bending-rate servo 排查
+
+按下面的链路逐层比较，避免把不同含义的 rate 混在一起：
+
+```text
+requested command
+  -> constrained command
+  -> actuator target finite difference
+  -> realized tendon displacement finite difference
+     -> filtered measured rate（下一次 servo 反馈）
+     \-> raw MuJoCo velocity sensor（并列的瞬时对照）
+```
+
+先用 `arm_<name>_tendon_servo_evaluated` 过滤实际执行 servo 的 transition；`raw_debug`、`legacy`
+或 `unknown` 周期中的 guard/anti-windup 默认占位值不能解释为控制故障。
+
+- command 高、constrained 低：入口 rate/displacement/lead 约束在裁剪，先查 `rate_saturated` 和
+  `tendon_guard_feasible`，不要调 actuator gain。
+- constrained 高、target FD 低：target lead/force guard 正在限制当前 target，anti-windup 随后回算响应；检查
+  `tendon_target_lead_utilization`、`tendon_force_constraint_active` 和 force utilization。
+- target FD 高、realized FD 低：position actuator/结构动力学没有实现 target；检查实际 force 是否接近
+  physical limit。此时继续提高积分只会触发 guard，应降低 reference speed 或增加上层 governor。
+- realized FD 与 `arm_<name>_tendon_measured_rate_filtered_mps` 差异大且高频抖动：适当增大
+  `rate_filter_time_constant_s`，同时确认 `controller_dt_s == n_substeps * timestep`。
+- command 归零后 target 仍缓慢漂移：检查 `zero_command_mode`、rate-error integral 和 anti-windup；
+  `hold` 请求保持上一 target，`relax` 请求受限地卸力回到 actual；两者都可能被联合 guard 修正。
+- `tendon_guard_feasible` 为 false 或 constraint violation 非零：不要继续调增益。先检查 actual tendon
+  是否越过绝对位移边界、assembly lead 与 actuator force/`kp` 推导的 lead 是否冲突。此时 backend
+  会优先执行逐 tendon 安全回撤；若 `tendon_compatibility_bypassed_for_safety` 为 true，应把该周期视为
+  fault recovery，而不是正常 tracking 样本。
+- PCC–MuJoCo tip residual 大但 tendon target/realized 链路正常：这是模型映射/物理参数问题，转到
+  本文后面的 PCC–MuJoCo 诊断，不要让 tendon servo 补偿 Cartesian 模型误差。
+
+`arm_<name>_applied_rate_mps` 是 constrained reference 的兼容别名，不是物理 realized rate；
+`arm_<name>_tendon_velocity_mps` 是 raw sensor 的兼容别名。定量比较应使用显式命名的新字段。
 
 ## 发动机导航排查
 
@@ -92,6 +131,7 @@ waypoints、local path plots 和 generated XML。
 
 ```powershell
 pytest tests/test_tracking_optimization.py tests/test_scenario_migrated_task_features.py
+pytest tests/test_bending_space.py
 pytest tests/test_scenario_artifacts.py tests/test_staged_engine_navigation.py
 python scripts/run_scenario.py configs/scenarios/single_mujoco_tracking.yaml
 python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml

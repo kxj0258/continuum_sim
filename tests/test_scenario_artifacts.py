@@ -76,13 +76,30 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
         ),
     )
     state0 = _state(0.0, [0.0, 0.0, 0.10])
-    state1 = _state(0.02, [0.01, 0.0, 0.10])
+    state1 = _state(
+        0.02,
+        [0.01, 0.0, 0.10],
+        tendon_displacement_m=np.full(9, 0.00002, dtype=float),
+        tendon_velocity_mps=np.full(9, 0.001, dtype=float),
+        tendon_target_m=np.full(9, 0.00004, dtype=float),
+        saturation={
+            "inner_loop_mode": "bending_rate_servo",
+            "target_mode": "bending_rate_servo",
+            "constrained_rate_mps": np.full(9, 0.0015, dtype=float),
+            "measured_rate_mps": np.full(9, 0.0008, dtype=float),
+            "guard_feasible": True,
+        },
+    )
     result = SimulationLoopResult(
         states=(state0, state1),
         commands=(
             RobotSystemCommand(
                 base_twist_world=np.zeros(6, dtype=float),
-                arms={"executor": ArmTendonRateCommand(np.zeros(9, dtype=float))},
+                arms={
+                    "executor": ArmTendonRateCommand(
+                        np.full(9, 0.0018, dtype=float)
+                    )
+                },
                 metadata={
                     "executor_feedforward_gain": 0.25,
                     "task_intent_velocity_world": np.array(
@@ -175,6 +192,35 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
         assert arrays[
             "executor_scaled_feedforward_velocity_world"
         ].tolist() == [[0.001, 0.0, 0.0]]
+        np.testing.assert_allclose(
+            arrays["arm_executor_constrained_command_rate_mps"],
+            np.full((1, 9), 0.0015),
+        )
+        np.testing.assert_allclose(
+            arrays["arm_executor_tendon_target_rate_fd_mps"],
+            np.full((1, 9), 0.002),
+        )
+        np.testing.assert_allclose(
+            arrays["arm_executor_tendon_realized_rate_fd_mps"],
+            np.full((1, 9), 0.001),
+        )
+        np.testing.assert_allclose(
+            arrays["arm_executor_tendon_velocity_sensor_raw_mps"],
+            np.vstack((np.zeros(9), np.full(9, 0.001))),
+        )
+        np.testing.assert_allclose(
+            arrays["arm_executor_tendon_target_lead_m"],
+            np.full((1, 9), 0.00002),
+        )
+        np.testing.assert_allclose(
+            arrays["arm_executor_tendon_measured_rate_filtered_mps"],
+            np.full((1, 9), 0.0008),
+        )
+        assert arrays["arm_executor_tendon_inner_loop_mode"].tolist() == [
+            "bending_rate_servo"
+        ]
+        assert arrays["arm_executor_tendon_servo_evaluated"].tolist() == [True]
+        assert arrays["arm_executor_tendon_guard_feasible"].tolist() == [True]
 
 
 def test_scenario_artifacts_save_separate_named_local_path_plots(tmp_path) -> None:
@@ -216,8 +262,26 @@ def test_scenario_artifacts_save_separate_named_local_path_plots(tmp_path) -> No
     assert tmp_path / "engine_navigation_local_path_endpoint_square.png" in saved
 
 
-def _state(time_s: float, tip_position: list[float]) -> RobotSystemState:
+def _state(
+    time_s: float,
+    tip_position: list[float],
+    *,
+    tendon_displacement_m: np.ndarray | None = None,
+    tendon_velocity_mps: np.ndarray | None = None,
+    tendon_target_m: np.ndarray | None = None,
+    saturation: dict[str, object] | None = None,
+) -> RobotSystemState:
     pose = Pose6D(position=np.asarray(tip_position, dtype=float), quat=np.array([1.0, 0.0, 0.0, 0.0]))
+    displacement = (
+        np.zeros(9, dtype=float)
+        if tendon_displacement_m is None
+        else tendon_displacement_m
+    )
+    velocity = (
+        np.zeros(9, dtype=float)
+        if tendon_velocity_mps is None
+        else tendon_velocity_mps
+    )
     return RobotSystemState(
         time_s=time_s,
         base=BaseSystemState(Pose6D.identity()),
@@ -227,8 +291,16 @@ def _state(time_s: float, tip_position: list[float]) -> RobotSystemState:
                 role="executor",
                 tip_pose_world=pose,
                 segment_poses_world=np.repeat(np.eye(4)[None, :, :], 2, axis=0),
-                tendon_displacement_m=np.zeros(9, dtype=float),
-                tendon_velocity_mps=np.zeros(9, dtype=float),
+                tendon_displacement_m=displacement,
+                tendon_velocity_mps=velocity,
+                tendon_target_m=(
+                    displacement if tendon_target_m is None else tendon_target_m
+                ),
             )
+        },
+        metadata={
+            "saturation": {"executor": saturation}
+            if saturation is not None
+            else {}
         },
     )

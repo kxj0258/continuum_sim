@@ -28,6 +28,7 @@ from continuum_sim.control.scenario_controllers import (
 from continuum_sim.control.contact_triggered_admittance import (
     ContactTriggeredAdmittanceConfig,
 )
+from continuum_sim.control.tendon_rate_control import BendingRateServoConfig
 from continuum_sim.control.wiping_force_strategies import (
     ContactDistanceStrategy,
     ContactTriggeredAdmittanceStrategy,
@@ -449,10 +450,26 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     ET.indent(tree)
     tree.write(output_path, encoding="utf-8", xml_declaration=False)
+    inner_loop = config.task.tracking_control.tendon_inner_loop
+    tendon_rate_servo_config = None
+    if config.task.type == "tracking" and inner_loop.mode == "bending_rate_servo":
+        tendon_rate_servo_config = BendingRateServoConfig(
+            rate_filter_time_constant_s=inner_loop.rate_filter_time_constant_s,
+            feedforward_lead_time_s=inner_loop.feedforward_lead_time_s,
+            rate_proportional_time_s=inner_loop.rate_proportional_time_s,
+            rate_integral_gain=inner_loop.rate_integral_gain,
+            anti_windup_gain=inner_loop.anti_windup_gain,
+            max_target_lead_m=inner_loop.max_target_lead_m,
+            soft_force_limit_n=inner_loop.soft_force_limit_n,
+            hard_force_limit_n=inner_loop.hard_force_limit_n,
+            zero_command_mode=inner_loop.zero_command_mode,
+            zero_rate_tolerance_mps=inner_loop.zero_rate_tolerance_mps,
+        )
     return MujocoSystemBackend(
         load_mujoco_config(backend.mujoco_config_path),
         assembly,
         xml_path=output_path,
+        tendon_rate_servo_config=tendon_rate_servo_config,
     )
 
 

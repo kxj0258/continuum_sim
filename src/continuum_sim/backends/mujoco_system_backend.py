@@ -15,6 +15,8 @@ from continuum_sim.control.mobile_base_controller import (
     integrate_base_pose,
 )
 from continuum_sim.control.tendon_rate_control import (
+    BendingRateServoConfig,
+    CompatibleBendingRateServo,
     CompatibleTendonRateIntegrator,
     TendonRateLimits,
 )
@@ -39,6 +41,7 @@ class MujocoSystemBackend:
         assembly: RobotAssemblyConfig,
         *,
         xml_path: str | Path | None = None,
+        tendon_rate_servo_config: BendingRateServoConfig | None = None,
     ) -> None:
         if len(assembly.enabled_arms) == 1 and mujoco_config.tendon_model.count != 9:
             arm = assembly.enabled_arms[0]
@@ -75,6 +78,10 @@ class MujocoSystemBackend:
         # System commands are already complete named layouts; default-arm
         # expansion is not part of this backend contract.
         self.physics._dual_arm_command_adapter = None
+        tendon_rate_servo_config = _bound_servo_config_to_actuator(
+            tendon_rate_servo_config,
+            mujoco_config,
+        )
         self._integrators = {
             arm.name: CompatibleTendonRateIntegrator(
                 self.layout.bending_models[arm.name],
@@ -87,12 +94,34 @@ class MujocoSystemBackend:
             )
             for arm in assembly.enabled_arms
         }
+        self._rate_servos = (
+            {
+                arm.name: CompatibleBendingRateServo(
+                    self.layout.bending_models[arm.name],
+                    self._integrators[arm.name].limits,
+                    tendon_rate_servo_config,
+                )
+                for arm in assembly.enabled_arms
+            }
+            if tendon_rate_servo_config is not None
+            else {}
+        )
         self._base_state = MobileBaseState(
             pose=assembly.base.initial_pose,
             locked=assembly.base.control_mode == "fixed",
         )
         self._last_applied_rates = {
             arm.name: np.zeros(arm.spatial_arm.tendon_count, dtype=float)
+            for arm in assembly.enabled_arms
+        }
+        self._last_tendon_targets = {
+            arm.name: np.zeros(arm.spatial_arm.tendon_count, dtype=float)
+            for arm in assembly.enabled_arms
+        }
+        self._last_inner_loop_modes = {
+            arm.name: (
+                "bending_rate_servo" if arm.name in self._rate_servos else "legacy"
+            )
             for arm in assembly.enabled_arms
         }
 
@@ -103,6 +132,7 @@ class MujocoSystemBackend:
         assembly_config: str | Path | RobotAssemblyConfig,
         *,
         xml_path: str | Path | None = None,
+        tendon_rate_servo_config: BendingRateServoConfig | None = None,
     ) -> "MujocoSystemBackend":
         resolved_mujoco = (
             mujoco_config
@@ -114,12 +144,34 @@ class MujocoSystemBackend:
             if isinstance(assembly_config, RobotAssemblyConfig)
             else load_robot_assembly_config(assembly_config)
         )
-        return cls(resolved_mujoco, resolved_assembly, xml_path=xml_path)
+        return cls(
+            resolved_mujoco,
+            resolved_assembly,
+            xml_path=xml_path,
+            tendon_rate_servo_config=tendon_rate_servo_config,
+        )
 
     def reset_system(self) -> RobotSystemState:
         self.physics.reset()
-        for integrator in self._integrators.values():
-            integrator.reset()
+        actual_tendon_displacement = self.physics.get_tendon_length()
+        for arm_name in self.layout.arms:
+            tendon_slice = self.layout.tendon_slice(arm_name)
+            actual = actual_tendon_displacement[tendon_slice]
+            self._integrators[arm_name].reset()
+            if arm_name in self._rate_servos:
+                self._rate_servos[arm_name].reset(actual)
+                self._last_tendon_targets[arm_name] = (
+                    self._rate_servos[arm_name].displacement_m
+                )
+            else:
+                self._last_tendon_targets[arm_name] = (
+                    self._integrators[arm_name].displacement_m
+                )
+            self._last_inner_loop_modes[arm_name] = (
+                "bending_rate_servo"
+                if arm_name in self._rate_servos
+                else "legacy"
+            )
         self._last_applied_rates = {
             arm.name: np.zeros(arm.spatial_arm.tendon_count, dtype=float)
             for arm in self.assembly.enabled_arms
@@ -172,6 +224,11 @@ class MujocoSystemBackend:
 
         tendon_target = np.zeros(self.layout.tendon_size, dtype=float)
         actual_tendon_displacement = self.physics.get_tendon_length()
+        actual_actuator_force = self.physics.get_actuator_force()
+        previous_tendon_target = {
+            arm_name: target.copy()
+            for arm_name, target in self._last_tendon_targets.items()
+        }
         saturation: dict[str, dict[str, object]] = {}
         enforce_tendon_limits = not bool(
             command.metadata.get("disable_backend_tendon_limits", False)
@@ -182,29 +239,126 @@ class MujocoSystemBackend:
         tendon_target_mode = str(tendon_target_mode)
         for arm_name in self.layout.arms:
             tendon_slice = self.layout.tendon_slice(arm_name)
-            step = self._integrators[arm_name].step(
-                command.arms[arm_name].tendon_rate_mps,
-                dt,
-                raw_debug=(
-                    command.arms[arm_name].control_space == "raw_tendon_debug"
-                ),
-                actual_displacement_m=actual_tendon_displacement[tendon_slice],
-                enforce_limits=enforce_tendon_limits,
-                target_mode=tendon_target_mode,
-            )
-            tendon_target[tendon_slice] = step.displacement_m
-            self._last_applied_rates[arm_name] = step.applied_rate_mps
-            saturation[arm_name] = {
-                "rate": step.rate_saturated,
-                "displacement": step.displacement_saturated,
-                "common_scale": step.common_scale,
-                "requested_rate_mps": step.requested_rate_mps.copy(),
-                "applied_rate_mps": step.applied_rate_mps.copy(),
-                "target_m": step.displacement_m.copy(),
-                "compatibility_residual_mps": step.compatibility_residual_mps,
-                "raw_debug": step.raw_debug,
-                "target_mode": tendon_target_mode,
-            }
+            actual = actual_tendon_displacement[tendon_slice]
+            raw_debug = command.arms[arm_name].control_space == "raw_tendon_debug"
+            if arm_name in self._rate_servos and not raw_debug:
+                selected_inner_loop_mode = "bending_rate_servo"
+            elif raw_debug:
+                selected_inner_loop_mode = "raw_debug"
+            else:
+                selected_inner_loop_mode = "legacy"
+            if selected_inner_loop_mode != self._last_inner_loop_modes[arm_name]:
+                if selected_inner_loop_mode == "bending_rate_servo":
+                    self._rate_servos[arm_name].reset(
+                        actual,
+                        retained_target_m=self._last_tendon_targets[arm_name],
+                    )
+                elif selected_inner_loop_mode == "raw_debug":
+                    self._integrators[arm_name].reset_raw(
+                        self._last_tendon_targets[arm_name]
+                    )
+            if arm_name in self._rate_servos and not raw_debug:
+                servo_step = self._rate_servos[arm_name].step(
+                    command.arms[arm_name].tendon_rate_mps,
+                    dt,
+                    actual_displacement_m=actual,
+                    actuator_force_n=(
+                        actual_actuator_force[tendon_slice]
+                        if actual_actuator_force.size
+                        else None
+                    ),
+                )
+                tendon_target[tendon_slice] = servo_step.displacement_m
+                self._last_applied_rates[arm_name] = servo_step.constrained_rate_mps
+                saturation[arm_name] = {
+                    "rate": servo_step.rate_saturated,
+                    "target_rate": servo_step.target_rate_saturated,
+                    "displacement": servo_step.displacement_saturated,
+                    "lead": servo_step.lead_saturated,
+                    "force": servo_step.force_saturated,
+                    "hard_force": servo_step.hard_force_saturated,
+                    "common_scale": servo_step.common_scale,
+                    "force_scale": servo_step.force_scale,
+                    "requested_rate_mps": servo_step.requested_rate_mps.copy(),
+                    "compatible_rate_mps": servo_step.compatible_rate_mps.copy(),
+                    "constrained_rate_mps": servo_step.constrained_rate_mps.copy(),
+                    "applied_rate_mps": servo_step.constrained_rate_mps.copy(),
+                    "measured_rate_mps": servo_step.measured_rate_mps.copy(),
+                    "measured_rate_raw_mps": servo_step.measured_rate_raw_mps.copy(),
+                    "target_rate_mps": servo_step.target_rate_mps.copy(),
+                    "raw_target_m": servo_step.raw_target_m.copy(),
+                    "target_m": servo_step.displacement_m.copy(),
+                    "target_lead_m": servo_step.target_lead_m.copy(),
+                    "target_lead_limit_m": servo_step.target_lead_limit_m.copy(),
+                    "target_lead_utilization": np.divide(
+                        np.abs(servo_step.target_lead_m),
+                        servo_step.target_lead_limit_m,
+                    ),
+                    "bending_requested_rate": servo_step.bending_requested_rate.copy(),
+                    "bending_applied_rate": servo_step.bending_constrained_rate.copy(),
+                    "bending_measured_rate": servo_step.bending_measured_rate.copy(),
+                    "bending_rate_error": servo_step.bending_rate_error.copy(),
+                    "bending_integral": servo_step.bending_integral.copy(),
+                    "rate_error_integral_m": (
+                        self.layout.bending_models[arm_name].to_tendon(
+                            servo_step.bending_integral
+                        )
+                    ),
+                    "anti_windup_correction": servo_step.anti_windup_correction.copy(),
+                    "anti_windup_correction_m": (
+                        self.layout.bending_models[arm_name].to_tendon(
+                            servo_step.anti_windup_correction
+                        )
+                    ),
+                    "anti_windup_active": np.abs(
+                        self.layout.bending_models[arm_name].to_tendon(
+                            servo_step.anti_windup_correction
+                        )
+                    ) > 1.0e-12,
+                    "force_constraint_active": servo_step.force_saturated.copy(),
+                    "guard_feasible": servo_step.guard_feasible,
+                    "max_constraint_violation_m": (
+                        servo_step.max_constraint_violation_m
+                    ),
+                    "compatibility_bypassed_for_safety": (
+                        servo_step.compatibility_bypassed_for_safety
+                    ),
+                    "hold_target_retained": servo_step.hold_target_retained,
+                    "compatibility_residual_mps": (
+                        servo_step.compatibility_residual_mps.copy()
+                    ),
+                    "raw_debug": False,
+                    "target_mode": "bending_rate_servo",
+                    "inner_loop_mode": "bending_rate_servo",
+                }
+            else:
+                step = self._integrators[arm_name].step(
+                    command.arms[arm_name].tendon_rate_mps,
+                    dt,
+                    raw_debug=raw_debug,
+                    actual_displacement_m=actual,
+                    enforce_limits=enforce_tendon_limits,
+                    target_mode=tendon_target_mode,
+                )
+                tendon_target[tendon_slice] = step.displacement_m
+                self._last_applied_rates[arm_name] = step.applied_rate_mps
+                saturation[arm_name] = {
+                    "rate": step.rate_saturated,
+                    "displacement": step.displacement_saturated,
+                    "common_scale": step.common_scale,
+                    "requested_rate_mps": step.requested_rate_mps.copy(),
+                    "constrained_rate_mps": step.applied_rate_mps.copy(),
+                    "applied_rate_mps": step.applied_rate_mps.copy(),
+                    "target_m": step.displacement_m.copy(),
+                    "compatibility_residual_mps": (
+                        step.compatibility_residual_mps.copy()
+                    ),
+                    "raw_debug": step.raw_debug,
+                    "target_mode": "raw_debug" if raw_debug else tendon_target_mode,
+                    "inner_loop_mode": selected_inner_loop_mode,
+                }
+            self._last_tendon_targets[arm_name] = tendon_target[tendon_slice].copy()
+            self._last_inner_loop_modes[arm_name] = selected_inner_loop_mode
 
         base_rpy = _pose_to_xyz_rpy(self._base_state.pose)
         raw_control = (
@@ -214,6 +368,48 @@ class MujocoSystemBackend:
         )
         self.physics.step(raw_control, n_substeps=n_substeps)
         state = self.get_system_state()
+        for arm_name in self.layout.arms:
+            tendon_slice = self.layout.tendon_slice(arm_name)
+            realized_rate = (
+                state.arms[arm_name].tendon_displacement_m
+                - actual_tendon_displacement[tendon_slice]
+            ) / float(dt)
+            target_rate = (
+                tendon_target[tendon_slice] - previous_tendon_target[arm_name]
+            ) / float(dt)
+            post_force = state.arms[arm_name].actuator_force_n
+            force_range = self.config.actuators.tendon_position.forcerange_n
+            force_denominator = np.where(
+                post_force >= 0.0,
+                abs(float(force_range[1])),
+                abs(float(force_range[0])),
+            )
+            force_utilization = np.divide(
+                np.abs(post_force),
+                force_denominator,
+                out=np.zeros_like(post_force),
+                where=force_denominator > 0.0,
+            )
+            saturation[arm_name]["realized_rate_mps"] = realized_rate
+            saturation[arm_name]["measured_rate_fd_mps"] = realized_rate
+            saturation[arm_name]["target_rate_fd_mps"] = target_rate
+            saturation[arm_name]["target_lead_m"] = (
+                tendon_target[tendon_slice]
+                - state.arms[arm_name].tendon_displacement_m
+            )
+            if "target_lead_limit_m" in saturation[arm_name]:
+                saturation[arm_name]["target_lead_utilization"] = np.divide(
+                    np.abs(saturation[arm_name]["target_lead_m"]),
+                    saturation[arm_name]["target_lead_limit_m"],
+                )
+            saturation[arm_name]["actuator_force_n"] = post_force.copy()
+            saturation[arm_name]["actuator_force_utilization"] = force_utilization
+            saturation[arm_name]["actuator_force_at_limit"] = (
+                force_utilization >= 1.0 - 1.0e-6
+            )
+            saturation[arm_name]["bending_realized_rate"] = (
+                self.layout.bending_models[arm_name].estimate(realized_rate)
+            )
         return RobotSystemState(
             time_s=state.time_s,
             base=state.base,
@@ -256,7 +452,7 @@ class MujocoSystemBackend:
                     if tendon_velocity.size
                     else self._last_applied_rates[arm.name]
                 ),
-                tendon_target_m=self._integrators[arm.name].displacement_m,
+                tendon_target_m=self._last_tendon_targets[arm.name],
                 actuator_force_n=(
                     actuator_force[tendon_slice]
                     if actuator_force.size
@@ -316,3 +512,37 @@ def _pose_to_xyz_rpy(pose: Pose6D) -> np.ndarray:
         roll = float(np.arctan2(-rotation[1, 2], rotation[1, 1]))
         yaw = 0.0
     return np.concatenate((pose.position, np.array([roll, pitch, yaw], dtype=float)))
+
+
+def _bound_servo_config_to_actuator(
+    config: BendingRateServoConfig | None,
+    mujoco_config: MujocoConfig,
+) -> BendingRateServoConfig | None:
+    if config is None:
+        return None
+    actuator = mujoco_config.actuators.tendon_position
+    if not actuator.forcelimited:
+        return config
+    physical_force_limit = min(abs(value) for value in actuator.forcerange_n)
+    hard_force_limit = (
+        physical_force_limit
+        if config.hard_force_limit_n is None
+        else min(config.hard_force_limit_n, physical_force_limit)
+    )
+    soft_force_limit = (
+        0.8 * hard_force_limit
+        if config.soft_force_limit_n is None
+        else min(config.soft_force_limit_n, hard_force_limit)
+    )
+    force_limited_lead = soft_force_limit / actuator.kp
+    max_target_lead = (
+        force_limited_lead
+        if config.max_target_lead_m is None
+        else np.minimum(config.max_target_lead_m, force_limited_lead)
+    )
+    return replace(
+        config,
+        max_target_lead_m=max_target_lead,
+        soft_force_limit_n=soft_force_limit,
+        hard_force_limit_n=hard_force_limit,
+    )

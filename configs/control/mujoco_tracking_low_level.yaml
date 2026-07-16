@@ -19,3 +19,15 @@ low_level_control:
   decouple_arm_singularity: true
   enforce_solver_velocity_limits: false
   enforce_backend_tendon_limits: false
+  tendon_inner_loop:
+    mode: bending_rate_servo
+    rate_filter_time_constant_s: 0.04
+    feedforward_lead_time_s: 0.02
+    rate_proportional_time_s: 0.0
+    rate_integral_gain: 0.1
+    anti_windup_gain: 1.0
+    max_target_lead_m: 0.00024
+    soft_force_limit_n: 24.0
+    hard_force_limit_n: 30.0
+    zero_command_mode: hold
+    zero_rate_tolerance_mps: 1.0e-7

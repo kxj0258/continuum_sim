@@ -247,63 +247,145 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
         arrays[f"{prefix}_tip_quat_wxyz"] = np.asarray(
             [state.arms[arm_name].tip_pose_world.quat for state in result.states]
         )
-        arrays[f"{prefix}_tendon_displacement_m"] = np.asarray(
+        tendon_displacement = np.asarray(
             [state.arms[arm_name].tendon_displacement_m for state in result.states]
         )
-        arrays[f"{prefix}_tendon_velocity_mps"] = np.asarray(
+        tendon_velocity = np.asarray(
             [state.arms[arm_name].tendon_velocity_mps for state in result.states]
         )
-        arrays[f"{prefix}_tendon_target_m"] = np.asarray(
+        tendon_target = np.asarray(
             [state.arms[arm_name].tendon_target_m for state in result.states]
         )
-        arrays[f"{prefix}_actuator_force_n"] = np.asarray(
+        actuator_force = np.asarray(
             [state.arms[arm_name].actuator_force_n for state in result.states]
         )
+        arrays[f"{prefix}_tendon_displacement_m"] = tendon_displacement
+        arrays[f"{prefix}_tendon_velocity_mps"] = tendon_velocity
+        arrays[f"{prefix}_tendon_velocity_sensor_raw_mps"] = tendon_velocity.copy()
+        arrays[f"{prefix}_tendon_target_m"] = tendon_target
+        arrays[f"{prefix}_actuator_force_n"] = actuator_force
         arrays[f"{prefix}_command_rate_mps"] = np.asarray(
             [command.arms[arm_name].tendon_rate_mps for command in result.commands]
         )
-        applied_rates: list[np.ndarray] = []
-        rate_saturation: list[np.ndarray] = []
-        displacement_saturation: list[np.ndarray] = []
-        for state in result.states[1 : len(result.commands) + 1]:
-            arm_saturation = state.metadata.get("saturation", {}).get(arm_name, {})
-            applied_rates.append(
-                np.asarray(
-                    arm_saturation.get(
-                        "applied_rate_mps",
-                        np.full_like(state.arms[arm_name].tendon_velocity_mps, np.nan),
-                    ),
-                    dtype=float,
-                )
+        command_count = len(result.commands)
+        tendon_shape = (tendon_displacement.shape[1],)
+        inner_loop_mode = _arm_transition_metadata_array(
+            result.states,
+            command_count,
+            arm_name,
+            "inner_loop_mode",
+            shape=(),
+            dtype="<U32",
+            default="unknown",
+        )
+        arrays[f"{prefix}_tendon_inner_loop_mode"] = inner_loop_mode
+        arrays[f"{prefix}_tendon_target_mode"] = _arm_transition_metadata_array(
+            result.states,
+            command_count,
+            arm_name,
+            "target_mode",
+            shape=(),
+            dtype="<U32",
+            default="unknown",
+        )
+        arrays[f"{prefix}_tendon_servo_evaluated"] = (
+            inner_loop_mode == "bending_rate_servo"
+        )
+        constrained_rate = _arm_transition_metadata_array(
+            result.states,
+            command_count,
+            arm_name,
+            "constrained_rate_mps",
+            shape=tendon_shape,
+            aliases=("applied_rate_mps",),
+        )
+        arrays[f"{prefix}_constrained_command_rate_mps"] = constrained_rate
+        arrays[f"{prefix}_applied_rate_mps"] = constrained_rate.copy()
+        arrays[f"{prefix}_tendon_target_rate_fd_mps"] = _finite_difference_rate(
+            tendon_target,
+            arrays["time_s"],
+        )[:command_count]
+        arrays[f"{prefix}_tendon_realized_rate_fd_mps"] = _finite_difference_rate(
+            tendon_displacement,
+            arrays["time_s"],
+        )[:command_count]
+        arrays[f"{prefix}_tendon_measured_rate_filtered_mps"] = (
+            _arm_transition_metadata_array(
+                result.states,
+                command_count,
+                arm_name,
+                "measured_rate_mps",
+                shape=tendon_shape,
             )
-            rate_saturation.append(
-                np.asarray(
-                    arm_saturation.get(
-                        "rate",
-                        np.zeros_like(
-                            state.arms[arm_name].tendon_velocity_mps,
-                            dtype=bool,
-                        ),
-                    ),
-                    dtype=bool,
-                )
+        )
+        arrays[f"{prefix}_tendon_target_lead_m"] = (
+            tendon_target[1 : command_count + 1]
+            - tendon_displacement[1 : command_count + 1]
+        )
+        for key, metadata_key in (
+            ("tendon_target_lead_utilization", "target_lead_utilization"),
+            ("tendon_rate_error_integral_m", "rate_error_integral_m"),
+            ("tendon_anti_windup_correction_m", "anti_windup_correction_m"),
+            ("actuator_force_utilization", "actuator_force_utilization"),
+        ):
+            arrays[f"{prefix}_{key}"] = _arm_transition_metadata_array(
+                result.states,
+                command_count,
+                arm_name,
+                metadata_key,
+                shape=tendon_shape,
             )
-            displacement_saturation.append(
-                np.asarray(
-                    arm_saturation.get(
-                        "displacement",
-                        np.zeros_like(
-                            state.arms[arm_name].tendon_velocity_mps,
-                            dtype=bool,
-                        ),
-                    ),
-                    dtype=bool,
-                )
+        for key, metadata_key in (
+            ("rate_saturated", "rate"),
+            ("tendon_target_rate_saturated", "target_rate"),
+            ("displacement_saturated", "displacement"),
+            ("tendon_lead_saturated", "lead"),
+            ("tendon_force_constraint_active", "force_constraint_active"),
+            ("tendon_anti_windup_active", "anti_windup_active"),
+            ("actuator_force_at_limit", "actuator_force_at_limit"),
+        ):
+            arrays[f"{prefix}_{key}"] = _arm_transition_metadata_array(
+                result.states,
+                command_count,
+                arm_name,
+                metadata_key,
+                shape=tendon_shape,
+                dtype=bool,
             )
-        arrays[f"{prefix}_applied_rate_mps"] = np.asarray(applied_rates)
-        arrays[f"{prefix}_rate_saturated"] = np.asarray(rate_saturation)
-        arrays[f"{prefix}_displacement_saturated"] = np.asarray(
-            displacement_saturation
+        arrays[f"{prefix}_tendon_guard_feasible"] = (
+            _arm_transition_metadata_array(
+                result.states,
+                command_count,
+                arm_name,
+                "guard_feasible",
+                shape=(),
+                dtype=bool,
+                default=False,
+            )
+        )
+        for key, metadata_key in (
+            (
+                "tendon_compatibility_bypassed_for_safety",
+                "compatibility_bypassed_for_safety",
+            ),
+            ("tendon_hold_target_retained", "hold_target_retained"),
+        ):
+            arrays[f"{prefix}_{key}"] = _arm_transition_metadata_array(
+                result.states,
+                command_count,
+                arm_name,
+                metadata_key,
+                shape=(),
+                dtype=bool,
+            )
+        arrays[f"{prefix}_tendon_max_constraint_violation_m"] = (
+            _arm_transition_metadata_array(
+                result.states,
+                command_count,
+                arm_name,
+                "max_constraint_violation_m",
+                shape=(),
+            )
         )
     recorder = application.hooks_by_name.get("recorder")
     if recorder is not None and getattr(recorder, "engine_navigation_phase", ()):
@@ -563,6 +645,64 @@ def _state_metadata_array(
     return np.asarray(values, dtype=float)
 
 
+def _arm_transition_metadata_array(
+    states: list[object],
+    command_count: int,
+    arm_name: str,
+    key: str,
+    *,
+    shape: tuple[int, ...],
+    aliases: tuple[str, ...] = (),
+    dtype=float,
+    default: object | None = None,
+) -> np.ndarray:
+    fallback_value = (
+        default
+        if default is not None
+        else False
+        if dtype is bool
+        else np.nan
+    )
+    fallback = np.full(shape, fallback_value, dtype=dtype)
+    values: list[np.ndarray] = []
+    for state in states[1 : command_count + 1]:
+        metadata = state.metadata.get("saturation", {}).get(arm_name, {})
+        raw = metadata.get(key)
+        if raw is None:
+            for alias in aliases:
+                raw = metadata.get(alias)
+                if raw is not None:
+                    break
+        if raw is None:
+            values.append(fallback.copy())
+            continue
+        array = np.asarray(raw, dtype=dtype)
+        values.append(array.copy() if array.shape == shape else fallback.copy())
+    if not values:
+        return np.empty((0, *shape), dtype=dtype)
+    return np.asarray(values, dtype=dtype)
+
+
+def _finite_difference_rate(values: np.ndarray, time_s: np.ndarray) -> np.ndarray:
+    values = np.asarray(values, dtype=float)
+    time_s = np.asarray(time_s, dtype=float)
+    count = min(len(values), len(time_s))
+    if count < 2:
+        return np.empty((0, *values.shape[1:]), dtype=float)
+    delta_time = np.diff(time_s[:count])
+    delta_values = np.diff(values[:count], axis=0)
+    rate = np.full_like(delta_values, np.nan, dtype=float)
+    valid = np.isfinite(delta_time) & (delta_time > 0.0)
+    if np.any(valid):
+        denominator_shape = (int(np.count_nonzero(valid)),) + (1,) * (
+            delta_values.ndim - 1
+        )
+        rate[valid] = delta_values[valid] / delta_time[valid].reshape(
+            denominator_shape
+        )
+    return rate
+
+
 def _metrics(arrays: dict[str, np.ndarray]) -> dict[str, float]:
     metrics: dict[str, float] = {}
     error = arrays.get("tracking_error_m")
@@ -632,6 +772,60 @@ def _metrics(arrays: dict[str, np.ndarray]) -> dict[str, float]:
             )
             metrics[f"max_{metric_prefix}"] = float(np.max(diagnostic_finite))
             break
+    constrained_suffix = "_constrained_command_rate_mps"
+    for key, constrained_rate in arrays.items():
+        if not key.startswith("arm_") or not key.endswith(constrained_suffix):
+            continue
+        arm_name = key[len("arm_") : -len(constrained_suffix)]
+        prefix = f"arm_{arm_name}"
+        inner_loop_mode = arrays.get(f"{prefix}_tendon_inner_loop_mode")
+        servo_mask = (
+            inner_loop_mode == "bending_rate_servo"
+            if inner_loop_mode is not None
+            else np.zeros(len(constrained_rate), dtype=bool)
+        )
+        realized_rate = arrays.get(f"{prefix}_tendon_realized_rate_fd_mps")
+        if realized_rate is not None and realized_rate.shape == constrained_rate.shape:
+            rate_error = constrained_rate - realized_rate
+            finite_rate_error = rate_error[np.isfinite(rate_error)]
+            if finite_rate_error.size:
+                metrics[
+                    f"rms_{arm_name}_constrained_realized_rate_error_mps"
+                ] = float(np.sqrt(np.mean(finite_rate_error**2)))
+        lead = arrays.get(f"{prefix}_tendon_target_lead_m")
+        if lead is not None and np.any(np.isfinite(lead)):
+            metrics[f"max_{arm_name}_tendon_target_lead_m"] = float(
+                np.nanmax(np.abs(lead))
+            )
+        for signal_name, metric_name in (
+            ("tendon_anti_windup_active", "anti_windup_active_fraction"),
+            ("tendon_force_constraint_active", "force_constraint_active_fraction"),
+        ):
+            signal = arrays.get(f"{prefix}_{signal_name}")
+            if (
+                signal is not None
+                and signal.size
+                and servo_mask.shape == (len(signal),)
+                and np.any(servo_mask)
+            ):
+                metrics[f"{arm_name}_{metric_name}"] = float(
+                    np.mean(np.any(signal[servo_mask], axis=1))
+                )
+        force_utilization = arrays.get(f"{prefix}_actuator_force_utilization")
+        if force_utilization is not None and np.any(np.isfinite(force_utilization)):
+            metrics[f"max_{arm_name}_actuator_force_utilization"] = float(
+                np.nanmax(force_utilization)
+            )
+        guard_feasible = arrays.get(f"{prefix}_tendon_guard_feasible")
+        if (
+            guard_feasible is not None
+            and guard_feasible.size
+            and servo_mask.shape == guard_feasible.shape
+            and np.any(servo_mask)
+        ):
+            metrics[f"{arm_name}_guard_infeasible_fraction"] = float(
+                np.mean(~guard_feasible[servo_mask].astype(bool))
+            )
     return metrics
 
 
@@ -1015,9 +1209,28 @@ def _save_dual_arm_control_plots(
         prefix = f"arm_{arm_name}"
         target = arrays.get(f"{prefix}_tendon_target_m")
         actual = arrays.get(f"{prefix}_tendon_displacement_m")
-        velocity = arrays.get(f"{prefix}_tendon_velocity_mps")
+        velocity = arrays.get(f"{prefix}_tendon_velocity_sensor_raw_mps")
+        if velocity is None:
+            velocity = arrays.get(f"{prefix}_tendon_velocity_mps")
         requested_rate = arrays.get(f"{prefix}_command_rate_mps")
-        applied_rate = arrays.get(f"{prefix}_applied_rate_mps")
+        constrained_rate = arrays.get(f"{prefix}_constrained_command_rate_mps")
+        if constrained_rate is None:
+            constrained_rate = arrays.get(f"{prefix}_applied_rate_mps")
+        target_rate = arrays.get(f"{prefix}_tendon_target_rate_fd_mps")
+        realized_rate = arrays.get(f"{prefix}_tendon_realized_rate_fd_mps")
+        filtered_rate = arrays.get(f"{prefix}_tendon_measured_rate_filtered_mps")
+        target_lead = arrays.get(f"{prefix}_tendon_target_lead_m")
+        servo_evaluated = arrays.get(f"{prefix}_tendon_servo_evaluated")
+        has_servo_transitions = bool(
+            servo_evaluated is not None and np.any(servo_evaluated)
+        )
+        rate_integral = arrays.get(f"{prefix}_tendon_rate_error_integral_m")
+        anti_windup_active = arrays.get(f"{prefix}_tendon_anti_windup_active")
+        force_constraint_active = arrays.get(
+            f"{prefix}_tendon_force_constraint_active"
+        )
+        force_utilization = arrays.get(f"{prefix}_actuator_force_utilization")
+        actuator_force_at_limit = arrays.get(f"{prefix}_actuator_force_at_limit")
         force = arrays.get(f"{prefix}_actuator_force_n")
         if any(
             value is None
@@ -1026,7 +1239,7 @@ def _save_dual_arm_control_plots(
                 actual,
                 velocity,
                 requested_rate,
-                applied_rate,
+                constrained_rate,
                 force,
             )
         ):
@@ -1055,18 +1268,57 @@ def _save_dual_arm_control_plots(
         )
         axes[0, 0].legend(loc="upper right", fontsize=8)
 
-        tendon_error = np.linalg.norm(target - actual, axis=1)
-        axes[0, 1].plot(state_time, 1000.0 * tendon_error)
-        axes[0, 1].set(
-            title="Tendon target error norm",
-            xlabel="time [s]",
-            ylabel="error [mm]",
-        )
+        if target_lead is not None and len(target_lead):
+            lead_count = min(len(command_time), len(target_lead))
+            axes[0, 1].plot(
+                command_time[:lead_count],
+                1000.0 * np.max(np.abs(target_lead[:lead_count]), axis=1),
+                label="target lead",
+            )
+            if has_servo_transitions and anti_windup_active is not None:
+                active_count = min(lead_count, len(anti_windup_active))
+                active_mask = np.any(anti_windup_active[:active_count], axis=1)
+                if np.any(active_mask):
+                    axes[0, 1].scatter(
+                        command_time[:active_count][active_mask],
+                        1000.0
+                        * np.max(np.abs(target_lead[:active_count]), axis=1)[
+                            active_mask
+                        ],
+                        marker="x",
+                        s=18,
+                        label="anti-windup",
+                    )
+            if has_servo_transitions and rate_integral is not None:
+                integral_count = min(lead_count, len(rate_integral))
+                axes[0, 1].plot(
+                    command_time[:integral_count],
+                    1000.0 * np.max(np.abs(rate_integral[:integral_count]), axis=1),
+                    label="rate-error integral",
+                )
+            axes[0, 1].set(
+                title=(
+                    "Tendon target lead and servo state"
+                    if has_servo_transitions
+                    else "Tendon target lead"
+                ),
+                xlabel="time [s]",
+                ylabel="max absolute value [mm]",
+            )
+            axes[0, 1].legend(loc="upper right", fontsize=8)
+        else:
+            tendon_error = np.linalg.norm(target - actual, axis=1)
+            axes[0, 1].plot(state_time, 1000.0 * tendon_error)
+            axes[0, 1].set(
+                title="Tendon target error norm",
+                xlabel="time [s]",
+                ylabel="error [mm]",
+            )
 
         command_count = min(
             len(command_time),
             len(requested_rate),
-            len(applied_rate),
+            len(constrained_rate),
             max(0, len(velocity) - 1),
         )
         if command_count:
@@ -1077,16 +1329,31 @@ def _save_dual_arm_control_plots(
             )
             axes[1, 0].plot(
                 command_time[:command_count],
-                1000.0 * np.max(np.abs(applied_rate[:command_count]), axis=1),
-                label="applied rate",
+                1000.0 * np.max(np.abs(constrained_rate[:command_count]), axis=1),
+                label="constrained command",
             )
+            for values, label, style in (
+                (target_rate, "target FD", "-."),
+                (realized_rate, "realized FD", "-"),
+                (filtered_rate, "realized filtered", ":"),
+            ):
+                if values is None:
+                    continue
+                count = min(command_count, len(values))
+                axes[1, 0].plot(
+                    command_time[:count],
+                    1000.0 * np.max(np.abs(values[:count]), axis=1),
+                    style,
+                    label=label,
+                )
             axes[1, 0].plot(
                 command_time[:command_count],
                 1000.0 * np.max(
                     np.abs(velocity[1 : command_count + 1]),
                     axis=1,
                 ),
-                label="actual velocity",
+                alpha=0.45,
+                label="raw sensor",
             )
         axes[1, 0].set(
             title="Tendon rate envelope",
@@ -1096,17 +1363,51 @@ def _save_dual_arm_control_plots(
         if command_count:
             axes[1, 0].legend(loc="upper right", fontsize=8)
 
-        axes[1, 1].plot(
+        force_line = axes[1, 1].plot(
             state_time,
             np.max(np.abs(force), axis=1),
             label="peak actuator force",
-        )
+        )[0]
         axes[1, 1].set(
             title="Actuator load",
             xlabel="time [s]",
             ylabel="force [N]",
         )
-        axes[1, 1].legend(loc="upper right", fontsize=8)
+        force_lines = [force_line]
+        if force_utilization is not None and len(force_utilization):
+            utilization_count = min(len(command_time), len(force_utilization))
+            utilization_axis = axes[1, 1].twinx()
+            utilization_line = utilization_axis.plot(
+                command_time[:utilization_count],
+                np.max(force_utilization[:utilization_count], axis=1),
+                color="tab:orange",
+                label="force utilization",
+            )[0]
+            utilization_axis.set_ylabel("utilization")
+            force_lines.append(utilization_line)
+        for active, marker, label in (
+            (force_constraint_active, "x", "force guard"),
+            (actuator_force_at_limit, "o", "actuator force limit"),
+        ):
+            if active is None or not len(active):
+                continue
+            active_count = min(len(command_time), len(active), max(0, len(force) - 1))
+            active_mask = np.any(active[:active_count], axis=1)
+            if np.any(active_mask):
+                marker_line = axes[1, 1].scatter(
+                    command_time[:active_count][active_mask],
+                    np.max(np.abs(force[1 : active_count + 1]), axis=1)[active_mask],
+                    marker=marker,
+                    s=20,
+                    label=label,
+                )
+                force_lines.append(marker_line)
+        axes[1, 1].legend(
+            force_lines,
+            [line.get_label() for line in force_lines],
+            loc="upper right",
+            fontsize=8,
+        )
         for axis in axes.reshape(-1):
             axis.grid(alpha=0.3)
         fig.tight_layout()

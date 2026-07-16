@@ -66,6 +66,9 @@ from continuum_sim.control.navigation_controller import (
     compute_navigation_motor_velocity_command_from_observation,
 )
 from continuum_sim.control.tendon_rate_control import (
+    BendingRateServoConfig,
+    CompatibleBendingRateServo,
+    CompatibleBendingRateServoStep,
     CompatibleTendonRateIntegrator,
     CompatibleTendonRateStep,
     TendonRateIntegrator,
@@ -103,6 +106,9 @@ __all__ = [
     "ContactTaskIntent",
     "CoordinatedTrackingConfig",
     "CoordinatedTrackingController",
+    "BendingRateServoConfig",
+    "CompatibleBendingRateServo",
+    "CompatibleBendingRateServoStep",
     "CompatibleTendonRateIntegrator",
     "CompatibleTendonRateStep",
     "CoordinatedTrackingTarget",

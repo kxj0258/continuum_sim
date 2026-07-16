@@ -4,6 +4,8 @@ import numpy as np
 from numpy.testing import assert_allclose
 
 from continuum_sim.control.tendon_rate_control import (
+    BendingRateServoConfig,
+    CompatibleBendingRateServo,
     CompatibleTendonRateIntegrator,
     TendonRateLimits,
 )
@@ -98,6 +100,150 @@ def test_raw_debug_mode_allows_incompatible_tendon_rate() -> None:
 
     assert step.raw_debug is True
     assert np.linalg.norm(step.compatibility_residual_mps) > 0.0
+
+
+def test_bending_rate_servo_retains_unrealized_rate_error_with_bounded_lead() -> None:
+    model = _model()
+    lead_limit = 0.0001
+    servo = CompatibleBendingRateServo(
+        model,
+        TendonRateLimits(
+            displacement_min_m=np.full(model.tendon_count, -0.01),
+            displacement_max_m=np.full(model.tendon_count, 0.01),
+            max_rate_mps=np.full(model.tendon_count, 0.005),
+            target_lead_m=np.full(model.tendon_count, 0.0005),
+        ),
+        BendingRateServoConfig(
+            rate_filter_time_constant_s=0.0,
+            feedforward_lead_time_s=0.0,
+            rate_proportional_time_s=0.0,
+            rate_integral_gain=1.0,
+            max_target_lead_m=lead_limit,
+        ),
+    )
+    actual = np.zeros(model.tendon_count, dtype=float)
+    servo.reset(actual)
+    requested = model.to_tendon(
+        np.array([1.0, -0.5, 0.0, 0.0, 0.0, 0.0], dtype=float)
+    )
+
+    first = servo.step(requested, 0.02, actual_displacement_m=actual)
+    latest = first
+    for _ in range(20):
+        latest = servo.step(requested, 0.02, actual_displacement_m=actual)
+
+    assert np.max(np.abs(latest.target_lead_m)) <= lead_limit + 1.0e-10
+    assert np.linalg.norm(latest.target_lead_m) >= np.linalg.norm(first.target_lead_m)
+    assert latest.guard_feasible is True
+    assert model.is_compatible(latest.target_lead_m)
+
+
+def test_bending_rate_servo_zero_command_hold_preserves_target() -> None:
+    model = _model()
+    servo = CompatibleBendingRateServo(
+        model,
+        TendonRateLimits(
+            displacement_min_m=np.full(model.tendon_count, -0.01),
+            displacement_max_m=np.full(model.tendon_count, 0.01),
+            max_rate_mps=np.full(model.tendon_count, 0.005),
+        ),
+        BendingRateServoConfig(
+            rate_filter_time_constant_s=0.0,
+            feedforward_lead_time_s=0.02,
+            rate_integral_gain=0.0,
+            zero_command_mode="hold",
+        ),
+    )
+    actual = np.zeros(model.tendon_count, dtype=float)
+    servo.reset(actual)
+    requested = model.to_tendon(
+        np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
+    )
+
+    moving = servo.step(requested, 0.02, actual_displacement_m=actual)
+    holding = servo.step(
+        np.zeros(model.tendon_count, dtype=float),
+        0.02,
+        actual_displacement_m=actual,
+    )
+
+    assert_allclose(holding.displacement_m, moving.displacement_m, atol=1.0e-10)
+    assert_allclose(holding.target_rate_mps, 0.0, atol=1.0e-10)
+
+
+def test_bending_rate_servo_zero_command_relax_clears_integral() -> None:
+    model = _model()
+    max_rate = 0.001
+    servo = CompatibleBendingRateServo(
+        model,
+        TendonRateLimits(
+            displacement_min_m=np.full(model.tendon_count, -0.01),
+            displacement_max_m=np.full(model.tendon_count, 0.01),
+            max_rate_mps=np.full(model.tendon_count, max_rate),
+        ),
+        BendingRateServoConfig(
+            rate_filter_time_constant_s=0.0,
+            rate_integral_gain=1.0,
+            zero_command_mode="relax",
+        ),
+    )
+    actual = np.zeros(model.tendon_count, dtype=float)
+    servo.reset(actual)
+    requested = model.to_tendon(
+        np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
+    )
+
+    moving = servo.step(requested, 0.02, actual_displacement_m=actual)
+    relaxing = servo.step(
+        np.zeros(model.tendon_count, dtype=float),
+        0.02,
+        actual_displacement_m=actual,
+    )
+
+    assert np.linalg.norm(moving.bending_integral) > 0.0
+    assert_allclose(relaxing.bending_integral, 0.0, atol=1.0e-12)
+    assert np.linalg.norm(relaxing.displacement_m - actual) <= np.linalg.norm(
+        moving.displacement_m - actual
+    )
+    assert np.max(np.abs(relaxing.target_rate_mps)) <= max_rate + 1.0e-12
+
+
+def test_bending_rate_servo_hard_force_guard_reduces_target_lead() -> None:
+    model = _model()
+    servo = CompatibleBendingRateServo(
+        model,
+        TendonRateLimits(
+            displacement_min_m=np.full(model.tendon_count, -0.01),
+            displacement_max_m=np.full(model.tendon_count, 0.01),
+            max_rate_mps=np.full(model.tendon_count, 0.01),
+        ),
+        BendingRateServoConfig(
+            rate_filter_time_constant_s=0.0,
+            feedforward_lead_time_s=0.02,
+            rate_integral_gain=0.0,
+            soft_force_limit_n=2.0,
+            hard_force_limit_n=3.0,
+        ),
+    )
+    actual = np.zeros(model.tendon_count, dtype=float)
+    servo.reset(actual)
+    requested = model.to_tendon(
+        np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
+    )
+
+    unguarded = servo.step(requested, 0.02, actual_displacement_m=actual)
+    guarded = servo.step(
+        requested,
+        0.02,
+        actual_displacement_m=actual,
+        actuator_force_n=np.full(model.tendon_count, 6.0),
+    )
+
+    assert np.all(guarded.hard_force_saturated)
+    assert_allclose(guarded.force_scale, 1.0 / 3.0)
+    assert np.linalg.norm(guarded.target_lead_m) < np.linalg.norm(
+        unguarded.target_lead_m
+    )
 
 
 def test_structural_zero_singular_value_does_not_throttle_controllable_space() -> None:

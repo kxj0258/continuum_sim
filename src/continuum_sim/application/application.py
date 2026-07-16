@@ -324,6 +324,7 @@ class SimulationApplication:
                     controller_dt_s=config.runtime.controller_dt_s,
                     advance_time_s=config.task.advance_time_s,
                     advance_steps=config.task.advance_steps,
+                    max_steps_per_waypoint=tracking.max_steps_per_waypoint,
                     scene_query=scene_query,
                     approach_mask=task_plan["approach_mask"],
                     source_waypoint_index=task_plan["source_waypoint_index"],

@@ -97,6 +97,34 @@ def test_tracking_control_config_loads_scenario_overrides() -> None:
     assert config.task.tracking_control.enforce_backend_tendon_limits is False
 
 
+def test_mujoco_point_servo_scenario_uses_four_waypoint_step_limited_servo() -> None:
+    config = load_scenario_config("configs/scenarios/single_mujoco_point_servo.yaml")
+
+    assert config.name == "single_mujoco_point_servo"
+    assert config.task.type == "tracking"
+    assert config.task.waypoint_tolerance_m == 0.003
+    assert config.task.target_advance_mode == "tolerance"
+    assert config.task.tracking_control.tracking_mode == "waypoint"
+    assert config.task.tracking_control.max_steps_per_waypoint == 200
+    assert config.task.tracking_control.executor_position_gain == 1.0
+    assert config.task.tracking_control.max_target_speed_mps == 0.005
+    assert config.task.tracking_control.enforce_target_speed_limit is True
+    assert config.task.tracking_control.feedforward_speed_mps == 0.0
+    assert config.task.tracking_control.approach_samples == 0
+    assert config.task.trajectory is not None
+    assert config.task.trajectory.type == "square"
+    assert config.task.trajectory.samples == 4
+    assert config.task.trajectory.side_length_m == 0.040
+
+    assembly = load_robot_assembly_config(config.assembly_config_path)
+    waypoints = generate_trajectory_waypoints(config.task.trajectory, assembly)
+
+    assert waypoints.shape == (4, 3)
+    assert_allclose(np.linalg.norm(waypoints[1] - waypoints[0]), 0.040)
+    assert_allclose(np.linalg.norm(waypoints[2] - waypoints[1]), 0.040)
+    assert_allclose(np.linalg.norm(waypoints[3] - waypoints[2]), 0.040)
+
+
 def test_wiping_controller_accepts_tracking_control_parameters() -> None:
     assembly = load_robot_assembly_config("configs/robots/assemblies/single_spatial.yaml")
     solver_config = WholeBodyControllerConfig(tendon_regularization_weight=0.5)

@@ -15,6 +15,7 @@ python scripts/run_scenario.py configs/scenarios/<scenario>.yaml
 python scripts/run_scenario.py configs/scenarios/single_analytic_tracking.yaml
 python scripts/run_scenario.py configs/scenarios/dual_analytic_tracking.yaml
 python scripts/run_scenario.py configs/scenarios/single_mujoco_tracking.yaml
+python scripts/run_scenario.py configs/scenarios/single_mujoco_point_servo.yaml
 python scripts/run_scenario.py configs/scenarios/dual_mujoco_tracking.yaml
 python scripts/run_scenario.py configs/scenarios/single_engine_tracking.yaml
 python scripts/run_scenario.py configs/scenarios/dual_engine_tracking.yaml

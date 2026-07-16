@@ -111,6 +111,7 @@ class ScenarioTrackingControlConfig:
     approach_samples: int = 0
     tracking_mode: str = "waypoint"
     trajectory_duration_s: float | None = None
+    max_steps_per_waypoint: int | None = None
     stage_mobile_base: bool = False
     base_position_gain: float = 1.5
     base_orientation_gain: float = 2.0
@@ -160,6 +161,13 @@ class ScenarioTrackingControlConfig:
             raise ValueError(
                 "tracking_control.trajectory_duration_s must be positive for "
                 "tracking_mode='time'."
+            )
+        if (
+            self.max_steps_per_waypoint is not None
+            and self.max_steps_per_waypoint <= 0
+        ):
+            raise ValueError(
+                "tracking_control.max_steps_per_waypoint must be positive."
             )
         positive = {
             "base_position_gain": self.base_position_gain,
@@ -739,6 +747,11 @@ def _load_tracking_control_config(
         tracking_mode=str(task_control_values.get("tracking_mode", "waypoint")),
         trajectory_duration_s=_optional_float(
             task_control_values.get("trajectory_duration_s")
+        ),
+        max_steps_per_waypoint=(
+            None
+            if task_control_values.get("max_steps_per_waypoint") is None
+            else int(task_control_values["max_steps_per_waypoint"])
         ),
         stage_mobile_base=bool(task_control_values.get("stage_mobile_base", False)),
         base_position_gain=float(task_control_values.get("base_position_gain", 1.5)),

@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from continuum_sim import load_mujoco_config
 from continuum_sim.application.scenario import (
     ScenarioTrackingControlConfig,
     _load_tracking_control_config,
@@ -11,7 +12,11 @@ from continuum_sim.application.scenario import (
 )
 from continuum_sim.application.application import _tracking_coordinated_config
 from continuum_sim.backends.analytic_system_backend import AnalyticSystemBackend
+from continuum_sim.backends.mujoco_system_backend import (
+    _bound_servo_config_to_actuator,
+)
 from continuum_sim.control.coordinated_tracking import CoordinatedTrackingConfig
+from continuum_sim.control.tendon_rate_control import BendingRateServoConfig
 from continuum_sim.control.task_intent import (
     CartesianTaskIntent,
     SystemTaskIntent,
@@ -28,8 +33,29 @@ def test_mujoco_low_level_profile_loads_unit_feedforward_gain() -> None:
     assert config.task.tracking_control.feedforward_gain == 1.0
     inner_loop = config.task.tracking_control.tendon_inner_loop
     assert inner_loop.mode == "bending_rate_servo"
-    assert inner_loop.max_target_lead_m == 0.00024
+    assert inner_loop.max_target_lead_m == 0.000285
     assert inner_loop.soft_force_limit_n == 24.0
+
+
+def test_mujoco_servo_static_lead_bound_uses_hard_force_limit() -> None:
+    mujoco_config = load_mujoco_config(
+        "configs/mujoco_dual.yaml",
+        require_xml=False,
+        require_visual_meshes=False,
+    )
+    bounded = _bound_servo_config_to_actuator(
+        BendingRateServoConfig(
+            max_target_lead_m=0.0005,
+            soft_force_limit_n=24.0,
+            hard_force_limit_n=30.0,
+        ),
+        mujoco_config,
+    )
+
+    assert bounded is not None
+    assert_allclose(bounded.max_target_lead_m, 0.0003)
+    assert bounded.soft_force_limit_n == 24.0
+    assert bounded.hard_force_limit_n == 30.0
 
 
 def test_task_feedforward_gain_overrides_low_level_profile() -> None:

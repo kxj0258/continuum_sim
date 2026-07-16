@@ -534,11 +534,11 @@ def _bound_servo_config_to_actuator(
         if config.soft_force_limit_n is None
         else min(config.soft_force_limit_n, hard_force_limit)
     )
-    force_limited_lead = soft_force_limit / actuator.kp
+    hard_force_limited_lead = hard_force_limit / actuator.kp
     max_target_lead = (
-        force_limited_lead
+        hard_force_limited_lead
         if config.max_target_lead_m is None
-        else np.minimum(config.max_target_lead_m, force_limited_lead)
+        else np.minimum(config.max_target_lead_m, hard_force_limited_lead)
     )
     return replace(
         config,

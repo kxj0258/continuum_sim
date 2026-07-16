@@ -26,7 +26,7 @@ low_level_control:
     rate_proportional_time_s: 0.0
     rate_integral_gain: 0.1
     anti_windup_gain: 1.0
-    max_target_lead_m: 0.00024
+    max_target_lead_m: 0.000285
     soft_force_limit_n: 24.0
     hard_force_limit_n: 30.0
     zero_command_mode: hold

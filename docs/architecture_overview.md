@@ -108,7 +108,9 @@ controller 的闭环速度不会再与通用位置 P 重复叠加。
 职责边界保持单向：`WholeBodyController` 负责 task velocity 到相容 bending/tendon rate；
 `CompatibleBendingRateServo` 只把 rate command 变成 MuJoCo position actuator 可执行的受限 target；
 MuJoCo backend 负责读取 tendon/force 状态、写入 actuator target 并推进物理步。servo 不修改 Cartesian
-轨迹，也不吸收 PCC–MuJoCo tip residual；模型残差仍由独立诊断链路测量和标定。
+轨迹，也不吸收 PCC–MuJoCo tip residual；模型残差仍由独立诊断链路测量和标定。position target
+每周期重新锚定到实际 tendon 位移，跨周期 slew 约束施加于 compatible lead；若联合约束不可行，
+内环临时按 tendon 退绕 lead，并通过 metadata 标记 compatibility safety bypass。
 
 双臂控制不再把两臂任务堆叠到一次全局 SVD。executor solve 允许 base 和 executor，自身数学路径与
 single 保持一致；observer solve 只允许 observer tendon。observer 的 collision-only 策略从实际中心线

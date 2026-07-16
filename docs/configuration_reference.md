@@ -233,13 +233,13 @@ task 中覆盖底层字段，因此实际值来自同一个 profile。
 | `tendon_inner_loop.mode` | `bending_rate_servo` | tracking task 的 MuJoCo tendon target policy。 | 改为 `legacy` 可回到由 backend metadata 选择的旧 policy；navigation/cleaning 即使共用 profile 也不会装配 servo。 |
 | `tendon_inner_loop.rate_filter_time_constant_s` | `0.04 s` | 对实际 tendon 位移有限差分得到的 bending rate 做一阶低通。 | 增大可减噪但增加相位滞后；减小响应更快但更易放大差分噪声。 |
 | `tendon_inner_loop.feedforward_lead_time_s` | `0.02 s` | 约束后的 bending-rate reference 到基础 position lead 的时间尺度。 | 增大可提高初始驱动力，也更快触及 lead/force guard。 |
-| `tendon_inner_loop.rate_proportional_time_s` | `0.0 s` | bending-rate error 到额外 position lead 的比例时间尺度；当前保守起点关闭 P。 | 确认 FF 和 target-rate guard 正常后再小步增加；过大可能因滤波延迟产生 target/force 振荡。 |
+| `tendon_inner_loop.rate_proportional_time_s` | `0.0 s` | bending-rate error 到额外 position lead 的比例时间尺度；当前保守起点关闭 P。 | 确认 FF 和 lead-slew guard 正常后再小步增加；过大可能因滤波延迟产生 target/force 振荡。 |
 | `tendon_inner_loop.rate_integral_gain` | `0.1` | 累计 bending-rate error 对 position lead 的增益。 | 只用于消除持续速度不足；不得脱离 anti-windup 单独大幅提高。 |
 | `tendon_inner_loop.anti_windup_gain` | `1.0` | QP/guard 修改 raw lead 后的向量 back-calculation 强度。 | `1.0` 在本周期把积分项回算到可执行 lead；降低会保留更多积分记忆。 |
-| `tendon_inner_loop.max_target_lead_m` | `0.00024 m` | 每 tendon 的 servo lead 上限。有效值还会取 assembly lead、soft force/`kp` 的更小者。 | 当前 `kp=100000 N/m` 时 0.24 mm 理想比例力约 24 N，给 30 N 物理上限保留 20% 余量。 |
+| `tendon_inner_loop.max_target_lead_m` | `0.000285 m` | 每 tendon 的 servo lead 上限。有效值还会取 assembly lead、配置值和 hard force/`kp` 的更小者；soft force 不再静态裁剪 lead。 | 当前 `kp=100000 N/m` 时 0.285 mm 理想比例力约 28.5 N，距 30 N hard/physical 上限保留 5% 余量。 |
 | `tendon_inner_loop.soft_force_limit_n` | `24 N` | 测量力达到该值时冻结 rate-error 积分。 | 长期触发说明 reference 超出内环能力，应降速或加入上层 governor，不应继续加增益。 |
 | `tendon_inner_loop.hard_force_limit_n` | `30 N` | 超限时按测量峰值缩小 lead；backend 还会把它限制到 MuJoCo actuator force range。 | 是二级保护，不能替代 MuJoCo `forcelimited`。 |
-| `tendon_inner_loop.zero_command_mode` | `hold` | 零 rate command 时请求保持上一 position target；`relax` 清积分并请求受限地回到 actual。两者都服从位移、lead、target-rate 与 force guard。 | tracking 默认应使用 hold，避免突然卸载弹性力；只有明确需要卸力时使用 relax。 |
+| `tendon_inner_loop.zero_command_mode` | `hold` | 零 rate command 时请求保持上一完整 position target，是 lead-slew 的显式例外；`relax` 清积分并按位移、lead、lead-slew 与 force guard 受限地回到 actual。 | tracking 默认应使用 hold，避免突然卸载弹性力；若 actual 仍在运动，hold 期间的 lead 可跨周期变化。只有明确需要卸力时使用 relax。 |
 | `tendon_inner_loop.zero_rate_tolerance_mps` | `1e-7 m/s` | 判断零 command 的数值容差。 | 过大会吞掉低速命令，过小会让噪声导致 hold/track 频繁切换。 |
 
 `feedforward_gain` 与 `arm_position_gain` 控制不同部分：
@@ -288,7 +288,8 @@ servo 判断实际速度使用相邻 state 的 tendon displacement finite differ
 - `arm_<name>_tendon_anti_windup_correction_m` / `_active`：本周期回算量与激活标记；
 - `arm_<name>_tendon_force_constraint_active`：测量力触发 soft guard；
 - `arm_<name>_actuator_force_utilization` / `_at_limit`：相对 MuJoCo force range 的利用率与物理限幅标记；
-- `arm_<name>_rate_saturated` / `_tendon_target_rate_saturated`：入口 reference 与最终 target rate 是否被约束；
+- `arm_<name>_rate_saturated` / `_tendon_target_rate_saturated`：入口 reference 是否被约束，以及最终
+  target 是否偏离 raw target；绝对 target FD 包含 actual 的重新锚定运动，不等同于受限的 lead slew；
 - `arm_<name>_displacement_saturated` / `_tendon_lead_saturated`：绝对 target 或 target lead 是否触及边界；servo 专用含义须结合 `_servo_evaluated` 解读；
 - `arm_<name>_tendon_guard_feasible` / `_max_constraint_violation_m`：投影 box 是否可行及残余 violation。
   `guard_feasible=false` 只有在同一 transition 的 `_servo_evaluated=true` 时才表示真实不可行；否则表示该内环未评估此 guard。
@@ -572,7 +573,7 @@ observer configs use the same `[-0.020, 0.020]` m displacement range,
 | `joints.hinge.*`                  | scalar       | hinge damping、armature、limit、range、stiffness 和 springref。 |
 | `tendon_model.*`                  | scalar       | tendon model 类型、数量、限幅、damping、stiffness 和 coefficient source。 |
 | `actuators.tendon_position.*`     | scalar       | tendon position gain、命令范围和力范围。         |
-| `actuators.tendon_position.kp`    | float, N/m   | Tendon position gain. Dual-arm config uses `100000.0` with `forcerange_n: [-30.0, 30.0]`; 0.24 mm position error therefore corresponds to an ideal 24 N proportional force before physical effects and clipping. |
+| `actuators.tendon_position.kp`    | float, N/m   | Tendon position gain. Dual-arm config uses `100000.0` with `forcerange_n: [-30.0, 30.0]`; the default 0.285 mm servo lead therefore corresponds to an ideal 28.5 N proportional force, while 0.30 mm is the hard/physical cap before dynamic effects and clipping. |
 | `actuators.tendon_position.ctrllimited` | bool | Spatial-tendon MJCF uses `false` because MuJoCo receives absolute tendon lengths; `ctrlrange_m` remains the software-side relative displacement range. |
 | `mobile_base_xml_path`            | path         | Optional committed output for the mobile-base-wrapped model generated after `tendon_xml_path`. |
 | `visuals.world_frame.*`           | mapping      | Optional world-origin and RGB-axis MJCF site dimensions, colors, and geom group. |

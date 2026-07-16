@@ -12,6 +12,9 @@ from continuum_sim.model.bending_space import BendingSpaceModel
 
 DEFAULT_TARGET_LEAD_M = 0.0005
 _BENDING_LIMIT_PROJECTION_CONFIG = CBFQPConfig(max_projection_iterations=32)
+_BENDING_LIMIT_FEASIBILITY_TOLERANCE = (
+    _BENDING_LIMIT_PROJECTION_CONFIG.tolerance
+)
 TENDON_TARGET_MODES = ("protected", "free_integrated", "actual_anchored")
 TENDON_INNER_LOOP_MODES = ("legacy", "bending_rate_servo")
 ZERO_COMMAND_MODES = ("hold", "relax")
@@ -232,9 +235,11 @@ class CompatibleBendingRateServo:
     persistent bending-space integral stores only the lead required to close
     the rate error, so motion that MuJoCo could not realize in one controller
     period is retained instead of being discarded.  Tracking targets are
-    projected through compatible tendon bounds; HOLD preserves the last full
-    target, while an infeasible guard falls back to an explicitly diagnosed
-    per-tendon safety recovery.
+    projected through compatible tendon bounds.  Cross-cycle slew limits apply
+    to the actuator lead rather than the absolute target, so measured tendon
+    motion can re-anchor the target without making the compatible projection
+    infeasible.  HOLD preserves the last full target, while an infeasible guard
+    actively unwinds the lead toward the measured displacement.
     """
 
     def __init__(
@@ -266,6 +271,7 @@ class CompatibleBendingRateServo:
         self._previous_actual_bending = np.zeros(model.bending_size, dtype=float)
         self._target_m = np.zeros(model.tendon_count, dtype=float)
         self._previous_target_m = np.zeros(model.tendon_count, dtype=float)
+        self._previous_lead_m = np.zeros(model.tendon_count, dtype=float)
         self._has_actual_observation = False
         self.reset()
 
@@ -310,6 +316,7 @@ class CompatibleBendingRateServo:
         self._previous_actual_bending = self.model.estimate(actual)
         self._target_m = target.copy()
         self._previous_target_m = target.copy()
+        self._previous_lead_m = target - actual
         self._has_actual_observation = actual_displacement_m is not None
         return self.displacement_m
 
@@ -438,7 +445,7 @@ class CompatibleBendingRateServo:
         )
         lead_lower = np.maximum(
             lead_lower,
-            self._previous_target_m - float(dt) * self.limits.max_rate_mps - actual,
+            self._previous_lead_m - float(dt) * self.limits.max_rate_mps,
         )
         lead_upper = np.minimum(
             self.limits.displacement_max_m - actual,
@@ -446,7 +453,7 @@ class CompatibleBendingRateServo:
         )
         lead_upper = np.minimum(
             lead_upper,
-            self._previous_target_m + float(dt) * self.limits.max_rate_mps - actual,
+            self._previous_lead_m + float(dt) * self.limits.max_rate_mps,
         )
         raw_lead = self.model.to_tendon(raw_lead_bending)
         raw_target = actual + raw_lead
@@ -530,59 +537,54 @@ class CompatibleBendingRateServo:
             projected_lead = self.model.to_tendon(projected_lead_bending)
             target = actual + projected_lead
         if not guard_feasible:
-            safe_target_lower = np.maximum(
-                self.limits.displacement_min_m,
-                actual - self._target_lead_limit_m,
+            safe_lead_lower = np.maximum(
+                self.limits.displacement_min_m - actual,
+                -self._target_lead_limit_m,
             )
-            safe_target_upper = np.minimum(
-                self.limits.displacement_max_m,
-                actual + self._target_lead_limit_m,
+            safe_lead_upper = np.minimum(
+                self.limits.displacement_max_m - actual,
+                self._target_lead_limit_m,
             )
-            recovery_reference = (
-                actual + force_scale * (self._previous_target_m - actual)
-                if hard_force_recovery
-                else self._previous_target_m
+            rate_lead_lower = (
+                self._previous_lead_m - float(dt) * self.limits.max_rate_mps
             )
-            rate_target_lower = (
-                self._previous_target_m - float(dt) * self.limits.max_rate_mps
+            rate_lead_upper = (
+                self._previous_lead_m + float(dt) * self.limits.max_rate_mps
             )
-            rate_target_upper = (
-                self._previous_target_m + float(dt) * self.limits.max_rate_mps
+            bounded_lead_lower = np.maximum(
+                safe_lead_lower,
+                rate_lead_lower,
             )
-            bounded_target_lower = np.maximum(
-                safe_target_lower,
-                rate_target_lower,
+            bounded_lead_upper = np.minimum(
+                safe_lead_upper,
+                rate_lead_upper,
             )
-            bounded_target_upper = np.minimum(
-                safe_target_upper,
-                rate_target_upper,
-            )
-            safe_box_feasible = safe_target_lower <= safe_target_upper
+            safe_box_feasible = safe_lead_lower <= safe_lead_upper
             bounded_box_feasible = safe_box_feasible & (
-                bounded_target_lower <= bounded_target_upper
+                bounded_lead_lower <= bounded_lead_upper
             )
-            target = actual.copy()
+            projected_lead = np.zeros(self.model.tendon_count, dtype=float)
             if np.any(bounded_box_feasible):
-                target[bounded_box_feasible] = np.clip(
-                    recovery_reference[bounded_box_feasible],
-                    bounded_target_lower[bounded_box_feasible],
-                    bounded_target_upper[bounded_box_feasible],
+                projected_lead[bounded_box_feasible] = np.clip(
+                    0.0,
+                    bounded_lead_lower[bounded_box_feasible],
+                    bounded_lead_upper[bounded_box_feasible],
                 )
             safety_only = safe_box_feasible & ~bounded_box_feasible
             if np.any(safety_only):
                 # Lead/force safety takes precedence where actual tendon motion
-                # makes the cross-cycle target-rate box temporarily infeasible.
-                target[safety_only] = np.clip(
-                    recovery_reference[safety_only],
-                    safe_target_lower[safety_only],
-                    safe_target_upper[safety_only],
+                # makes the cross-cycle lead-slew box temporarily infeasible.
+                projected_lead[safety_only] = np.clip(
+                    0.0,
+                    safe_lead_lower[safety_only],
+                    safe_lead_upper[safety_only],
                 )
-            projected_lead = target - actual
+            target = actual + projected_lead
             projected_lead_bending = self.model.estimate(projected_lead)
-            target_rate_violation_m = float(
+            lead_rate_violation_m = float(
                 np.max(
                     np.maximum(
-                        np.abs(target - self._previous_target_m)
+                        np.abs(projected_lead - self._previous_lead_m)
                         - float(dt) * self.limits.max_rate_mps,
                         0.0,
                     )
@@ -590,7 +592,7 @@ class CompatibleBendingRateServo:
             )
             max_constraint_violation = max(
                 max_constraint_violation,
-                target_rate_violation_m,
+                lead_rate_violation_m,
                 _maximum_box_violation(
                     target,
                     self.limits.displacement_min_m,
@@ -667,6 +669,7 @@ class CompatibleBendingRateServo:
         )
         self._previous_actual_bending = actual_bending
         self._previous_target_m = target.copy()
+        self._previous_lead_m = projected_lead.copy()
         self._target_m = target.copy()
         return result
 
@@ -1071,8 +1074,8 @@ def _project_with_tendon_bounds_checked(
 ) -> tuple[np.ndarray, float, bool]:
     """Project a bending vector and report whether its tendon box is feasible."""
 
-    tolerance = 1.0e-10
-    if np.any(tendon_lower > tendon_upper):
+    tolerance = _BENDING_LIMIT_FEASIBILITY_TOLERANCE
+    if np.any(tendon_lower > tendon_upper + tolerance):
         zero = np.zeros(model.bending_size, dtype=float)
         violation = _maximum_box_violation(
             model.to_tendon(zero),
@@ -1080,6 +1083,15 @@ def _project_with_tendon_bounds_checked(
             tendon_upper,
         )
         return zero, violation, False
+    tiny_conflict = tendon_lower > tendon_upper
+    if np.any(tiny_conflict):
+        midpoint = 0.5 * (
+            tendon_lower[tiny_conflict] + tendon_upper[tiny_conflict]
+        )
+        tendon_lower = tendon_lower.copy()
+        tendon_upper = tendon_upper.copy()
+        tendon_lower[tiny_conflict] = midpoint
+        tendon_upper[tiny_conflict] = midpoint
     projected = _project_with_tendon_bounds(
         model,
         reference_bending,

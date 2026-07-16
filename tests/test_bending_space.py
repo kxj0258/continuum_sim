@@ -8,6 +8,8 @@ from continuum_sim.control.tendon_rate_control import (
     CompatibleBendingRateServo,
     CompatibleTendonRateIntegrator,
     TendonRateLimits,
+    _BENDING_LIMIT_PROJECTION_CONFIG,
+    _project_with_tendon_bounds_checked,
 )
 from continuum_sim.control.coordinated_tracking import CoordinatedTrackingConfig
 from continuum_sim.control.whole_body_controller import (
@@ -136,6 +138,144 @@ def test_bending_rate_servo_retains_unrealized_rate_error_with_bounded_lead() ->
     assert np.linalg.norm(latest.target_lead_m) >= np.linalg.norm(first.target_lead_m)
     assert latest.guard_feasible is True
     assert model.is_compatible(latest.target_lead_m)
+
+
+def test_bending_rate_servo_reanchors_after_incompatible_actual_motion() -> None:
+    model = _model()
+    dt = 0.02
+    max_rate = 0.0025
+    servo = CompatibleBendingRateServo(
+        model,
+        TendonRateLimits(
+            displacement_min_m=np.full(model.tendon_count, -0.01),
+            displacement_max_m=np.full(model.tendon_count, 0.01),
+            max_rate_mps=np.full(model.tendon_count, max_rate),
+            target_lead_m=np.full(model.tendon_count, 0.0002),
+        ),
+        BendingRateServoConfig(
+            rate_filter_time_constant_s=0.0,
+            feedforward_lead_time_s=0.02,
+            rate_integral_gain=0.0,
+        ),
+    )
+    servo.reset(np.zeros(model.tendon_count, dtype=float))
+    actual = np.full(model.tendon_count, 0.00015, dtype=float)
+    requested = model.to_tendon(
+        np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
+    )
+
+    step = servo.step(requested, dt, actual_displacement_m=actual)
+
+    assert not model.is_compatible(actual)
+    assert step.guard_feasible is True
+    assert model.is_compatible(step.target_lead_m)
+    assert np.max(np.abs(step.target_lead_m)) <= max_rate * dt + 1.0e-12
+    assert_allclose(step.displacement_m, actual + step.target_lead_m)
+
+
+def test_bending_rate_servo_infeasible_guard_unwinds_target_lead() -> None:
+    model = _model()
+    displacement_limit = 0.001
+    bending_lead = np.array(
+        [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        dtype=float,
+    )
+    retained_lead = model.to_tendon(bending_lead)
+    retained_lead *= 0.00015 / np.max(np.abs(retained_lead))
+    servo = CompatibleBendingRateServo(
+        model,
+        TendonRateLimits(
+            displacement_min_m=np.full(
+                model.tendon_count,
+                -displacement_limit,
+            ),
+            displacement_max_m=np.full(
+                model.tendon_count,
+                displacement_limit,
+            ),
+            max_rate_mps=np.full(model.tendon_count, 0.0005),
+            target_lead_m=np.full(model.tendon_count, 0.0002),
+        ),
+        BendingRateServoConfig(
+            rate_filter_time_constant_s=0.0,
+            rate_integral_gain=0.0,
+            zero_command_mode="relax",
+        ),
+    )
+    servo.reset(
+        np.zeros(model.tendon_count, dtype=float),
+        retained_target_m=retained_lead,
+    )
+    limiting_tendon = int(np.argmax(retained_lead))
+    actual = np.zeros(model.tendon_count, dtype=float)
+    actual[limiting_tendon] = displacement_limit
+
+    step = servo.step(
+        np.zeros(model.tendon_count, dtype=float),
+        0.02,
+        actual_displacement_m=actual,
+    )
+
+    assert step.guard_feasible is False
+    assert_allclose(step.target_lead_m[limiting_tendon], 0.0, atol=1.0e-12)
+    assert np.linalg.norm(step.target_lead_m) < np.linalg.norm(retained_lead)
+    assert not np.allclose(step.displacement_m, retained_lead)
+
+
+def test_bending_rate_servo_incompatible_box_recovery_does_not_latch() -> None:
+    model = _model()
+    dt = 0.02
+    actual = np.full(model.tendon_count, 0.00015, dtype=float)
+    servo = CompatibleBendingRateServo(
+        model,
+        TendonRateLimits(
+            displacement_min_m=np.full(model.tendon_count, -0.01),
+            displacement_max_m=np.full(model.tendon_count, 0.01),
+            max_rate_mps=np.full(model.tendon_count, 0.0005),
+            target_lead_m=np.full(model.tendon_count, 0.0002),
+        ),
+        BendingRateServoConfig(
+            rate_filter_time_constant_s=0.0,
+            rate_integral_gain=0.0,
+            zero_command_mode="relax",
+        ),
+    )
+    servo.reset(
+        actual,
+        retained_target_m=np.zeros(model.tendon_count, dtype=float),
+    )
+    previous_lead = -actual
+
+    step = servo.step(
+        np.zeros(model.tendon_count, dtype=float),
+        dt,
+        actual_displacement_m=actual,
+    )
+
+    expected_lead = previous_lead + dt * 0.0005
+    assert step.guard_feasible is False
+    assert step.compatibility_bypassed_for_safety is True
+    assert_allclose(step.target_lead_m, expected_lead, atol=1.0e-12)
+    assert np.linalg.norm(step.target_lead_m) < np.linalg.norm(previous_lead)
+    assert np.linalg.norm(step.displacement_m) > 0.0
+
+
+def test_bending_projection_checker_uses_solver_feasibility_tolerance() -> None:
+    model = _model()
+    tolerance = _BENDING_LIMIT_PROJECTION_CONFIG.tolerance
+    lower = np.full(model.tendon_count, -1.0, dtype=float)
+    upper = np.full(model.tendon_count, 1.0, dtype=float)
+    lower[0] = 0.5 * tolerance
+
+    _, violation, feasible = _project_with_tendon_bounds_checked(
+        model,
+        np.zeros(model.bending_size, dtype=float),
+        lower,
+        upper,
+    )
+
+    assert feasible is True
+    assert violation <= tolerance
 
 
 def test_bending_rate_servo_zero_command_hold_preserves_target() -> None:

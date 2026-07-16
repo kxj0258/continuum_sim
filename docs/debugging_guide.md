@@ -96,11 +96,14 @@ requested command
 - realized FD 与 `arm_<name>_tendon_measured_rate_filtered_mps` 差异大且高频抖动：适当增大
   `rate_filter_time_constant_s`，同时确认 `controller_dt_s == n_substeps * timestep`。
 - command 归零后 target 仍缓慢漂移：检查 `zero_command_mode`、rate-error integral 和 anti-windup；
-  `hold` 请求保持上一 target，`relax` 请求受限地卸力回到 actual；两者都可能被联合 guard 修正。
+  `hold` 优先保持上一完整 target，是 lead-slew 的显式例外；`relax` 请求受限地卸力回到 actual；
+  两者仍可能被位移、lead 或 force guard 修正。
 - `tendon_guard_feasible` 为 false 或 constraint violation 非零：不要继续调增益。先检查 actual tendon
-  是否越过绝对位移边界、assembly lead 与 actuator force/`kp` 推导的 lead 是否冲突。此时 backend
-  会优先执行逐 tendon 安全回撤；若 `tendon_compatibility_bypassed_for_safety` 为 true，应把该周期视为
-  fault recovery，而不是正常 tracking 样本。
+  是否越过绝对位移边界、assembly lead 与 actuator hard force/`kp` 推导的 lead 是否冲突。内环对
+  compatible lead 而不是绝对 target 应用跨周期 slew；若约束仍冲突，backend 会优先把各 tendon lead
+  退向 actual。若此时 target 长期保持不动，说明恢复路径再次锁存；若
+  `tendon_compatibility_bypassed_for_safety` 为 true，应把该周期视为 fault recovery，而不是正常 tracking
+  样本。
 - PCC–MuJoCo tip residual 大但 tendon target/realized 链路正常：这是模型映射/物理参数问题，转到
   本文后面的 PCC–MuJoCo 诊断，不要让 tendon servo 补偿 Cartesian 模型误差。
 

@@ -99,12 +99,16 @@ b_dot_realized = LPF(C_b^+ (l_actual[k] - l_actual[k-1]) / dt)
 b_dot_ref = project_rate_and_displacement_limits(b_dot_command)
 e_rate = b_dot_ref - b_dot_realized
 delta_b_lead = T_ff b_dot_ref + T_p e_rate + K_i integral(e_rate)
-l_target = l_actual + C_b project(delta_b_lead)
+delta_l_lead = slew_limit(C_b project(delta_b_lead))
+l_target = l_actual + delta_l_lead
 ```
 
-最终 target 同时受 tendon rate、绝对位移、target lead 和 actuator force guard 约束；投影修改会通过
-向量 back-calculation 回写积分状态，避免 actuator 已受限时继续 windup。`actual_anchored`、
-`free_integrated` 和 `protected` 仍保留为兼容模式。
+最终 target 同时受 tendon reference rate、绝对位移、target lead、lead slew 和 actuator force guard
+约束；lead slew 不再限制包含实际 tendon 运动的绝对 target 变化，因此 MuJoCo 的非 PCC-compatible
+位移不会把联合投影锁成不可行。若约束仍暂时冲突，安全回退会主动把 lead 退向 actual，而不是保持
+上一 target 形成锁存。零命令 `hold` 是 lead slew 的显式例外，它优先保持上一完整 position target；
+投影修改会通过向量 back-calculation 回写积分状态，避免 actuator 已受限时继续 windup。
+`actual_anchored`、`free_integrated` 和 `protected` 仍保留为兼容模式。
 
 底层参数通过 `scenario.low_level_control_path` 引用共享 profile；
 `task.tracking_control` 只保留 `approach_samples`、`tracking_mode`、

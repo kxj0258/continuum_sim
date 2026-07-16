@@ -46,11 +46,14 @@ scenario:
     tendon_debug_stride: 5
     show_live_tendon_panel: false
     show_live_diagnostics_panel: false
-    viewer: mujoco
+    viewer: none
     keep_viewer_open: false
   artifacts:
     enabled: true
     save_npz: true
     save_plots: true
     save_gif: true
+    video_mode: live_mujoco
+    video_fps: 10
+    video_stride: 10
     save_model: true

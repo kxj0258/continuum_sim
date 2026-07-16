@@ -5,6 +5,7 @@ scenario:
   low_level_control_path: ../control/mujoco_tracking_low_level.yaml
   backend:
     type: mujoco
+    kinematics_mode: discrete_hinge
     mujoco_config_path: ../mujoco_dual.yaml
     source_xml_path: ../../assets/mujoco/dual_three_segment_arm_tendon_with_visuals_mobile_base.xml
     generated_xml_path: ../../output/generated/scenario_single_tracking.xml
@@ -18,7 +19,7 @@ scenario:
     tracking_control:
       approach_samples: 40
       tracking_mode: time
-      trajectory_duration_s: 30.0
+      trajectory_duration_s: 100.0
     trajectory:
       type: square
       samples: 80
@@ -29,20 +30,20 @@ scenario:
         plane: xy
         yaw_deg: 15.0
       shape:
-        side_length_m: 0.040
+        side_length_m: 0.025
   runtime:
     controller_dt_s: 0.02
     n_substeps: 20
-    max_steps: 5000
+    max_steps: 10000
   hooks:
     recorder: true
     tendon_debug: true
     tendon_debug_stride: 5
-    show_live_tendon_panel: true
+    show_live_tendon_panel: false
     live_tendon_panel_stride: 5
-    show_live_diagnostics_panel: true
+    show_live_diagnostics_panel: false
     live_diagnostics_panel_stride: 5
-    viewer: mujoco
+    viewer: none
     keep_viewer_open: false
   artifacts:
     save_gif: true

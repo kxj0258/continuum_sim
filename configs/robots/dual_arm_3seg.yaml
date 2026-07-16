@@ -42,7 +42,7 @@ dual_robot:
           tendon_radius: 0.005
           collision_radius: 0.00625
           mass: 0.00989929
-          bending_stiffness: 0.0002
+          bending_stiffness: 0.00005
           torsional_stiffness: 0.006
           tendon_angles_deg: [60.0, 180.0, 300.0]
         - id: executor_segment_2
@@ -55,7 +55,7 @@ dual_robot:
           tendon_radius: 0.005
           collision_radius: 0.00625
           mass: 0.00989929
-          bending_stiffness: 0.0002
+          bending_stiffness: 0.00005
           torsional_stiffness: 0.006
           tendon_angles_deg: [0.0, 120.0, 240.0]
         - id: executor_segment_3
@@ -68,7 +68,7 @@ dual_robot:
           tendon_radius: 0.005
           collision_radius: 0.00625
           mass: 0.00989929
-          bending_stiffness: 0.0002
+          bending_stiffness: 0.00005
           torsional_stiffness: 0.006
           tendon_angles_deg: [90.0, 210.0, 330.0]
       physical_tendons:
@@ -247,7 +247,7 @@ dual_robot:
           tendon_radius: 0.005
           collision_radius: 0.00625
           mass: 0.00989929
-          bending_stiffness: 0.0002
+          bending_stiffness: 0.00005
           torsional_stiffness: 0.006
           tendon_angles_deg: [0.0, 120.0, 240.0]
         - id: observer_segment_2
@@ -260,7 +260,7 @@ dual_robot:
           tendon_radius: 0.005
           collision_radius: 0.00625
           mass: 0.00989929
-          bending_stiffness: 0.0002
+          bending_stiffness: 0.00005
           torsional_stiffness: 0.006
           tendon_angles_deg: [60.0, 180.0, 300.0]
         - id: observer_segment_3
@@ -273,7 +273,7 @@ dual_robot:
           tendon_radius: 0.005
           collision_radius: 0.00625
           mass: 0.00989929
-          bending_stiffness: 0.0002
+          bending_stiffness: 0.00005
           torsional_stiffness: 0.006
           tendon_angles_deg: [30.0, 150.0, 270.0]
       physical_tendons:

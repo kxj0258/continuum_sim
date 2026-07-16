@@ -60,8 +60,8 @@ def test_mujoco_servo_static_lead_bound_uses_hard_force_limit() -> None:
 
 def test_task_feedforward_gain_overrides_low_level_profile() -> None:
     config = _load_tracking_control_config(
-        {"tracking_control": {"feedforward_gain": 0.25}},
-        {"feedforward_gain": 0.75},
+        {"tracking_control": {"task_space_servo": {"feedforward_gain": 0.25}}},
+        {"task_space_servo": {"feedforward_gain": 0.75}},
     )
 
     assert config.feedforward_gain == 0.25

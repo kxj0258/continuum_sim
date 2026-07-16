@@ -342,6 +342,45 @@ output/runs/<scenario>_<timestamp>/
 - [docs/coordinate_conventions.md](docs/coordinate_conventions.md)
 - [docs/mainline_migration_plan.md](docs/mainline_migration_plan.md)
 
+## Four-layer control architecture
+
+The main scenario path is organized around four control layers:
+
+```text
+Task reference
+  -> TaskSpaceServo
+  -> TendonCommandController
+  -> backend execution adapter
+```
+
+- Layer 1 emits task references and phase/status metadata.
+- Layer 2 converts executor position/velocity references into TCP velocity.
+- Layer 3 solves kinematic IK and outputs `RobotSystemCommand`, whose arm
+  commands are tendon-rate references.
+- Layer 4 is backend-specific execution. MuJoCo uses
+  `MujocoTendonPositionExecutionAdapter` to convert tendon-rate references into
+  absolute `tendon_position` actuator targets.
+
+Low-level profiles now use the same split:
+
+```yaml
+low_level_control:
+  task_space_servo: {}
+  tendon_command: {}
+  execution: {}
+```
+
+See [docs/four_layer_control_architecture.md](docs/four_layer_control_architecture.md)
+for the detailed boundary and parameter meanings.
+
+Saved scenario runs mirror this split in their artifacts:
+
+- `result.npz` contains canonical `layer1_*`, `layer2_*`, `layer3_*`, and
+  `layer4_*` arrays.
+- `metadata.json.metrics.control_layers` summarizes each layer separately.
+- `plots/four_layer_control_diagnostics.png` shows task reference, task-space
+  servo, IK/tendon command, and backend execution diagnostics in one figure.
+
 ## 手动验证建议
 
 本项目默认不自动运行测试或仿真。修改后可按需手动执行：

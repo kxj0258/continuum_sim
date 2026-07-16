@@ -101,13 +101,35 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
                     )
                 },
                 metadata={
+                    "task_intent_control_mode": "position",
+                    "task_intent_target_world": np.array(
+                        [0.01, 0.0, 0.10], dtype=float
+                    ),
                     "executor_feedforward_gain": 0.25,
                     "task_intent_velocity_world": np.array(
                         [0.004, 0.0, 0.0], dtype=float
                     ),
+                    "task_space_position_error_world": np.array(
+                        [0.001, 0.0, 0.0], dtype=float
+                    ),
+                    "task_space_raw_velocity_world": np.array(
+                        [0.002, 0.0, 0.0], dtype=float
+                    ),
+                    "task_space_velocity_world": np.array(
+                        [0.002, 0.0, 0.0], dtype=float
+                    ),
+                    "task_space_speed_limited": False,
                     "executor_scaled_feedforward_velocity_world": np.array(
                         [0.001, 0.0, 0.0], dtype=float
                     ),
+                    "task_status_phase": "tracking",
+                    "task_status_active_index": 0,
+                    "task_status_complete": False,
+                    "residual_norm": 0.0002,
+                    "whole_body_solver": {
+                        "singularity_strategy": "svd_projection",
+                        "target_projection_residual_norm": 0.0001,
+                    },
                 },
             ),
         ),
@@ -167,6 +189,7 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
     assert paths.result_npz.is_file()
     assert paths.metadata_json.is_file()
     assert (paths.plots_dir / "trajectory.png").is_file()
+    assert (paths.plots_dir / "four_layer_control_diagnostics.png").is_file()
     assert (
         paths.plots_dir
         / "engine_navigation_local_path_one_third_circle.png"
@@ -175,6 +198,12 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
     assert metadata["video"] is None
     assert metadata["errors"] == ["video: RuntimeError: gif encoder unavailable"]
     assert metadata["metrics"]["final_achieved_waypoint_error_m"] == 0.0005
+    assert (
+        metadata["metrics"]["control_layers"]["layer2_task_space_servo"][
+            "final_position_error_m"
+        ]
+        == 0.001
+    )
     with np.load(paths.result_npz) as arrays:
         assert arrays["arm_executor_saturation_scale"].tolist() == [0.75]
         assert arrays["arm_executor_peak_actuator_force_n"].tolist() == [3.0]
@@ -189,6 +218,25 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
         assert arrays["task_intent_velocity_world"].tolist() == [
             [0.004, 0.0, 0.0]
         ]
+        assert arrays["layer1_task_control_mode"].tolist() == ["position"]
+        assert arrays["layer1_task_phase"].tolist() == ["tracking"]
+        np.testing.assert_allclose(
+            arrays["layer1_task_target_position_world"],
+            [[0.01, 0.0, 0.10]],
+        )
+        np.testing.assert_allclose(
+            arrays["layer2_servo_position_error_world"],
+            [[0.001, 0.0, 0.0]],
+        )
+        np.testing.assert_allclose(
+            arrays["layer2_servo_velocity_world"],
+            [[0.002, 0.0, 0.0]],
+        )
+        assert arrays["layer2_servo_speed_limited"].tolist() == [False]
+        np.testing.assert_allclose(
+            arrays["layer3_ik_arm_executor_tendon_rate_ref_mps"],
+            np.full((1, 9), 0.0018),
+        )
         assert arrays[
             "executor_scaled_feedforward_velocity_world"
         ].tolist() == [[0.001, 0.0, 0.0]]
@@ -219,6 +267,18 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
         assert arrays["arm_executor_tendon_inner_loop_mode"].tolist() == [
             "bending_rate_servo"
         ]
+        np.testing.assert_allclose(
+            arrays["layer4_execution_arm_executor_applied_rate_mps"],
+            np.full((1, 9), 0.0015),
+        )
+        np.testing.assert_allclose(
+            arrays["layer4_execution_arm_executor_realized_rate_mps"],
+            np.full((1, 9), 0.001),
+        )
+        np.testing.assert_allclose(
+            arrays["layer4_execution_arm_executor_tendon_position_error_norm_m"],
+            [0.0, 0.00006],
+        )
         assert arrays["arm_executor_tendon_servo_evaluated"].tolist() == [True]
         assert arrays["arm_executor_tendon_guard_feasible"].tolist() == [True]
 

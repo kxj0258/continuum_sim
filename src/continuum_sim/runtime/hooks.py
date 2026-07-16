@@ -785,6 +785,10 @@ class LiveDiagnosticsPanelHook:
         self._tracking_error: list[float] = []
         self._tip_target_error: list[float] = []
         self._tip_error_xyz: list[np.ndarray] = []
+        self._task_reference_jump: list[float] = []
+        self._task_space_error: list[float] = []
+        self._task_space_velocity: list[float] = []
+        self._task_space_speed_limited: list[float] = []
         self._base_error: list[float] = []
         self._clearance: list[float] = []
         self._inter_arm_distance: list[float] = []
@@ -792,12 +796,17 @@ class LiveDiagnosticsPanelHook:
         self._force_error: list[float] = []
         self._condition: list[float] = []
         self._velocity_scale: list[float] = []
+        self._ik_residual: list[float] = []
+        self._ik_projection_residual: list[float] = []
         self._saturation_scale: list[float] = []
         self._tendon_error: list[float] = []
         self._observer_tendon_error: list[float] = []
+        self._force_utilization: list[float] = []
+        self._execution_saturation_active: list[float] = []
         self._phase = ""
         self._observer_mode = ""
         self._waypoint_index = -1
+        self._last_task_target: np.ndarray | None = None
 
     def on_reset(self, state: RobotSystemState) -> None:
         import matplotlib.pyplot as plt
@@ -808,17 +817,7 @@ class LiveDiagnosticsPanelHook:
         if manager is not None:
             manager.set_window_title("continuum_sim live diagnostics")
         self._axes = axes.reshape(-1)
-        self._info_text = self._axes[3].text(
-            0.02,
-            0.98,
-            "",
-            va="top",
-            ha="left",
-            family="monospace",
-            fontsize=8.5,
-            transform=self._axes[3].transAxes,
-        )
-        self._axes[3].axis("off")
+        self._info_text = None
         self._clear()
         self._append(state, None)
         plt.ion()
@@ -858,6 +857,10 @@ class LiveDiagnosticsPanelHook:
             self._time,
             self._tracking_error,
             self._tip_target_error,
+            self._task_reference_jump,
+            self._task_space_error,
+            self._task_space_velocity,
+            self._task_space_speed_limited,
             self._base_error,
             self._clearance,
             self._inter_arm_distance,
@@ -865,15 +868,20 @@ class LiveDiagnosticsPanelHook:
             self._force_error,
             self._condition,
             self._velocity_scale,
+            self._ik_residual,
+            self._ik_projection_residual,
             self._saturation_scale,
             self._tendon_error,
             self._observer_tendon_error,
+            self._force_utilization,
+            self._execution_saturation_active,
         ):
             values.clear()
         self._tip_error_xyz.clear()
         self._phase = ""
         self._observer_mode = ""
         self._waypoint_index = -1
+        self._last_task_target = None
 
     def _append(
         self,
@@ -895,6 +903,27 @@ class LiveDiagnosticsPanelHook:
             if np.isfinite(tip_error_norm)
             else float(metadata.get("executor_error_m", np.nan))
         )
+        task_target = _metadata_point(metadata, "task_intent_target_world")
+        if task_target is None:
+            task_target = _metadata_point(metadata, "executor_target_world")
+        if task_target is None or self._last_task_target is None:
+            self._task_reference_jump.append(np.nan)
+        else:
+            self._task_reference_jump.append(
+                float(np.linalg.norm(task_target - self._last_task_target))
+            )
+        if task_target is not None:
+            self._last_task_target = task_target.copy()
+        task_space_error = metadata.get("task_space_position_error_world")
+        self._task_space_error.append(_metadata_norm(task_space_error))
+        task_space_velocity = metadata.get(
+            "task_space_velocity_world",
+            metadata.get("executor_target_velocity_world"),
+        )
+        self._task_space_velocity.append(_metadata_norm(task_space_velocity))
+        self._task_space_speed_limited.append(
+            1.0 if bool(metadata.get("task_space_speed_limited", False)) else 0.0
+        )
         self._base_error.append(float(metadata.get("base_position_error_m", np.nan)))
         self._clearance.append(float(metadata.get("min_clearance_m", np.nan)))
         self._inter_arm_distance.append(
@@ -909,6 +938,14 @@ class LiveDiagnosticsPanelHook:
         self._velocity_scale.append(
             float(getattr(singularity, "velocity_scale", np.nan))
         )
+        self._ik_residual.append(float(metadata.get("residual_norm", np.nan)))
+        solver = metadata.get("whole_body_solver")
+        projection_residual = (
+            solver.get("target_projection_residual_norm", np.nan)
+            if isinstance(solver, dict)
+            else np.nan
+        )
+        self._ik_projection_residual.append(float(projection_residual))
         saturation = state.metadata.get("saturation", {})
         scales = [
             float(values.get("common_scale", np.nan))
@@ -933,6 +970,35 @@ class LiveDiagnosticsPanelHook:
         self._observer_tendon_error.append(
             observer_errors[0] if observer_errors else np.nan
         )
+        force_utilization = []
+        saturation_active = []
+        for values in saturation.values():
+            if not isinstance(values, dict):
+                continue
+            utilization = values.get("actuator_force_utilization")
+            if utilization is not None:
+                force_utilization.append(_metadata_max_abs(utilization))
+            for key in (
+                "rate",
+                "target_rate",
+                "displacement",
+                "lead",
+                "force_constraint_active",
+                "anti_windup_active",
+                "actuator_force_at_limit",
+            ):
+                raw_active = values.get(key)
+                if raw_active is not None:
+                    saturation_active.append(bool(np.any(raw_active)))
+        finite_utilization = [
+            value for value in force_utilization if np.isfinite(value)
+        ]
+        self._force_utilization.append(
+            float(max(finite_utilization)) if finite_utilization else np.nan
+        )
+        self._execution_saturation_active.append(
+            1.0 if any(saturation_active) else 0.0
+        )
         self._phase = str(
             metadata.get(
                 "engine_navigation_phase",
@@ -950,6 +1016,10 @@ class LiveDiagnosticsPanelHook:
             self._time,
             self._tracking_error,
             self._tip_target_error,
+            self._task_reference_jump,
+            self._task_space_error,
+            self._task_space_velocity,
+            self._task_space_speed_limited,
             self._base_error,
             self._clearance,
             self._inter_arm_distance,
@@ -957,9 +1027,13 @@ class LiveDiagnosticsPanelHook:
             self._force_error,
             self._condition,
             self._velocity_scale,
+            self._ik_residual,
+            self._ik_projection_residual,
             self._saturation_scale,
             self._tendon_error,
             self._observer_tendon_error,
+            self._force_utilization,
+            self._execution_saturation_active,
         ):
             del values[:extra]
         del self._tip_error_xyz[:extra]
@@ -969,49 +1043,40 @@ class LiveDiagnosticsPanelHook:
             return
         time_s = np.asarray(self._time, dtype=float)
         axes = self._axes
-        for axis in axes[:3]:
+        for axis in axes:
             axis.cla()
             axis.grid(True, alpha=0.25)
-        axes[3].cla()
-        axes[3].axis("off")
-        self._info_text = axes[3].text(
-            0.02,
-            0.98,
-            "",
-            va="top",
-            ha="left",
-            family="monospace",
-            fontsize=8.5,
-            transform=axes[3].transAxes,
-        )
 
+        axes[0].plot(time_s, 1000.0 * np.asarray(self._tracking_error), label="tip error")
         axes[0].plot(
             time_s,
-            1000.0 * np.asarray(self._tracking_error),
-            label="tip target error",
+            1000.0 * np.asarray(self._task_reference_jump),
+            label="target jump",
         )
         tip_error_xyz = np.asarray(self._tip_error_xyz, dtype=float)
         if tip_error_xyz.ndim == 2 and tip_error_xyz.shape[1] == 3:
-            axes[0].plot(time_s, 1000.0 * tip_error_xyz[:, 0], label="tip err x", alpha=0.55)
-            axes[0].plot(time_s, 1000.0 * tip_error_xyz[:, 1], label="tip err y", alpha=0.55)
-            axes[0].plot(time_s, 1000.0 * tip_error_xyz[:, 2], label="tip err z", alpha=0.55)
-        axes[0].plot(time_s, 1000.0 * np.asarray(self._base_error), label="base error")
-        axes[0].set(title="Task error", xlabel="time [s]", ylabel="error [mm]")
+            axes[0].plot(time_s, 1000.0 * tip_error_xyz[:, 0], label="tip err x", alpha=0.45)
+            axes[0].plot(time_s, 1000.0 * tip_error_xyz[:, 1], label="tip err y", alpha=0.45)
+            axes[0].plot(time_s, 1000.0 * tip_error_xyz[:, 2], label="tip err z", alpha=0.45)
+        axes[0].set(title="Layer 1: task reference", xlabel="time [s]", ylabel="error [mm]")
         axes[0].legend(loc="upper right", fontsize=8)
 
-        axes[1].plot(time_s, np.asarray(self._clearance), label="clearance [m]")
         axes[1].plot(
             time_s,
-            1000.0 * np.asarray(self._inter_arm_distance),
-            label="inter-arm distance [mm]",
+            1000.0 * np.asarray(self._task_space_error),
+            label="servo error",
         )
         axes[1].plot(
             time_s,
-            1000.0 * np.asarray(self._contact_distance),
-            label="contact distance [mm]",
+            1000.0 * np.asarray(self._task_space_velocity),
+            label="TCP velocity",
         )
-        axes[1].plot(time_s, np.asarray(self._force_error), label="force error [N]")
-        axes[1].set(title="Safety/contact", xlabel="time [s]")
+        axes[1].plot(
+            time_s,
+            np.asarray(self._task_space_speed_limited),
+            label="speed limited",
+        )
+        axes[1].set(title="Layer 2: task-space servo", xlabel="time [s]")
         axes[1].legend(loc="upper right", fontsize=8)
 
         condition = _finite_positive(self._condition)
@@ -1020,40 +1085,51 @@ class LiveDiagnosticsPanelHook:
         else:
             axes[2].plot(time_s, condition, label="condition")
         axes[2].plot(time_s, np.asarray(self._velocity_scale), label="velocity scale")
-        axes[2].plot(time_s, np.asarray(self._saturation_scale), label="limit scale")
         axes[2].plot(
             time_s,
-            1000.0 * np.asarray(self._tendon_error),
-            label="tendon target err [mm]",
+            np.asarray(self._ik_residual),
+            label="residual",
         )
         axes[2].plot(
             time_s,
-            1000.0 * np.asarray(self._observer_tendon_error),
-            label="observer tendon err [mm]",
+            np.asarray(self._ik_projection_residual),
+            label="projection residual",
         )
-        axes[2].set(title="Solver/actuation", xlabel="time [s]")
+        axes[2].set(title="Layer 3: IK/tendon command", xlabel="time [s]")
         axes[2].legend(loc="upper right", fontsize=8)
 
-        latest = [
-            f"time_s: {self._time[-1]:.3f}" if self._time else "time_s: n/a",
-            f"phase: {self._phase}",
-            f"observer_mode: {self._observer_mode}",
-            f"waypoint_index: {self._waypoint_index}",
-            "",
-            f"tracking_error_m: {_last_value(self._tracking_error): .5f}",
-            f"tip_err_xyz_m: {_last_vector(self._tip_error_xyz)}",
-            f"base_error_m: {_last_value(self._base_error): .5f}",
-            f"min_clearance_m: {_last_value(self._clearance): .5f}",
-            f"inter_arm_distance_m: {_last_value(self._inter_arm_distance): .5f}",
-            f"contact_distance_m: {_last_value(self._contact_distance): .5f}",
-            f"force_error_n: {_last_value(self._force_error): .5f}",
-            f"condition: {_last_value(self._condition): .5e}",
-            f"velocity_scale: {_last_value(self._velocity_scale): .5f}",
-            f"limit_scale: {_last_value(self._saturation_scale): .5f}",
-            f"tendon_target_error_m: {_last_value(self._tendon_error): .5e}",
-            f"observer_tendon_error_m: {_last_value(self._observer_tendon_error): .5e}",
-        ]
-        self._info_text.set_text("\n".join(latest))
+        axes[3].plot(
+            time_s,
+            1000.0 * np.asarray(self._tendon_error),
+            label="tendon target error",
+        )
+        axes[3].plot(
+            time_s,
+            np.asarray(self._force_utilization),
+            label="force utilization",
+        )
+        axes[3].plot(
+            time_s,
+            np.asarray(self._saturation_scale),
+            label="limit scale",
+        )
+        axes[3].plot(
+            time_s,
+            np.asarray(self._execution_saturation_active),
+            label="saturation active",
+        )
+        axes[3].set(title="Layer 4: backend execution", xlabel="time [s]")
+        axes[3].legend(loc="upper right", fontsize=8)
+
+        title = (
+            f"t={_last_value(self._time):.3f}s phase={self._phase} "
+            f"wp={self._waypoint_index} "
+            f"L1 err={_last_value(self._tracking_error):.4g}m "
+            f"L2 v={_last_value(self._task_space_velocity):.4g}m/s "
+            f"L3 cond={_last_value(self._condition):.3g} "
+            f"L4 tendon_err={_last_value(self._tendon_error):.3g}m"
+        )
+        self._figure.suptitle(title, fontsize=9)
         self._figure.tight_layout()
         self._figure.canvas.draw_idle()
         self._figure.canvas.flush_events()
@@ -1063,6 +1139,25 @@ def _finite_positive(values: list[float]) -> np.ndarray:
     result = np.asarray(values, dtype=float)
     result[~np.isfinite(result) | (result <= 0.0)] = np.nan
     return result
+
+
+def _metadata_norm(value: object) -> float:
+    if value is None:
+        return float("nan")
+    array = np.asarray(value, dtype=float)
+    if not array.size or not np.all(np.isfinite(array)):
+        return float("nan")
+    return float(np.linalg.norm(array))
+
+
+def _metadata_max_abs(value: object) -> float:
+    if value is None:
+        return float("nan")
+    array = np.asarray(value, dtype=float)
+    finite = array[np.isfinite(array)]
+    if not finite.size:
+        return float("nan")
+    return float(np.max(np.abs(finite)))
 
 
 def _last_value(values: list[float]) -> float:

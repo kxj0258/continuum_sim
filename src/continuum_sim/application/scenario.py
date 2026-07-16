@@ -698,73 +698,104 @@ def _load_tracking_control_config(
         "scenario.task.tracking_control",
     )
     low_level_control_values = {} if low_level_values is None else low_level_values
-    values = {
-        **low_level_control_values,
-        **task_control_values,
-    }
+    task_space_values = _mapping(
+        low_level_control_values.get("task_space_servo", {}),
+        "low_level_control.task_space_servo",
+    )
+    tendon_command_values = _mapping(
+        low_level_control_values.get("tendon_command", {}),
+        "low_level_control.tendon_command",
+    )
+    execution_values = _mapping(
+        low_level_control_values.get("execution", {}),
+        "low_level_control.execution",
+    )
     low_level_inner_loop = _mapping(
-        low_level_control_values.get("tendon_inner_loop", {}),
-        "low_level_control.tendon_inner_loop",
+        execution_values.get("tendon_inner_loop", {}),
+        "low_level_control.execution.tendon_inner_loop",
     )
     task_inner_loop = _mapping(
         task_control_values.get("tendon_inner_loop", {}),
         "scenario.task.tracking_control.tendon_inner_loop",
     )
     inner_loop_values = {**low_level_inner_loop, **task_inner_loop}
+    task_space_override = _mapping(
+        task_control_values.get("task_space_servo", {}),
+        "scenario.task.tracking_control.task_space_servo",
+    )
+    tendon_command_override = _mapping(
+        task_control_values.get("tendon_command", {}),
+        "scenario.task.tracking_control.tendon_command",
+    )
+    execution_override = _mapping(
+        task_control_values.get("execution", {}),
+        "scenario.task.tracking_control.execution",
+    )
+    task_space = {**task_space_values, **task_space_override}
+    tendon_command = {**tendon_command_values, **tendon_command_override}
+    execution = {**execution_values, **execution_override}
     return ScenarioTrackingControlConfig(
-        approach_samples=int(values.get("approach_samples", 0)),
-        tracking_mode=str(values.get("tracking_mode", "waypoint")),
-        trajectory_duration_s=_optional_float(values.get("trajectory_duration_s")),
-        stage_mobile_base=bool(values.get("stage_mobile_base", False)),
-        base_position_gain=float(values.get("base_position_gain", 1.5)),
-        base_orientation_gain=float(values.get("base_orientation_gain", 2.0)),
+        approach_samples=int(task_control_values.get("approach_samples", 0)),
+        tracking_mode=str(task_control_values.get("tracking_mode", "waypoint")),
+        trajectory_duration_s=_optional_float(
+            task_control_values.get("trajectory_duration_s")
+        ),
+        stage_mobile_base=bool(task_control_values.get("stage_mobile_base", False)),
+        base_position_gain=float(task_control_values.get("base_position_gain", 1.5)),
+        base_orientation_gain=float(task_control_values.get("base_orientation_gain", 2.0)),
         base_position_tolerance_m=float(
-            values.get("base_position_tolerance_m", 0.005)
+            task_control_values.get("base_position_tolerance_m", 0.005)
         ),
         base_orientation_tolerance_rad=float(
-            values.get("base_orientation_tolerance_rad", 0.035)
+            task_control_values.get("base_orientation_tolerance_rad", 0.035)
         ),
         executor_position_gain=float(
-            values.get(
-                "arm_position_gain",
-                values.get("executor_position_gain", 4.0),
-            )
+            task_space.get("position_gain", task_space.get("executor_position_gain", 4.0))
         ),
         observer_position_gain=float(
-            values.get(
-                "arm_position_gain",
-                values.get("observer_position_gain", 5.0),
-            )
+            task_space.get("observer_position_gain", task_space.get("position_gain", 5.0))
         ),
-        feedforward_gain=float(values.get("feedforward_gain", 1.0)),
-        feedforward_speed_mps=float(values.get("feedforward_speed_mps", 0.0)),
-        max_target_speed_mps=_optional_float(values.get("max_target_speed_mps")),
-        executor_tracking_weight=float(values.get("executor_tracking_weight", 100.0)),
-        observer_tracking_weight=float(values.get("observer_tracking_weight", 40.0)),
+        feedforward_gain=float(task_space.get("feedforward_gain", 1.0)),
+        feedforward_speed_mps=float(task_space.get("feedforward_speed_mps", 0.0)),
+        max_target_speed_mps=_optional_float(task_space.get("max_speed_mps")),
+        executor_tracking_weight=float(
+            tendon_command.get("executor_tracking_weight", 100.0)
+        ),
+        observer_tracking_weight=float(
+            tendon_command.get("observer_tracking_weight", 40.0)
+        ),
         executor_collision_avoidance_weight=float(
-            values.get("executor_collision_avoidance_weight", 80.0)
+            tendon_command.get("collision_avoidance_weight", 80.0)
         ),
-        base_regularization_weight=float(values.get("base_regularization_weight", 1.0)),
+        base_regularization_weight=float(
+            tendon_command.get("base_regularization_weight", 1.0)
+        ),
         tendon_regularization_weight=float(
-            values.get("tendon_regularization_weight", 0.2)
+            tendon_command.get("tendon_regularization_weight", 0.2)
         ),
-        rank_tolerance=float(values.get("rank_tolerance", 1.0e-9)),
-        minimum_singular_value=float(values.get("minimum_singular_value", 1.0e-5)),
-        nominal_damping=float(values.get("nominal_damping", 1.0e-4)),
-        maximum_damping=float(values.get("maximum_damping", 5.0e-2)),
-        minimum_velocity_scale=float(values.get("minimum_velocity_scale", 0.05)),
+        rank_tolerance=float(tendon_command.get("rank_tolerance", 1.0e-9)),
+        minimum_singular_value=float(
+            tendon_command.get("minimum_singular_value", 1.0e-5)
+        ),
+        nominal_damping=float(tendon_command.get("nominal_damping", 1.0e-4)),
+        maximum_damping=float(tendon_command.get("maximum_damping", 5.0e-2)),
+        minimum_velocity_scale=float(
+            tendon_command.get("minimum_velocity_scale", 0.05)
+        ),
         decouple_arm_singularity=bool(
-            values.get("decouple_arm_singularity", False)
+            tendon_command.get("decouple_arm_singularity", False)
         ),
-        singularity_strategy=str(values.get("singularity_strategy", "svd_projection")),
+        singularity_strategy=str(
+            tendon_command.get("singularity_strategy", "svd_projection")
+        ),
         enforce_target_speed_limit=bool(
-            values.get("enforce_target_speed_limit", False)
+            task_space.get("enforce_speed_limit", False)
         ),
         enforce_solver_velocity_limits=bool(
-            values.get("enforce_solver_velocity_limits", False)
+            tendon_command.get("enforce_velocity_limits", False)
         ),
         enforce_backend_tendon_limits=bool(
-            values.get("enforce_backend_tendon_limits", False)
+            execution.get("enforce_tendon_limits", False)
         ),
         tendon_inner_loop=ScenarioTendonInnerLoopConfig(
             mode=str(inner_loop_values.get("mode", "legacy")),

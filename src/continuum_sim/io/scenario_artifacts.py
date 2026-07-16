@@ -612,7 +612,193 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
                 ],
                 dtype=float,
             )
+        _add_four_layer_control_arrays(arrays, result, command_metadata)
     return arrays
+
+
+def _add_four_layer_control_arrays(
+    arrays: dict[str, np.ndarray],
+    result: object,
+    command_metadata: list[dict[str, object]],
+) -> None:
+    command_count = len(command_metadata)
+    arrays["layer1_task_target_position_world"] = _metadata_vector_series(
+        command_metadata,
+        "task_intent_target_world",
+        fallback_key="executor_target_world",
+    )
+    arrays["layer1_task_feedforward_velocity_world"] = _metadata_vector_series(
+        command_metadata,
+        "task_intent_velocity_world",
+    )
+    arrays["layer1_task_control_mode"] = _metadata_string_series(
+        command_metadata,
+        "task_intent_control_mode",
+    )
+    arrays["layer1_task_phase"] = _metadata_string_series(
+        command_metadata,
+        "task_status_phase",
+        fallback_key="task_phase",
+    )
+    arrays["layer1_task_active_index"] = _metadata_scalar_series(
+        command_metadata,
+        "task_status_active_index",
+        dtype=int,
+        default=-1,
+    )
+    arrays["layer1_task_complete"] = _metadata_scalar_series(
+        command_metadata,
+        "task_status_complete",
+        dtype=bool,
+        default=False,
+    )
+    arrays["layer1_task_reference_jump_m"] = _reference_jump_norm(
+        arrays["layer1_task_target_position_world"]
+    )
+
+    arrays["layer2_servo_position_error_world"] = _metadata_vector_series(
+        command_metadata,
+        "task_space_position_error_world",
+    )
+    arrays["layer2_servo_position_error_norm_m"] = _vector_norm_series(
+        arrays["layer2_servo_position_error_world"]
+    )
+    arrays["layer2_servo_raw_velocity_world"] = _metadata_vector_series(
+        command_metadata,
+        "task_space_raw_velocity_world",
+    )
+    arrays["layer2_servo_velocity_world"] = _metadata_vector_series(
+        command_metadata,
+        "task_space_velocity_world",
+        fallback_key="executor_target_velocity_world",
+    )
+    arrays["layer2_servo_velocity_norm_mps"] = _vector_norm_series(
+        arrays["layer2_servo_velocity_world"]
+    )
+    arrays["layer2_servo_speed_limited"] = _metadata_scalar_series(
+        command_metadata,
+        "task_space_speed_limited",
+        dtype=bool,
+        default=False,
+    )
+
+    arrays["layer3_ik_tcp_velocity_ref_world"] = arrays[
+        "layer2_servo_velocity_world"
+    ].copy()
+    arrays["layer3_ik_base_twist_world"] = np.asarray(
+        [command.base_twist_world for command in result.commands],
+        dtype=float,
+    )
+    arrays["layer3_ik_condition_number"] = arrays.get(
+        "whole_body_condition_number",
+        np.full(command_count, np.nan, dtype=float),
+    )
+    arrays["layer3_ik_min_singular_value"] = arrays.get(
+        "whole_body_min_singular_value",
+        np.full(command_count, np.nan, dtype=float),
+    )
+    arrays["layer3_ik_velocity_scale"] = arrays.get(
+        "whole_body_velocity_scale",
+        np.full(command_count, np.nan, dtype=float),
+    )
+    arrays["layer3_ik_residual_norm"] = arrays.get(
+        "whole_body_residual_norm",
+        np.full(command_count, np.nan, dtype=float),
+    )
+    arrays["layer3_ik_projection_residual_norm"] = np.asarray(
+        [
+            _solver_diagnostic(metadata, "target_projection_residual_norm")
+            for metadata in command_metadata
+        ],
+        dtype=float,
+    )
+    arrays["layer3_ik_solver_strategy"] = np.asarray(
+        [
+            str(
+                metadata.get("whole_body_solver", {}).get(
+                    "singularity_strategy",
+                    "",
+                )
+                if isinstance(metadata.get("whole_body_solver"), dict)
+                else ""
+            )
+            for metadata in command_metadata
+        ],
+        dtype=str,
+    )
+
+    for arm_name in sorted(result.states[-1].arms):
+        prefix = f"arm_{arm_name}"
+        layer3_prefix = f"layer3_ik_arm_{arm_name}"
+        layer4_prefix = f"layer4_execution_arm_{arm_name}"
+        tendon_shape = result.states[-1].arms[arm_name].tendon_displacement_m.shape
+        tendon_rate_ref = np.asarray(
+            [
+                (
+                    command.arms[arm_name].tendon_rate_mps
+                    if arm_name in command.arms
+                    else np.full(tendon_shape, np.nan, dtype=float)
+                )
+                for command in result.commands
+            ],
+            dtype=float,
+        )
+        arrays[f"{layer3_prefix}_tendon_rate_ref_mps"] = tendon_rate_ref
+        arrays[f"{layer3_prefix}_tendon_rate_ref_norm_mps"] = _vector_norm_series(
+            tendon_rate_ref
+        )
+        arrays[f"{layer4_prefix}_tendon_rate_ref_mps"] = tendon_rate_ref.copy()
+
+        applied_rate = arrays.get(f"{prefix}_applied_rate_mps")
+        realized_rate = arrays.get(f"{prefix}_tendon_realized_rate_fd_mps")
+        tendon_target = arrays.get(f"{prefix}_tendon_target_m")
+        tendon_displacement = arrays.get(f"{prefix}_tendon_displacement_m")
+        if applied_rate is not None:
+            arrays[f"{layer4_prefix}_applied_rate_mps"] = applied_rate.copy()
+            if applied_rate.shape == tendon_rate_ref.shape:
+                arrays[f"{layer4_prefix}_ref_minus_applied_rate_mps"] = (
+                    tendon_rate_ref - applied_rate
+                )
+        if realized_rate is not None:
+            arrays[f"{layer4_prefix}_realized_rate_mps"] = realized_rate.copy()
+        if (
+            applied_rate is not None
+            and realized_rate is not None
+            and applied_rate.shape == realized_rate.shape
+        ):
+            arrays[f"{layer4_prefix}_applied_minus_realized_rate_mps"] = (
+                applied_rate - realized_rate
+            )
+        if tendon_target is not None:
+            arrays[f"{layer4_prefix}_tendon_position_target_m"] = tendon_target.copy()
+        if tendon_displacement is not None:
+            arrays[f"{layer4_prefix}_tendon_displacement_m"] = (
+                tendon_displacement.copy()
+            )
+        if (
+            tendon_target is not None
+            and tendon_displacement is not None
+            and tendon_target.shape == tendon_displacement.shape
+        ):
+            tendon_position_error = tendon_target - tendon_displacement
+            arrays[f"{layer4_prefix}_tendon_position_error_m"] = (
+                tendon_position_error
+            )
+            arrays[f"{layer4_prefix}_tendon_position_error_norm_m"] = (
+                _vector_norm_series(tendon_position_error)
+            )
+        for suffix, layer_key in (
+            ("actuator_force_utilization", "force_utilization"),
+            ("tendon_inner_loop_mode", "inner_loop_mode"),
+            ("tendon_target_lead_m", "tendon_target_lead_m"),
+            ("tendon_target_lead_utilization", "tendon_target_lead_utilization"),
+        ):
+            value = arrays.get(f"{prefix}_{suffix}")
+            if value is not None:
+                arrays[f"{layer4_prefix}_{layer_key}"] = value.copy()
+        saturation_active = _combined_arm_saturation_active(arrays, prefix)
+        if saturation_active is not None:
+            arrays[f"{layer4_prefix}_saturation_active"] = saturation_active
 
 
 def _metadata_default(dtype):
@@ -623,6 +809,117 @@ def _metadata_default(dtype):
     if dtype is int:
         return -1
     return np.nan
+
+
+def _metadata_vector_series(
+    metadata_series: list[dict[str, object]],
+    key: str,
+    *,
+    fallback_key: str | None = None,
+) -> np.ndarray:
+    fallback = np.full(3, np.nan, dtype=float)
+    values: list[np.ndarray] = []
+    for metadata in metadata_series:
+        raw = metadata.get(key)
+        if raw is None and fallback_key is not None:
+            raw = metadata.get(fallback_key)
+        if raw is None:
+            values.append(fallback.copy())
+            continue
+        array = np.asarray(raw, dtype=float)
+        values.append(array.copy() if array.shape == (3,) else fallback.copy())
+    return np.asarray(values, dtype=float)
+
+
+def _metadata_string_series(
+    metadata_series: list[dict[str, object]],
+    key: str,
+    *,
+    fallback_key: str | None = None,
+) -> np.ndarray:
+    values = []
+    for metadata in metadata_series:
+        raw = metadata.get(key)
+        if raw is None and fallback_key is not None:
+            raw = metadata.get(fallback_key)
+        values.append("" if raw is None else str(raw))
+    return np.asarray(values, dtype=str)
+
+
+def _metadata_scalar_series(
+    metadata_series: list[dict[str, object]],
+    key: str,
+    *,
+    dtype,
+    default: object,
+) -> np.ndarray:
+    return np.asarray(
+        [metadata.get(key, default) for metadata in metadata_series],
+        dtype=dtype,
+    )
+
+
+def _solver_diagnostic(metadata: dict[str, object], key: str) -> float:
+    solver = metadata.get("whole_body_solver")
+    if not isinstance(solver, dict):
+        return np.nan
+    value = solver.get(key)
+    if value is None:
+        return np.nan
+    return float(value)
+
+
+def _reference_jump_norm(target_position_world: np.ndarray) -> np.ndarray:
+    target = np.asarray(target_position_world, dtype=float)
+    if target.ndim != 2 or target.shape[1] != 3:
+        return np.empty(0, dtype=float)
+    jumps = np.full(target.shape[0], np.nan, dtype=float)
+    if len(target) > 1:
+        delta = np.diff(target, axis=0)
+        finite = np.all(np.isfinite(delta), axis=1)
+        jumps[1:][finite] = np.linalg.norm(delta[finite], axis=1)
+    return jumps
+
+
+def _vector_norm_series(values: np.ndarray) -> np.ndarray:
+    array = np.asarray(values, dtype=float)
+    if array.ndim < 2:
+        return np.full(array.shape[:1], np.nan, dtype=float)
+    result = np.full(array.shape[0], np.nan, dtype=float)
+    flattened = array.reshape(array.shape[0], -1)
+    finite = np.all(np.isfinite(flattened), axis=1)
+    if np.any(finite):
+        result[finite] = np.linalg.norm(flattened[finite], axis=1)
+    return result
+
+
+def _combined_arm_saturation_active(
+    arrays: dict[str, np.ndarray],
+    prefix: str,
+) -> np.ndarray | None:
+    signals = []
+    for suffix in (
+        "rate_saturated",
+        "tendon_target_rate_saturated",
+        "displacement_saturated",
+        "tendon_lead_saturated",
+        "tendon_force_constraint_active",
+        "tendon_anti_windup_active",
+        "actuator_force_at_limit",
+    ):
+        value = arrays.get(f"{prefix}_{suffix}")
+        if value is not None and value.size:
+            signals.append(np.asarray(value, dtype=bool))
+    if not signals:
+        return None
+    count = min(len(signal) for signal in signals)
+    if count <= 0:
+        return np.empty(0, dtype=bool)
+    active = np.zeros(count, dtype=bool)
+    for signal in signals:
+        reshaped = signal[:count].reshape(count, -1)
+        active |= np.any(reshaped, axis=1)
+    return active
 
 
 def _state_metadata_array(
@@ -703,8 +1000,8 @@ def _finite_difference_rate(values: np.ndarray, time_s: np.ndarray) -> np.ndarra
     return rate
 
 
-def _metrics(arrays: dict[str, np.ndarray]) -> dict[str, float]:
-    metrics: dict[str, float] = {}
+def _metrics(arrays: dict[str, np.ndarray]) -> dict[str, object]:
+    metrics: dict[str, object] = {}
     error = arrays.get("tracking_error_m")
     finite = (
         np.asarray([], dtype=float)
@@ -826,7 +1123,167 @@ def _metrics(arrays: dict[str, np.ndarray]) -> dict[str, float]:
             metrics[f"{arm_name}_guard_infeasible_fraction"] = float(
                 np.mean(~guard_feasible[servo_mask].astype(bool))
             )
+    metrics["control_layers"] = _control_layer_metrics(arrays)
     return metrics
+
+
+def _control_layer_metrics(
+    arrays: dict[str, np.ndarray],
+) -> dict[str, dict[str, object]]:
+    layers: dict[str, dict[str, object]] = {
+        "layer1_task_reference": {},
+        "layer2_task_space_servo": {},
+        "layer3_ik_tendon_command": {},
+        "layer4_backend_execution": {},
+    }
+    _add_series_metrics(
+        layers["layer1_task_reference"],
+        "reference_jump_m",
+        arrays.get("layer1_task_reference_jump_m"),
+    )
+    complete = arrays.get("layer1_task_complete")
+    if complete is not None and complete.size:
+        layers["layer1_task_reference"]["complete_fraction"] = float(
+            np.mean(complete.astype(bool))
+        )
+    phase = arrays.get("layer1_task_phase")
+    if phase is not None and phase.size:
+        layers["layer1_task_reference"]["phases"] = sorted(
+            {str(value) for value in phase if str(value)}
+        )
+
+    _add_series_metrics(
+        layers["layer2_task_space_servo"],
+        "position_error_m",
+        arrays.get("layer2_servo_position_error_norm_m"),
+    )
+    _add_series_metrics(
+        layers["layer2_task_space_servo"],
+        "velocity_command_mps",
+        arrays.get("layer2_servo_velocity_norm_mps"),
+    )
+    speed_limited = arrays.get("layer2_servo_speed_limited")
+    if speed_limited is not None and speed_limited.size:
+        layers["layer2_task_space_servo"]["speed_limited_fraction"] = float(
+            np.mean(speed_limited.astype(bool))
+        )
+
+    for key, metric_name in (
+        ("layer3_ik_condition_number", "condition_number"),
+        ("layer3_ik_min_singular_value", "min_singular_value"),
+        ("layer3_ik_velocity_scale", "velocity_scale"),
+        ("layer3_ik_residual_norm", "residual_norm"),
+        ("layer3_ik_projection_residual_norm", "projection_residual_norm"),
+    ):
+        _add_series_metrics(
+            layers["layer3_ik_tendon_command"],
+            metric_name,
+            arrays.get(key),
+        )
+    strategy = arrays.get("layer3_ik_solver_strategy")
+    if strategy is not None and strategy.size:
+        layers["layer3_ik_tendon_command"]["solver_strategies"] = sorted(
+            {str(value) for value in strategy if str(value)}
+        )
+    for key, values in sorted(arrays.items()):
+        prefix = "layer3_ik_arm_"
+        suffix = "_tendon_rate_ref_norm_mps"
+        if key.startswith(prefix) and key.endswith(suffix):
+            arm_name = key[len(prefix) : -len(suffix)]
+            _add_series_metrics(
+                layers["layer3_ik_tendon_command"],
+                f"{arm_name}_tendon_rate_ref_mps",
+                values,
+            )
+
+    for key, values in sorted(arrays.items()):
+        prefix = "layer4_execution_arm_"
+        suffix = "_tendon_position_error_norm_m"
+        if not key.startswith(prefix) or not key.endswith(suffix):
+            continue
+        arm_name = key[len(prefix) : -len(suffix)]
+        arm_metrics: dict[str, object] = {}
+        _add_series_metrics(arm_metrics, "tendon_position_error_m", values)
+        for signal_key, metric_name in (
+            (
+                f"layer4_execution_arm_{arm_name}_ref_minus_applied_rate_mps",
+                "ref_minus_applied_rate_mps",
+            ),
+            (
+                f"layer4_execution_arm_{arm_name}_applied_minus_realized_rate_mps",
+                "applied_minus_realized_rate_mps",
+            ),
+            (
+                f"layer4_execution_arm_{arm_name}_tendon_target_lead_m",
+                "tendon_target_lead_m",
+            ),
+            (
+                f"layer4_execution_arm_{arm_name}_tendon_target_lead_utilization",
+                "tendon_target_lead_utilization",
+            ),
+            (
+                f"layer4_execution_arm_{arm_name}_force_utilization",
+                "force_utilization",
+            ),
+        ):
+            _add_series_metrics(
+                arm_metrics,
+                metric_name,
+                _row_max_abs(arrays.get(signal_key)),
+            )
+        saturation_active = arrays.get(
+            f"layer4_execution_arm_{arm_name}_saturation_active"
+        )
+        if saturation_active is not None and saturation_active.size:
+            arm_metrics["saturation_active_fraction"] = float(
+                np.mean(saturation_active.astype(bool))
+            )
+        inner_loop_mode = arrays.get(
+            f"layer4_execution_arm_{arm_name}_inner_loop_mode"
+        )
+        if inner_loop_mode is not None and inner_loop_mode.size:
+            arm_metrics["inner_loop_modes"] = sorted(
+                {str(value) for value in inner_loop_mode if str(value)}
+            )
+        layers["layer4_backend_execution"][arm_name] = arm_metrics
+    return layers
+
+
+def _add_series_metrics(
+    output: dict[str, object],
+    name: str,
+    values: np.ndarray | None,
+) -> None:
+    finite = _finite_values(values)
+    if not finite.size:
+        return
+    output[f"final_{name}"] = float(finite[-1])
+    output[f"mean_{name}"] = float(np.mean(finite))
+    output[f"max_{name}"] = float(np.max(finite))
+    output[f"rms_{name}"] = float(np.sqrt(np.mean(finite**2)))
+
+
+def _finite_values(values: np.ndarray | None) -> np.ndarray:
+    if values is None:
+        return np.asarray([], dtype=float)
+    array = np.asarray(values, dtype=float)
+    return array[np.isfinite(array)]
+
+
+def _row_max_abs(values: np.ndarray | None) -> np.ndarray | None:
+    if values is None:
+        return None
+    array = np.asarray(values, dtype=float)
+    if array.ndim == 1:
+        return np.abs(array)
+    if array.ndim < 1:
+        return None
+    flattened = array.reshape(array.shape[0], -1)
+    result = np.full(flattened.shape[0], np.nan, dtype=float)
+    finite = np.any(np.isfinite(flattened), axis=1)
+    if np.any(finite):
+        result[finite] = np.nanmax(np.abs(flattened[finite]), axis=1)
+    return result
 
 
 def _save_plots(arrays: dict[str, np.ndarray], output_dir: Path) -> list[Path]:
@@ -952,9 +1409,233 @@ def _save_plots(arrays: dict[str, np.ndarray], output_dir: Path) -> list[Path]:
         fig.savefig(path, dpi=160, bbox_inches="tight")
         plt.close(fig)
         saved.append(path)
+    saved.extend(_save_four_layer_control_plots(arrays, output_dir, plt))
     saved.extend(_save_mujoco_pcc_diagnostic_plots(arrays, output_dir, plt))
     saved.extend(_save_dual_arm_control_plots(arrays, output_dir, plt))
     return saved
+
+
+def _save_four_layer_control_plots(
+    arrays: dict[str, np.ndarray],
+    output_dir: Path,
+    plt,
+) -> list[Path]:
+    command_time = arrays.get("command_time_s")
+    state_time = arrays.get("time_s")
+    if command_time is None or state_time is None:
+        return []
+    has_layer_data = any(key.startswith("layer") for key in arrays)
+    if not has_layer_data:
+        return []
+    fig, axes = plt.subplots(2, 2, figsize=(14.0, 8.6))
+    axes = axes.reshape(-1)
+    plotted = False
+
+    target = arrays.get("layer1_task_target_position_world")
+    if target is not None and target.ndim == 2 and target.shape[1] == 3:
+        count = min(len(command_time), len(target))
+        for component, name in enumerate(("x", "y", "z")):
+            axes[0].plot(
+                command_time[:count],
+                1000.0 * target[:count, component],
+                label=f"target {name}",
+            )
+        jump = arrays.get("layer1_task_reference_jump_m")
+        if jump is not None and len(jump):
+            jump_count = min(count, len(jump))
+            jump_axis = axes[0].twinx()
+            jump_axis.plot(
+                command_time[:jump_count],
+                1000.0 * jump[:jump_count],
+                "k:",
+                linewidth=1.1,
+                label="target jump",
+            )
+            jump_axis.set_ylabel("jump [mm]")
+            lines = axes[0].lines + jump_axis.lines
+            axes[0].legend(lines, [line.get_label() for line in lines], fontsize=8)
+        else:
+            axes[0].legend(fontsize=8)
+        axes[0].set(
+            title="Layer 1: task reference",
+            xlabel="time [s]",
+            ylabel="position [mm]",
+        )
+        plotted = True
+
+    position_error = arrays.get("layer2_servo_position_error_norm_m")
+    velocity = arrays.get("layer2_servo_velocity_norm_mps")
+    speed_limited = arrays.get("layer2_servo_speed_limited")
+    count = min(
+        len(command_time),
+        0 if position_error is None else len(position_error),
+        0 if velocity is None else len(velocity),
+    )
+    if count:
+        axes[1].plot(
+            command_time[:count],
+            1000.0 * position_error[:count],
+            label="position error",
+        )
+        velocity_axis = axes[1].twinx()
+        velocity_axis.plot(
+            command_time[:count],
+            1000.0 * velocity[:count],
+            color="tab:orange",
+            label="TCP velocity",
+        )
+        velocity_axis.set_ylabel("velocity [mm/s]")
+        if speed_limited is not None:
+            limited_count = min(count, len(speed_limited))
+            limited = speed_limited[:limited_count].astype(bool)
+            if np.any(limited):
+                axes[1].scatter(
+                    command_time[:limited_count][limited],
+                    1000.0 * position_error[:limited_count][limited],
+                    marker="x",
+                    s=22,
+                    label="speed limited",
+                )
+        lines = axes[1].lines + velocity_axis.lines
+        lines += list(axes[1].collections)
+        labels = [
+            line.get_label()
+            for line in lines
+            if not line.get_label().startswith("_")
+        ]
+        lines = [line for line in lines if not line.get_label().startswith("_")]
+        axes[1].legend(lines, labels, fontsize=8)
+        axes[1].set(
+            title="Layer 2: task-space servo",
+            xlabel="time [s]",
+            ylabel="error [mm]",
+        )
+        plotted = True
+
+    condition = arrays.get("layer3_ik_condition_number")
+    velocity_scale = arrays.get("layer3_ik_velocity_scale")
+    residual = arrays.get("layer3_ik_residual_norm")
+    rate_keys = sorted(
+        key
+        for key in arrays
+        if key.startswith("layer3_ik_arm_")
+        and key.endswith("_tendon_rate_ref_norm_mps")
+    )
+    count = min(
+        len(command_time),
+        max(
+            [0]
+            + [
+                len(values)
+                for values in (condition, velocity_scale, residual)
+                if values is not None
+            ]
+            + [len(arrays[key]) for key in rate_keys]
+        ),
+    )
+    if count:
+        if condition is not None:
+            finite_condition = np.asarray(condition[:count], dtype=float)
+            finite_condition[~np.isfinite(finite_condition) | (finite_condition <= 0.0)] = np.nan
+            axes[2].semilogy(
+                command_time[:count],
+                finite_condition,
+                label="condition",
+            )
+        if velocity_scale is not None:
+            scale_count = min(count, len(velocity_scale))
+            axes[2].plot(
+                command_time[:scale_count],
+                velocity_scale[:scale_count],
+                label="velocity scale",
+            )
+        if residual is not None:
+            residual_count = min(count, len(residual))
+            axes[2].plot(
+                command_time[:residual_count],
+                residual[:residual_count],
+                label="residual norm",
+            )
+        rate_axis = axes[2].twinx()
+        for key in rate_keys:
+            arm_name = key[len("layer3_ik_arm_") : -len("_tendon_rate_ref_norm_mps")]
+            rate_count = min(count, len(arrays[key]))
+            rate_axis.plot(
+                command_time[:rate_count],
+                1000.0 * arrays[key][:rate_count],
+                "--",
+                linewidth=1.0,
+                label=f"{arm_name} tendon-rate ref",
+            )
+        rate_axis.set_ylabel("tendon-rate norm [mm/s]")
+        lines = axes[2].lines + rate_axis.lines
+        axes[2].legend(lines, [line.get_label() for line in lines], fontsize=8)
+        axes[2].set(
+            title="Layer 3: IK and tendon command",
+            xlabel="time [s]",
+            ylabel="solver diagnostic",
+        )
+        plotted = True
+
+    execution_keys = sorted(
+        key
+        for key in arrays
+        if key.startswith("layer4_execution_arm_")
+        and key.endswith("_tendon_position_error_norm_m")
+    )
+    if execution_keys:
+        for key in execution_keys:
+            arm_name = key[
+                len("layer4_execution_arm_") : -len("_tendon_position_error_norm_m")
+            ]
+            values = arrays[key]
+            count = min(len(state_time), len(values))
+            axes[3].plot(
+                state_time[:count],
+                1000.0 * values[:count],
+                label=f"{arm_name} target error",
+            )
+            force = arrays.get(f"layer4_execution_arm_{arm_name}_force_utilization")
+            if force is not None and len(force):
+                force_count = min(len(command_time), len(force))
+                axes[3].plot(
+                    command_time[:force_count],
+                    np.nanmax(np.abs(force[:force_count]), axis=1),
+                    "--",
+                    label=f"{arm_name} force utilization",
+                )
+            saturated = arrays.get(
+                f"layer4_execution_arm_{arm_name}_saturation_active"
+            )
+            if saturated is not None and len(saturated):
+                sat_count = min(len(command_time), len(saturated), len(values) - 1)
+                mask = saturated[:sat_count].astype(bool)
+                if np.any(mask):
+                    axes[3].scatter(
+                        command_time[:sat_count][mask],
+                        1000.0 * values[1 : sat_count + 1][mask],
+                        marker="x",
+                        s=20,
+                        label=f"{arm_name} saturation",
+                    )
+        axes[3].set(
+            title="Layer 4: backend execution",
+            xlabel="time [s]",
+            ylabel="target error [mm] / utilization",
+        )
+        axes[3].legend(fontsize=8)
+        plotted = True
+
+    for axis in axes:
+        axis.grid(alpha=0.3)
+    if not plotted:
+        plt.close(fig)
+        return []
+    fig.tight_layout()
+    path = output_dir / "four_layer_control_diagnostics.png"
+    fig.savefig(path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    return [path]
 
 
 def _save_mujoco_pcc_diagnostic_plots(

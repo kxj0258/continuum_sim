@@ -75,6 +75,16 @@ from continuum_sim.control.tendon_rate_control import (
     TendonRateLimits,
     TendonRateStep,
 )
+from continuum_sim.control.task_space_servo import (
+    TaskSpaceReference,
+    TaskSpaceServo,
+    TaskSpaceServoConfig,
+    TaskSpaceVelocityCommand,
+)
+from continuum_sim.control.tendon_command_controller import (
+    ObserverCommandReference,
+    TendonCommandController,
+)
 from continuum_sim.control.staged_engine_navigation import (
     StagedEngineNavigationController,
 )
@@ -121,12 +131,18 @@ __all__ = [
     "MobileBaseCommand",
     "MobileBasePoseController",
     "MobileBaseState",
+    "ObserverCommandReference",
     "ObserverTaskIntent",
     "SafetyTaskIntent",
     "StagedEngineNavigationController",
     "SystemTaskIntent",
+    "TaskSpaceReference",
+    "TaskSpaceServo",
+    "TaskSpaceServoConfig",
+    "TaskSpaceVelocityCommand",
     "TaskStatus",
     "TaskStep",
+    "TendonCommandController",
     "TendonRateIntegrator",
     "TendonRateLimits",
     "TendonRateStep",

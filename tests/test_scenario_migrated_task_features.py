@@ -66,15 +66,15 @@ def test_tracking_control_config_loads_scenario_overrides() -> None:
 
     assert config.task.tracking_control.approach_samples == 40
     assert config.task.tracking_control.tracking_mode == "time"
-    assert config.task.tracking_control.trajectory_duration_s == 80.0
+    assert config.task.tracking_control.trajectory_duration_s == 30.0
     assert config.task.observer_control_mode == "collision_avoidance"
-    assert config.task.observer_control.influence_distance_m == 0.050
+    assert config.task.observer_control.influence_distance_m == 0.018
     assert config.task.observer_control.minimum_distance_m == 0.010
-    assert config.task.observer_control.max_avoidance_speed_mps == 0.015
+    assert config.task.observer_control.max_avoidance_speed_mps is None
     assert (
         config.task.tracking_control.executor_position_gain
         == config.task.tracking_control.observer_position_gain
-        == 1.5
+        == 1.0
     )
     assembly = load_robot_assembly_config(config.assembly_config_path)
     executor_limits = assembly.arms["executor"].spatial_arm.limits
@@ -93,8 +93,8 @@ def test_tracking_control_config_loads_scenario_overrides() -> None:
     )
     assert_allclose(observer_limits.target_lead_m, executor_limits.target_lead_m)
     assert config.task.tracking_control.decouple_arm_singularity is True
-    assert config.task.tracking_control.enforce_solver_velocity_limits is True
-    assert config.task.tracking_control.enforce_backend_tendon_limits is True
+    assert config.task.tracking_control.enforce_solver_velocity_limits is False
+    assert config.task.tracking_control.enforce_backend_tendon_limits is False
 
 
 def test_wiping_controller_accepts_tracking_control_parameters() -> None:

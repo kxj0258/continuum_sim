@@ -425,6 +425,7 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
             "MuJoCo scenarios require mujoco_config_path, source_xml_path, "
             "and generated_xml_path."
         )
+    mujoco_config = load_mujoco_config(backend.mujoco_config_path)
     output_path = backend.generated_xml_path
     tree = ET.parse(backend.source_xml_path)
     root = tree.getroot()
@@ -448,6 +449,7 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
         inject_structured_scene(root, structured_scene)
     if assembly.base.control_mode == "fixed":
         lock_mobile_base_freejoint(root)
+    _apply_mujoco_tendon_position_actuator_config(root, mujoco_config)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     ET.indent(tree)
     tree.write(output_path, encoding="utf-8", xml_declaration=False)
@@ -460,6 +462,7 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
             rate_proportional_time_s=inner_loop.rate_proportional_time_s,
             rate_integral_gain=inner_loop.rate_integral_gain,
             anti_windup_gain=inner_loop.anti_windup_gain,
+            enforce_target_lead_limit=inner_loop.enforce_target_lead_limit,
             max_target_lead_m=inner_loop.max_target_lead_m,
             soft_force_limit_n=inner_loop.soft_force_limit_n,
             hard_force_limit_n=inner_loop.hard_force_limit_n,
@@ -467,11 +470,32 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
             zero_rate_tolerance_mps=inner_loop.zero_rate_tolerance_mps,
         )
     return MujocoSystemBackend(
-        load_mujoco_config(backend.mujoco_config_path),
+        mujoco_config,
         assembly,
         xml_path=output_path,
         tendon_rate_servo_config=tendon_rate_servo_config,
     )
+
+
+def _apply_mujoco_tendon_position_actuator_config(root, mujoco_config) -> None:
+    actuator_config = mujoco_config.actuators.tendon_position
+    for position in root.findall("./actuator/position"):
+        if position.get("tendon") is None:
+            continue
+        position.set("kp", f"{actuator_config.kp:g}")
+        position.set("ctrllimited", str(actuator_config.ctrllimited).lower())
+        if actuator_config.ctrllimited:
+            position.set(
+                "ctrlrange",
+                f"{actuator_config.ctrlrange_m[0]:g} {actuator_config.ctrlrange_m[1]:g}",
+            )
+        elif "ctrlrange" in position.attrib:
+            del position.attrib["ctrlrange"]
+        position.set("forcelimited", str(actuator_config.forcelimited).lower())
+        position.set(
+            "forcerange",
+            f"{actuator_config.forcerange_n[0]:g} {actuator_config.forcerange_n[1]:g}",
+        )
 
 
 def _build_wiping_force_strategy(config, assembly):

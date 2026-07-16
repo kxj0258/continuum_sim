@@ -150,6 +150,7 @@ class BendingRateServoConfig:
     rate_proportional_time_s: float = 0.0
     rate_integral_gain: float = 1.0
     anti_windup_gain: float = 1.0
+    enforce_target_lead_limit: bool = True
     max_target_lead_m: float | np.ndarray | None = None
     soft_force_limit_n: float | None = None
     hard_force_limit_n: float | None = None
@@ -170,6 +171,8 @@ class BendingRateServoConfig:
                 raise ValueError(f"{name} must be finite and non-negative.")
         if self.anti_windup_gain > 1.0:
             raise ValueError("anti_windup_gain must be in [0, 1].")
+        if not isinstance(self.enforce_target_lead_limit, bool):
+            raise ValueError("enforce_target_lead_limit must be a boolean.")
         if self.max_target_lead_m is not None:
             lead = np.asarray(self.max_target_lead_m, dtype=float)
             if not np.all(np.isfinite(lead)) or np.any(lead <= 0.0):
@@ -254,17 +257,22 @@ class CompatibleBendingRateServo:
         self.limits = limits
         self.config = BendingRateServoConfig() if config is None else config
         configured_lead = (
-            limits.target_lead_m
-            if self.config.max_target_lead_m is None
-            else _as_vector_or_scalar(
-                self.config.max_target_lead_m,
-                "max_target_lead_m",
-                model.tendon_count,
+            np.full(model.tendon_count, np.inf, dtype=float)
+            if not self.config.enforce_target_lead_limit
+            else (
+                limits.target_lead_m
+                if self.config.max_target_lead_m is None
+                else _as_vector_or_scalar(
+                    self.config.max_target_lead_m,
+                    "max_target_lead_m",
+                    model.tendon_count,
+                )
             )
         )
-        self._target_lead_limit_m = np.minimum(
-            limits.target_lead_m,
-            configured_lead,
+        self._target_lead_limit_m = (
+            configured_lead
+            if not self.config.enforce_target_lead_limit
+            else np.minimum(limits.target_lead_m, configured_lead)
         )
         self._integral_bending = np.zeros(model.bending_size, dtype=float)
         self._filtered_bending_rate = np.zeros(model.bending_size, dtype=float)

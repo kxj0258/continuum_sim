@@ -169,12 +169,12 @@ tendon_model:
   include_axial_strain: false
 actuators:
   tendon_position:
-    kp: 100000.0
+    kp: 1000.0
     # MuJoCo receives absolute tendon lengths, so relative command clipping
     # remains in software through ctrlrange_m instead of MJCF ctrl limits.
     ctrllimited: false
     ctrlrange_m: [-0.020, 0.020]
-    forcelimited: true
+    forcelimited: false
     forcerange_n: [-30.0, 30.0]
   joint_position:
     kp: 2.0

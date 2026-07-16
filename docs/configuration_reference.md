@@ -236,9 +236,10 @@ task 中覆盖底层字段，因此实际值来自同一个 profile。
 | `tendon_inner_loop.rate_proportional_time_s` | `0.0 s` | bending-rate error 到额外 position lead 的比例时间尺度；当前保守起点关闭 P。 | 确认 FF 和 lead-slew guard 正常后再小步增加；过大可能因滤波延迟产生 target/force 振荡。 |
 | `tendon_inner_loop.rate_integral_gain` | `0.1` | 累计 bending-rate error 对 position lead 的增益。 | 只用于消除持续速度不足；不得脱离 anti-windup 单独大幅提高。 |
 | `tendon_inner_loop.anti_windup_gain` | `1.0` | QP/guard 修改 raw lead 后的向量 back-calculation 强度。 | `1.0` 在本周期把积分项回算到可执行 lead；降低会保留更多积分记忆。 |
-| `tendon_inner_loop.max_target_lead_m` | `0.000285 m` | 每 tendon 的 servo lead 上限。有效值还会取 assembly lead、配置值和 hard force/`kp` 的更小者；soft force 不再静态裁剪 lead。 | 当前 `kp=100000 N/m` 时 0.285 mm 理想比例力约 28.5 N，距 30 N hard/physical 上限保留 5% 余量。 |
-| `tendon_inner_loop.soft_force_limit_n` | `24 N` | 测量力达到该值时冻结 rate-error 积分。 | 长期触发说明 reference 超出内环能力，应降速或加入上层 governor，不应继续加增益。 |
-| `tendon_inner_loop.hard_force_limit_n` | `30 N` | 超限时按测量峰值缩小 lead；backend 还会把它限制到 MuJoCo actuator force range。 | 是二级保护，不能替代 MuJoCo `forcelimited`。 |
+| `tendon_inner_loop.enforce_target_lead_limit` | `false` | 是否启用每 tendon 的 servo lead 上限。为 `false` 时，`max_target_lead_m` 和 assembly `target_lead_m` 都不会限制 bending-rate servo 的 target lead。 | 当前 point-servo 调试 profile 关闭该项以排除执行层 lead 饱和；常规物理可信运行建议重新开启。 |
+| `tendon_inner_loop.max_target_lead_m` | 空 | `enforce_target_lead_limit: true` 时的每 tendon servo lead 上限。有效值还会取 assembly lead、配置值和 hard force/`kp` 的更小者。 | 仅置空不会关闭 lead 限制；必须配合 `enforce_target_lead_limit: false`。 |
+| `tendon_inner_loop.soft_force_limit_n` | 空 | 测量力达到该值时冻结 rate-error 积分；空值表示关闭 soft force guard。 | 当前 point-servo 调试 profile 关闭该项以排除 force guard 饱和。 |
+| `tendon_inner_loop.hard_force_limit_n` | 空 | 超限时按测量峰值缩小 lead；空值表示关闭 hard force recovery。 | 若 MuJoCo actuator `forcelimited` 仍开启，backend 仍可能用 actuator force range 绑定该值。 |
 | `tendon_inner_loop.zero_command_mode` | `hold` | 零 rate command 时请求保持上一完整 position target，是 lead-slew 的显式例外；`relax` 清积分并按位移、lead、lead-slew 与 force guard 受限地回到 actual。 | tracking 默认应使用 hold，避免突然卸载弹性力；若 actual 仍在运动，hold 期间的 lead 可跨周期变化。只有明确需要卸力时使用 relax。 |
 | `tendon_inner_loop.zero_rate_tolerance_mps` | `1e-7 m/s` | 判断零 command 的数值容差。 | 过大会吞掉低速命令，过小会让噪声导致 hold/track 频繁切换。 |
 

@@ -78,6 +78,7 @@ class ScenarioTendonInnerLoopConfig:
     rate_proportional_time_s: float = 0.0
     rate_integral_gain: float = 1.0
     anti_windup_gain: float = 1.0
+    enforce_target_lead_limit: bool = True
     max_target_lead_m: float | None = None
     soft_force_limit_n: float | None = None
     hard_force_limit_n: float | None = None
@@ -96,6 +97,7 @@ class ScenarioTendonInnerLoopConfig:
             rate_proportional_time_s=self.rate_proportional_time_s,
             rate_integral_gain=self.rate_integral_gain,
             anti_windup_gain=self.anti_windup_gain,
+            enforce_target_lead_limit=self.enforce_target_lead_limit,
             max_target_lead_m=self.max_target_lead_m,
             soft_force_limit_n=self.soft_force_limit_n,
             hard_force_limit_n=self.hard_force_limit_n,
@@ -825,6 +827,9 @@ def _load_tracking_control_config(
                 inner_loop_values.get("rate_integral_gain", 1.0)
             ),
             anti_windup_gain=float(inner_loop_values.get("anti_windup_gain", 1.0)),
+            enforce_target_lead_limit=bool(
+                inner_loop_values.get("enforce_target_lead_limit", True)
+            ),
             max_target_lead_m=_optional_float(
                 inner_loop_values.get("max_target_lead_m")
             ),

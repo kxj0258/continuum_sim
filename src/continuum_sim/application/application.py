@@ -153,6 +153,18 @@ class SimulationApplication:
                 assembly,
             )
             tracking = config.task.tracking_control
+            executor_orientation_world_wxyz = (
+                look_rotation_quaternion_wxyz(
+                    plan.insertion_direction_world,
+                    config.task.orientation_roll_reference_world,
+                )
+                if (
+                    config.task.pose_servo_enabled
+                    and config.task.waypoint_orientation_source
+                    == "insertion_direction"
+                )
+                else None
+            )
             controller = StagedEngineNavigationController(
                 assembly,
                 plan,
@@ -165,6 +177,12 @@ class SimulationApplication:
                 ),
                 observer_control_mode=config.task.observer_control_mode,
                 controller_dt_s=config.runtime.controller_dt_s,
+                executor_orientation_world_wxyz=(
+                    executor_orientation_world_wxyz
+                ),
+                orientation_tolerance_rad=(
+                    config.task.orientation_tolerance_rad
+                ),
                 low_level_coordinated_config=(
                     _tracking_coordinated_config(
                         tracking,
@@ -894,6 +912,11 @@ def _resolve_waypoint_orientations(task, waypoints, structured_scene) -> np.ndar
         raise ValueError(
             "scenario.task.pose_servo.orientation_source='explicit_directions' "
             "requires waypoint_directions_world."
+        )
+    if task.waypoint_orientation_source == "insertion_direction":
+        raise ValueError(
+            "scenario.task.pose_servo.orientation_source='insertion_direction' "
+            "is only supported by engine_navigation tasks."
         )
     if task.waypoint_orientation_source != "nearest_clearance":
         raise ValueError(

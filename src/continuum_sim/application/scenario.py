@@ -66,6 +66,7 @@ WAYPOINT_ORIENTATION_SOURCES = (
     "none",
     "explicit",
     "explicit_directions",
+    "insertion_direction",
     "nearest_clearance",
 )
 

@@ -23,7 +23,7 @@ scenario:
       avoidance_gain: 5.0
       collision_pair_count: 3
       collision_pair_index_separation: 1
-      look_at_executor_tip: true
+      look_at_executor_tip: false
       look_at_gain: 1.0
       look_at_weight: 1.0
       look_at_distance_m: 0.005

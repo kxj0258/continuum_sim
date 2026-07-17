@@ -46,6 +46,8 @@ class StagedEngineNavigationController:
         terminate_on_clearance_violation: bool,
         observer_control_mode: str = "collision_avoidance",
         controller_dt_s: float = 0.02,
+        executor_orientation_world_wxyz: np.ndarray | None = None,
+        orientation_tolerance_rad: float = 0.08,
         low_level_coordinated_config: CoordinatedTrackingConfig = (
             CoordinatedTrackingConfig()
         ),
@@ -80,6 +82,16 @@ class StagedEngineNavigationController:
         self._local_tracking = spec.local_tracking
         self._observer_control = spec.observer_control
         self._observer_control_mode = str(observer_control_mode)
+        self._executor_orientation_world_wxyz = _optional_quaternion(
+            executor_orientation_world_wxyz,
+            "executor_orientation_world_wxyz",
+        )
+        self._orientation_tolerance_rad = float(orientation_tolerance_rad)
+        if (
+            not np.isfinite(self._orientation_tolerance_rad)
+            or self._orientation_tolerance_rad < 0.0
+        ):
+            raise ValueError("orientation_tolerance_rad must be non-negative.")
         self._low_level_coordinated_config = low_level_coordinated_config
         self._low_level_solver_config = low_level_solver_config
         self._local_paths = (
@@ -190,6 +202,7 @@ class StagedEngineNavigationController:
             base_twist_world=twist,
             arms=command.arms,
             metadata=self._metadata(
+                state,
                 target_position=target.position,
                 active_target=target.position,
                 active_target_kind="base",
@@ -251,6 +264,7 @@ class StagedEngineNavigationController:
         metadata = {
             **tracked.metadata,
             **self._metadata(
+                state,
                 target_position=state.base.pose.position,
                 active_target=active_target,
                 active_target_kind="executor",
@@ -284,6 +298,7 @@ class StagedEngineNavigationController:
             base_twist_world=twist,
             arms=command.arms,
             metadata=self._metadata(
+                state,
                 target_position=target.position,
                 active_target=target.position,
                 active_target_kind="base",
@@ -336,6 +351,9 @@ class StagedEngineNavigationController:
     ) -> WaypointTrackingController:
         tracking = self._local_tracking
         observer = self._observer_control
+        waypoint_orientations = self._waypoint_orientations(
+            waypoints_world.shape[0]
+        )
         return WaypointTrackingController(
             self._fixed_assembly,
             waypoints_world,
@@ -352,6 +370,8 @@ class StagedEngineNavigationController:
                 and tracking.waypoint_tolerance_m is not None
                 else self._waypoint_tolerance_m
             ),
+            waypoint_orientations_world_wxyz=waypoint_orientations,
+            orientation_tolerance_rad=self._orientation_tolerance_rad,
             observer_roi_world=observer_roi_world,
             observer_control_mode=self._observer_control_mode,
             target_advance_mode=(
@@ -385,7 +405,10 @@ class StagedEngineNavigationController:
             ),
             feedforward_speed_mps=0.0,
             max_target_speed_mps=(
-                self._low_level_coordinated_config.max_target_speed_mps
+                tracking.max_target_speed_mps
+                if use_local_tracking
+                and tracking.max_target_speed_mps is not None
+                else self._low_level_coordinated_config.max_target_speed_mps
             ),
             enforce_backend_tendon_limits=(
                 self._low_level_coordinated_config.enforce_backend_tendon_limits
@@ -422,6 +445,15 @@ class StagedEngineNavigationController:
             ),
         )
 
+    def _waypoint_orientations(self, waypoint_count: int) -> np.ndarray | None:
+        if self._executor_orientation_world_wxyz is None:
+            return None
+        return np.repeat(
+            self._executor_orientation_world_wxyz[None, :],
+            waypoint_count,
+            axis=0,
+        )
+
     def _minimum_clearance(self, state: RobotSystemState) -> float:
         if self.scene_query is None:
             return float("inf")
@@ -449,6 +481,7 @@ class StagedEngineNavigationController:
             base_twist_world=command.base_twist_world,
             arms=command.arms,
             metadata=self._metadata(
+                state,
                 target_position=state.base.pose.position,
                 position_error=position_error,
                 orientation_error=orientation_error,
@@ -458,6 +491,7 @@ class StagedEngineNavigationController:
 
     def _metadata(
         self,
+        state: RobotSystemState,
         *,
         target_position: np.ndarray,
         active_target: np.ndarray | None = None,
@@ -546,6 +580,7 @@ class StagedEngineNavigationController:
             "base_position_error_m": float(position_error),
             "base_orientation_error_rad": float(orientation_error),
             "min_clearance_m": float(clearance),
+            **self._arm_clearance_metadata(state),
         }
 
     def _set_phase(self, phase: str) -> None:
@@ -557,3 +592,40 @@ class StagedEngineNavigationController:
     def _fail(self, reason: str) -> None:
         self.phase = "failed"
         self.terminal_reason = reason
+
+    def _arm_clearance_metadata(self, state: RobotSystemState) -> dict[str, object]:
+        distances = {"executor": float("nan"), "observer": float("nan")}
+        if self.scene_query is None:
+            return {
+                "executor_clearance_m": distances["executor"],
+                "observer_clearance_m": distances["observer"],
+            }
+        for arm_name, arm_state in state.arms.items():
+            role = self.assembly.arms[arm_name].role
+            if role not in distances:
+                continue
+            query = self.scene_query.nearest_centerline_clearance(
+                arm_state.centerline_world
+                if arm_state.centerline_world is not None
+                else np.asarray([arm_state.tip_pose_world.position])
+            )
+            distances[role] = float(query.distance_m)
+        return {
+            "executor_clearance_m": distances["executor"],
+            "observer_clearance_m": distances["observer"],
+        }
+
+
+def _optional_quaternion(
+    values: np.ndarray | None,
+    name: str,
+) -> np.ndarray | None:
+    if values is None:
+        return None
+    result = np.asarray(values, dtype=float)
+    if result.shape != (4,) or not np.all(np.isfinite(result)):
+        raise ValueError(f"{name} must be a finite quaternion with shape (4,).")
+    norm = float(np.linalg.norm(result))
+    if norm <= 1.0e-12:
+        raise ValueError(f"{name} must have non-zero length.")
+    return result / norm

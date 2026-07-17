@@ -17,9 +17,9 @@ scenario:
     observer_control_mode: collision_avoidance
     observer_control:
       minimum_distance_m: 0.010
-      influence_distance_m: 0.018
+      influence_distance_m: 0.019
       critical_distance_m: 0.008
-      release_margin_m: 0.0015
+      release_margin_m: 0.001
       avoidance_gain: 5.0
       collision_pair_count: 3
       collision_pair_index_separation: 1

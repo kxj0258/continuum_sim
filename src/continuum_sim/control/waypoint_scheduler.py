@@ -22,6 +22,8 @@ class WaypointScheduler:
     max_steps_per_waypoint: int | None = None
     active_index: int = 0
     done: bool = False
+    last_advance_reason: str = ""
+    terminal_reason: str = ""
     _updates: int = 0
 
     def __post_init__(self) -> None:
@@ -50,27 +52,28 @@ class WaypointScheduler:
 
         if self.done:
             return self.active_index
+        self.last_advance_reason = ""
         if self.mode == "tolerance":
             if self.max_steps_per_waypoint is not None:
                 self._updates += 1
-            if (
-                error_norm_m <= self.tolerance_m
-                or (
-                    self.max_steps_per_waypoint is not None
-                    and self._updates >= self.max_steps_per_waypoint
-                )
+            if error_norm_m <= self.tolerance_m:
+                self.advance(reason="tolerance_reached")
+            elif (
+                self.max_steps_per_waypoint is not None
+                and self._updates >= self.max_steps_per_waypoint
             ):
-                self.advance()
+                self.advance(reason="max_steps_reached")
             return self.active_index
         self._updates += 1
         if self._updates >= int(self.step_interval):
             self._updates = 0
-            self.advance()
+            self.advance(reason="time_elapsed")
         return self.active_index
 
-    def advance(self) -> None:
+    def advance(self, *, reason: str = "manual") -> None:
         """Advance one waypoint, respecting loop and completion settings."""
 
+        self.last_advance_reason = str(reason)
         self._updates = 0
         if self.active_index < self.waypoint_count - 1:
             self.active_index += 1
@@ -78,3 +81,4 @@ class WaypointScheduler:
             self.active_index = 0
         else:
             self.done = True
+            self.terminal_reason = self.last_advance_reason

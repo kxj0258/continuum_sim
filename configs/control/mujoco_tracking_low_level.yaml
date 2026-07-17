@@ -12,6 +12,7 @@ low_level_control:
     executor_tracking_weight: 100.0
     observer_tracking_weight: 40.0
     collision_avoidance_weight: 80.0
+    executor_orientation_tracking_mode: nullspace
     base_regularization_weight: 1.0
     tendon_regularization_weight: 0.8
     singularity_strategy: svd_projection

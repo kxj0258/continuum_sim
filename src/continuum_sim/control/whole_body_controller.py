@@ -216,6 +216,261 @@ class WholeBodyController:
             },
         )
 
+    def solve_hierarchical(
+        self,
+        primary_tasks: list[WholeBodyTask] | tuple[WholeBodyTask, ...],
+        secondary_tasks: list[WholeBodyTask] | tuple[WholeBodyTask, ...],
+        *,
+        active_arm_names: tuple[str, ...] | None = None,
+        include_base: bool = True,
+    ) -> WholeBodySolveResult:
+        """Solve secondary tasks only in the primary task nullspace."""
+
+        primary_result = self.solve(
+            primary_tasks,
+            active_arm_names=active_arm_names,
+            include_base=include_base,
+        )
+        if not secondary_tasks:
+            return primary_result
+        active_arms = self._active_arm_names(active_arm_names)
+        active_indices = self._active_indices(active_arms, include_base=include_base)
+        for task in secondary_tasks:
+            if task.jacobian.shape[1] != self.layout.size:
+                raise ValueError(
+                    f"Task {task.name!r} Jacobian must have {self.layout.size} columns."
+                )
+        primary_active = _weighted_jacobian(primary_tasks, self.layout.size)[
+            :, active_indices
+        ]
+        nullspace = _right_nullspace_projector(
+            primary_active,
+            self.config.singularity.minimum_singular_value,
+        )
+        if not np.any(np.abs(nullspace) > 0.0):
+            return primary_result
+        secondary_jacobian = np.vstack(
+            [
+                np.sqrt(task.weight) * task.jacobian[:, active_indices] @ nullspace
+                for task in secondary_tasks
+            ]
+        )
+        secondary_target = np.concatenate(
+            [
+                np.sqrt(task.weight)
+                * (task.target_velocity - task.jacobian @ primary_result.system_velocity)
+                for task in secondary_tasks
+            ]
+        )
+        if secondary_jacobian.size == 0:
+            return primary_result
+        projected_target = secondary_target
+        target_projection_residual_norm = 0.0
+        if self.config.singularity_strategy == "svd_projection":
+            projected_target = _project_target_to_controllable_subspace(
+                secondary_jacobian,
+                secondary_target,
+                self.config.singularity.minimum_singular_value,
+            )
+            target_projection_residual_norm = float(
+                np.linalg.norm(secondary_target - projected_target)
+            )
+        lhs = (
+            secondary_jacobian.T @ secondary_jacobian
+            + (self.config.singularity.nominal_damping**2)
+            * np.eye(active_indices.size, dtype=float)
+        )
+        rhs = secondary_jacobian.T @ projected_target
+        correction = nullspace @ np.linalg.solve(lhs, rhs)
+        velocity = primary_result.system_velocity.copy()
+        velocity[active_indices] += correction
+        velocity, arm_scales = self._apply_limits(velocity)
+        command = self.layout.unflatten(velocity)
+        weighted_primary = _weighted_jacobian(primary_tasks, self.layout.size)
+        weighted_secondary = _weighted_jacobian(secondary_tasks, self.layout.size)
+        weighted_jacobian = np.vstack((weighted_primary, weighted_secondary))
+        weighted_target = np.concatenate(
+            (
+                _weighted_target(primary_tasks),
+                _weighted_target(secondary_tasks),
+            )
+        )
+        residual = weighted_jacobian @ velocity - weighted_target
+        solver_diagnostics = dict(primary_result.solver_diagnostics or {})
+        solver_diagnostics.update(
+            {
+                "hierarchical_secondary_tasks": tuple(
+                    task.name for task in secondary_tasks
+                ),
+                "hierarchical_secondary_target_projection_residual_norm": (
+                    target_projection_residual_norm
+                ),
+                "hierarchical_secondary_correction_norm": float(
+                    np.linalg.norm(correction)
+                ),
+            }
+        )
+        return WholeBodySolveResult(
+            command=command,
+            system_velocity=velocity,
+            singularity=primary_result.singularity,
+            residual_norm=float(np.linalg.norm(residual)),
+            arm_diagnostics={
+                name: self._arm_diagnostics(name, velocity[arm_slice], arm_scales[name])
+                for name, arm_slice in self.layout.arms.items()
+            },
+            arm_singularities=primary_result.arm_singularities,
+            solver_diagnostics=solver_diagnostics,
+        )
+
+    def solve_priority_stack(
+        self,
+        task_levels: tuple[
+            list[WholeBodyTask] | tuple[WholeBodyTask, ...],
+            ...,
+        ],
+        *,
+        active_arm_names: tuple[str, ...] | None = None,
+        include_base: bool = True,
+    ) -> WholeBodySolveResult:
+        """Solve each non-empty task level in the previous levels' nullspace."""
+
+        levels = tuple(tuple(level) for level in task_levels)
+        all_tasks = tuple(task for level in levels for task in level)
+        if not all_tasks:
+            return self.solve(
+                (),
+                active_arm_names=active_arm_names,
+                include_base=include_base,
+            )
+        active_arms = self._active_arm_names(active_arm_names)
+        active_indices = self._active_indices(active_arms, include_base=include_base)
+        for task in all_tasks:
+            if task.jacobian.shape[1] != self.layout.size:
+                raise ValueError(
+                    f"Task {task.name!r} Jacobian must have {self.layout.size} columns."
+                )
+
+        result: WholeBodySolveResult | None = None
+        solved_tasks: list[WholeBodyTask] = []
+        level_task_names: list[tuple[str, ...]] = []
+        correction_norms: list[float] = []
+        projection_residuals: list[float] = []
+        velocity = np.zeros(self.layout.size, dtype=float)
+
+        for level in levels:
+            if not level:
+                continue
+            level_task_names.append(tuple(task.name for task in level))
+            if result is None:
+                result = self.solve(
+                    level,
+                    active_arm_names=active_arm_names,
+                    include_base=include_base,
+                )
+                velocity = result.system_velocity.copy()
+                solved_tasks.extend(level)
+                correction_norms.append(float(np.linalg.norm(velocity[active_indices])))
+                projection_residuals.append(
+                    float(
+                        (result.solver_diagnostics or {}).get(
+                            "target_projection_residual_norm",
+                            0.0,
+                        )
+                    )
+                )
+                continue
+
+            prior_active = _weighted_jacobian(solved_tasks, self.layout.size)[
+                :, active_indices
+            ]
+            nullspace = _right_nullspace_projector(
+                prior_active,
+                self.config.singularity.minimum_singular_value,
+            )
+            if not np.any(np.abs(nullspace) > 0.0):
+                solved_tasks.extend(level)
+                correction_norms.append(0.0)
+                projection_residuals.append(0.0)
+                continue
+            level_jacobian = np.vstack(
+                [
+                    np.sqrt(task.weight)
+                    * task.jacobian[:, active_indices]
+                    @ nullspace
+                    for task in level
+                ]
+            )
+            level_target = np.concatenate(
+                [
+                    np.sqrt(task.weight)
+                    * (task.target_velocity - task.jacobian @ velocity)
+                    for task in level
+                ]
+            )
+            projected_target = level_target
+            target_projection_residual_norm = 0.0
+            if self.config.singularity_strategy == "svd_projection":
+                projected_target = _project_target_to_controllable_subspace(
+                    level_jacobian,
+                    level_target,
+                    self.config.singularity.minimum_singular_value,
+                )
+                target_projection_residual_norm = float(
+                    np.linalg.norm(level_target - projected_target)
+                )
+            elif self.config.singularity_strategy != "damping_scale":
+                raise ValueError(
+                    "WholeBodyControllerConfig.singularity_strategy must be "
+                    "'damping_scale' or 'svd_projection'."
+                )
+            lhs = (
+                level_jacobian.T @ level_jacobian
+                + (self.config.singularity.nominal_damping**2)
+                * np.eye(active_indices.size, dtype=float)
+            )
+            rhs = level_jacobian.T @ projected_target
+            correction = nullspace @ np.linalg.solve(lhs, rhs)
+            velocity[active_indices] += correction
+            solved_tasks.extend(level)
+            correction_norms.append(float(np.linalg.norm(correction)))
+            projection_residuals.append(target_projection_residual_norm)
+
+        if result is None:
+            return self.solve(
+                (),
+                active_arm_names=active_arm_names,
+                include_base=include_base,
+            )
+
+        velocity, arm_scales = self._apply_limits(velocity)
+        command = self.layout.unflatten(velocity)
+        weighted_jacobian = _weighted_jacobian(all_tasks, self.layout.size)
+        weighted_target = _weighted_target(all_tasks)
+        residual = weighted_jacobian @ velocity - weighted_target
+        solver_diagnostics = dict(result.solver_diagnostics or {})
+        solver_diagnostics.update(
+            {
+                "hierarchical_task_levels": tuple(level_task_names),
+                "hierarchical_level_correction_norms": tuple(correction_norms),
+                "hierarchical_level_target_projection_residual_norms": tuple(
+                    projection_residuals
+                ),
+            }
+        )
+        return WholeBodySolveResult(
+            command=command,
+            system_velocity=velocity,
+            singularity=result.singularity,
+            residual_norm=float(np.linalg.norm(residual)),
+            arm_diagnostics={
+                name: self._arm_diagnostics(name, velocity[arm_slice], arm_scales[name])
+                for name, arm_slice in self.layout.arms.items()
+            },
+            arm_singularities=result.arm_singularities,
+            solver_diagnostics=solver_diagnostics,
+        )
+
     def _active_arm_names(
         self,
         active_arm_names: tuple[str, ...] | None,
@@ -472,3 +727,35 @@ def _project_target_to_controllable_subspace(
         return np.zeros_like(target)
     controllable = u[:, keep]
     return controllable @ (controllable.T @ target)
+
+
+def _weighted_jacobian(
+    tasks: list[WholeBodyTask] | tuple[WholeBodyTask, ...],
+    columns: int,
+) -> np.ndarray:
+    if not tasks:
+        return np.zeros((0, columns), dtype=float)
+    return np.vstack([np.sqrt(task.weight) * task.jacobian for task in tasks])
+
+
+def _weighted_target(
+    tasks: list[WholeBodyTask] | tuple[WholeBodyTask, ...],
+) -> np.ndarray:
+    if not tasks:
+        return np.zeros(0, dtype=float)
+    return np.concatenate(
+        [np.sqrt(task.weight) * task.target_velocity for task in tasks]
+    )
+
+
+def _right_nullspace_projector(
+    jacobian: np.ndarray,
+    minimum_singular_value: float,
+) -> np.ndarray:
+    columns = jacobian.shape[1]
+    if jacobian.size == 0:
+        return np.eye(columns, dtype=float)
+    return (
+        np.eye(columns, dtype=float)
+        - np.linalg.pinv(jacobian, rcond=minimum_singular_value) @ jacobian
+    )

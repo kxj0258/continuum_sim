@@ -54,6 +54,9 @@ class UnifiedLowLevelController:
             executor_orientation_tracking_weight=(
                 coordinated_config.executor_orientation_tracking_weight
             ),
+            executor_orientation_tracking_mode=(
+                coordinated_config.executor_orientation_tracking_mode
+            ),
             observer_position_gain=coordinated_config.observer_position_gain,
             feedforward_gain=1.0,
             max_target_speed_mps=None,
@@ -95,6 +98,13 @@ class UnifiedLowLevelController:
             stop_all_on_critical_distance=coordinated_config.stop_all_on_critical_distance,
             centerline_samples_per_segment=(
                 coordinated_config.centerline_samples_per_segment
+            ),
+            scene_avoidance_enabled=coordinated_config.scene_avoidance_enabled,
+            executor_scene_avoidance_mode=(
+                coordinated_config.executor_scene_avoidance_mode
+            ),
+            observer_scene_avoidance_mode=(
+                coordinated_config.observer_scene_avoidance_mode
             ),
             engine_min_clearance_m=coordinated_config.engine_min_clearance_m,
             engine_influence_distance_m=(

@@ -21,6 +21,7 @@ task:
       orientation_gain: 2.0
       max_angular_speed_rad_s: 1.0
     tendon_command:
+      executor_orientation_tracking_mode: nullspace
       executor_orientation_tracking_weight: 20.0
 ```
 
@@ -43,9 +44,17 @@ task:
   `pose_servo.orientation_tolerance_rad` larger than `pi`, for example `3.2`.
   The orientation task still participates in tendon solving, but waypoint
   advancement is governed by position error.
-- The observer arm `look_at_executor_tip` uses quaternion look-at servo. In
-  collision-avoidance mode, the look-at task is projected through the avoidance
-  nullspace so it does not override the primary collision-avoidance task.
+- `executor_orientation_tracking_mode` controls how the executor pose target
+  uses orientation: `disabled` ignores orientation, `weighted` keeps the
+  original same-level weighted solve, and `nullspace` tracks orientation only
+  in the primary position/clearance task nullspace. `nullspace` is the default
+  for navigation pose servo because it avoids spending position-tracking
+  authority on tip attitude when the fixed-base continuum arm has limited
+  redundancy.
+- The observer arm `look_at_executor_tip` uses quaternion look-at servo. The
+  look-at task is projected through the nullspace of active observer avoidance
+  tasks, including inter-arm avoidance and structured-scene avoidance, so it
+  does not override safety motion.
 - MuJoCo structured-scene targets can be visualized with a green sphere and a
   small direction arrow. With `nearest_clearance`, the arrow direction is
   `-clearance.normal`; explicit direction targets are converted into waypoint

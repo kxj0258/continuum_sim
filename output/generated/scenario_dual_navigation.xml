@@ -713,15 +713,15 @@
       <geom name="scene_axial_stiffener_rib_pos_x" type="box" pos="0.047 0 0.095" size="0.004 0.01 0.04" rgba="0.92 0.48 0.18 1" group="0" contype="1" conaffinity="1" />
       <geom name="scene_axial_stiffener_rib_neg_y" type="box" pos="0 -0.047 0.095" size="0.01 0.004 0.04" rgba="0.92 0.48 0.18 1" group="0" contype="1" conaffinity="1" />
       <geom name="scene_sensor_boss_obstacle" type="cylinder" pos="-0.038 0.025 0.105" size="0.008 0.012" rgba="0.95 0.64 0.22 1" group="0" contype="1" conaffinity="1" quat="0.707106781 0 0.707106781 0" />
-      <site name="scene_target_entry_wall_30deg" type="sphere" pos="0.0415692194 0.024 0.075" size="0.003" rgba="0.1 0.85 0.5 1" group="0" />
-      <geom name="scene_target_entry_wall_30deg_orientation_shaft" type="capsule" fromto="0.0427903403 0.0252211209 0.0786633628 0.0469964236 0.0294272042 0.0912816126" size="0.00075" rgba="0.1 0.85 0.5 1" group="0" contype="0" conaffinity="0" />
-      <site name="scene_target_entry_wall_30deg_orientation_tip" type="sphere" pos="0.0469964236 0.0294272042 0.0912816126" size="0.00195" rgba="0.1 0.85 0.5 1" group="0" />
+      <site name="scene_target_entry_wall_30deg" type="sphere" pos="0.046 0.035 0.085" size="0.003" rgba="0.1 0.85 0.5 1" group="0" />
+      <geom name="scene_target_entry_wall_30deg_orientation_shaft" type="capsule" fromto="0.0487 0.0377 0.08635 0.058 0.047 0.091" size="0.00075" rgba="0.1 0.85 0.5 1" group="0" contype="0" conaffinity="0" />
+      <site name="scene_target_entry_wall_30deg_orientation_tip" type="sphere" pos="0.058 0.047 0.091" size="0.00195" rgba="0.1 0.85 0.5 1" group="0" />
       <site name="scene_target_rib_gap_center" type="sphere" pos="0.025 -0.022 0.095" size="0.003" rgba="0.1 0.85 0.5 1" group="0" />
-      <geom name="scene_target_rib_gap_center_orientation_shaft" type="capsule" fromto="0.0262211209 -0.0232211209 0.0986633628 0.0304272042 -0.0274272042 0.111281613" size="0.00075" rgba="0.1 0.85 0.5 1" group="0" contype="0" conaffinity="0" />
-      <site name="scene_target_rib_gap_center_orientation_tip" type="sphere" pos="0.0304272042 -0.0274272042 0.111281613" size="0.00195" rgba="0.1 0.85 0.5 1" group="0" />
+      <geom name="scene_target_rib_gap_center_orientation_shaft" type="capsule" fromto="0.0277 -0.0247 0.09635 0.037 -0.034 0.101" size="0.00075" rgba="0.1 0.85 0.5 1" group="0" contype="0" conaffinity="0" />
+      <site name="scene_target_rib_gap_center_orientation_tip" type="sphere" pos="0.037 -0.034 0.101" size="0.00195" rgba="0.1 0.85 0.5 1" group="0" />
       <site name="scene_target_throat_wall_210deg" type="sphere" pos="-0.0348142212 -0.0201 0.11" size="0.003" rgba="0.1 0.85 0.5 1" group="0" />
-      <geom name="scene_target_throat_wall_210deg_orientation_shaft" type="capsule" fromto="-0.0360353421 -0.0213211209 0.113663363 -0.0402414254 -0.0255272042 0.126281613" size="0.00075" rgba="0.1 0.85 0.5 1" group="0" contype="0" conaffinity="0" />
-      <site name="scene_target_throat_wall_210deg_orientation_tip" type="sphere" pos="-0.0402414254 -0.0255272042 0.126281613" size="0.00195" rgba="0.1 0.85 0.5 1" group="0" />
+      <geom name="scene_target_throat_wall_210deg_orientation_shaft" type="capsule" fromto="-0.0375142212 -0.0228 0.11135 -0.0468142212 -0.0321 0.116" size="0.00075" rgba="0.1 0.85 0.5 1" group="0" contype="0" conaffinity="0" />
+      <site name="scene_target_throat_wall_210deg_orientation_tip" type="sphere" pos="-0.0468142212 -0.0321 0.116" size="0.00195" rgba="0.1 0.85 0.5 1" group="0" />
     </body>
   </worldbody>
   <tendon>

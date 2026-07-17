@@ -244,6 +244,9 @@ class WaypointTrackingController:
                 error_norm_m=achieved_error if pose_reached else float("inf")
             )
         waypoint_advanced = self.done or self.active_index != achieved_index
+        waypoint_advance_reason = (
+            self.scheduler.last_advance_reason if waypoint_advanced else ""
+        )
         step = self._task_step()
         command = self._controller.compute_command(state, step)
         controller_metadata = command.metadata
@@ -294,6 +297,7 @@ class WaypointTrackingController:
                     achieved_orientation_error if waypoint_advanced else np.nan
                 ),
                 "waypoint_advanced": waypoint_advanced,
+                "waypoint_advance_reason": waypoint_advance_reason,
                 "tracking_complete": self.done,
                 "tracking_approach": bool(
                     self.approach_mask[self.active_index]
@@ -703,9 +707,17 @@ class NavigationController:
                 command,
                 minimum,
             )
-        if self.done and self.clearance_violated:
-            command = RobotSystemCommand.zeros(
-                {name: values.tendon_rate_mps.size for name, values in command.arms.items()}
+        if self.terminate_on_clearance_violation and self.clearance_violated:
+            zero = RobotSystemCommand.zeros(
+                {
+                    name: values.tendon_rate_mps.size
+                    for name, values in command.arms.items()
+                }
+            )
+            command = RobotSystemCommand(
+                base_twist_world=zero.base_twist_world,
+                arms=zero.arms,
+                metadata=command.metadata,
             )
         return RobotSystemCommand(
             base_twist_world=command.base_twist_world,

@@ -526,6 +526,10 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
             getattr(recorder, "waypoint_advanced", ()),
             dtype=bool,
         )
+        arrays["waypoint_advance_reason"] = np.asarray(
+            getattr(recorder, "waypoint_advance_reason", ()),
+            dtype=str,
+        )
         arrays["tracking_complete"] = np.asarray(
             getattr(recorder, "tracking_complete", ()),
             dtype=bool,

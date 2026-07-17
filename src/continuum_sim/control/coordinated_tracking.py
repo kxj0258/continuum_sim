@@ -36,6 +36,14 @@ from continuum_sim.scenes.engine_query import EngineSceneQueryProtocol
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
 
 
+EXECUTOR_ORIENTATION_TRACKING_MODES = ("disabled", "weighted", "nullspace")
+EXECUTOR_SCENE_AVOIDANCE_MODES = ("disabled", "nullspace_after_pose")
+OBSERVER_SCENE_AVOIDANCE_MODES = (
+    "disabled",
+    "nullspace_after_interarm_lookat",
+)
+
+
 @dataclass(frozen=True)
 class CoordinatedTrackingTarget:
     """World-frame executor target and observer tracking policy."""
@@ -135,6 +143,7 @@ class CoordinatedTrackingConfig:
     executor_orientation_gain: float = 2.0
     observer_position_gain: float = 5.0
     executor_orientation_tracking_weight: float = 20.0
+    executor_orientation_tracking_mode: str = "nullspace"
     feedforward_gain: float = 1.0
     max_target_speed_mps: float | None = None
     max_target_angular_speed_rad_s: float | None = None
@@ -155,12 +164,30 @@ class CoordinatedTrackingConfig:
     freeze_executor_inside_safe_distance: bool = False
     stop_all_on_critical_distance: bool = False
     centerline_samples_per_segment: int = 6
+    scene_avoidance_enabled: bool = True
+    executor_scene_avoidance_mode: str = "nullspace_after_pose"
+    observer_scene_avoidance_mode: str = "nullspace_after_interarm_lookat"
     engine_min_clearance_m: float = 0.01
     engine_influence_distance_m: float = 0.025
     engine_avoidance_gain: float = 4.0
     enforce_backend_tendon_limits: bool = False
 
     def __post_init__(self) -> None:
+        if self.executor_orientation_tracking_mode not in EXECUTOR_ORIENTATION_TRACKING_MODES:
+            raise ValueError(
+                "executor_orientation_tracking_mode must be one of "
+                f"{EXECUTOR_ORIENTATION_TRACKING_MODES}."
+            )
+        if self.executor_scene_avoidance_mode not in EXECUTOR_SCENE_AVOIDANCE_MODES:
+            raise ValueError(
+                "executor_scene_avoidance_mode must be one of "
+                f"{EXECUTOR_SCENE_AVOIDANCE_MODES}."
+            )
+        if self.observer_scene_avoidance_mode not in OBSERVER_SCENE_AVOIDANCE_MODES:
+            raise ValueError(
+                "observer_scene_avoidance_mode must be one of "
+                f"{OBSERVER_SCENE_AVOIDANCE_MODES}."
+            )
         if not np.isfinite(self.feedforward_gain) or self.feedforward_gain < 0.0:
             raise ValueError("feedforward_gain must be non-negative and finite.")
         if self.inter_arm_collision_pair_count <= 0:
@@ -196,6 +223,21 @@ class CoordinatedTrackingConfig:
             raise ValueError(
                 "max_target_angular_speed_rad_s must be positive and finite."
             )
+        if not np.isfinite(self.engine_min_clearance_m) or self.engine_min_clearance_m < 0.0:
+            raise ValueError("engine_min_clearance_m must be non-negative and finite.")
+        if (
+            not np.isfinite(self.engine_influence_distance_m)
+            or self.engine_influence_distance_m < 0.0
+        ):
+            raise ValueError(
+                "engine_influence_distance_m must be non-negative and finite."
+            )
+        if self.engine_influence_distance_m < self.engine_min_clearance_m:
+            raise ValueError(
+                "engine_influence_distance_m must be at least engine_min_clearance_m."
+            )
+        if not np.isfinite(self.engine_avoidance_gain) or self.engine_avoidance_gain <= 0.0:
+            raise ValueError("engine_avoidance_gain must be positive and finite.")
 
 
 @dataclass(frozen=True)
@@ -302,11 +344,16 @@ class CoordinatedTrackingController:
         )
         executor_orientation_error = np.zeros(3, dtype=float)
         executor_orientation_velocity = np.zeros(3, dtype=float)
-        executor_orientation_active = (
+        executor_orientation_requested = (
             self.target.executor_orientation_control_mode == "quaternion"
             and self.target.executor_orientation_world_wxyz is not None
         )
-        if executor_orientation_active:
+        executor_orientation_active = (
+            executor_orientation_requested
+            and self.config.executor_orientation_tracking_mode != "disabled"
+        )
+        executor_orientation_task = None
+        if executor_orientation_requested:
             executor_orientation_error = quaternion_error_rotation_vector(
                 self.target.executor_orientation_world_wxyz,
                 executor_state.tip_pose_world.quat,
@@ -314,13 +361,11 @@ class CoordinatedTrackingController:
             executor_orientation_velocity = (
                 self.target.executor_angular_velocity_world.copy()
             )
-            executor_tasks.append(
-                WholeBodyTask(
-                    name="executor_orientation_tracking",
-                    jacobian=orientation_jacobians[executor_name],
-                    target_velocity=executor_orientation_velocity,
-                    weight=self.config.executor_orientation_tracking_weight,
-                )
+            executor_orientation_task = WholeBodyTask(
+                name="executor_orientation_tracking",
+                jacobian=orientation_jacobians[executor_name],
+                target_velocity=executor_orientation_velocity,
+                weight=self.config.executor_orientation_tracking_weight,
             )
 
         observer_target_position = np.full(3, np.nan, dtype=float)
@@ -329,6 +374,10 @@ class CoordinatedTrackingController:
         observer_look_at_active = False
         observer_look_at_error = np.full(3, np.nan, dtype=float)
         observer_look_at_velocity = np.zeros(3, dtype=float)
+        observer_avoidance_tasks: list[WholeBodyTask] = []
+        observer_look_at_tasks: list[WholeBodyTask] = []
+        executor_scene_tasks: list[WholeBodyTask] = []
+        observer_scene_tasks: list[WholeBodyTask] = []
         if observer_name is not None:
             if (
                 observer_mode == "collision_avoidance"
@@ -336,6 +385,7 @@ class CoordinatedTrackingController:
             ):
                 if collision_result is not None and collision_result.task is not None:
                     observer_tasks.append(collision_result.task)
+                    observer_avoidance_tasks.append(collision_result.task)
                     observer_target_velocity = (
                         collision_result.separation_normal_world
                         * collision_result.desired_speed_mps
@@ -373,6 +423,26 @@ class CoordinatedTrackingController:
                     )
                 )
                 observer_tracking_active = True
+
+        if self.config.scene_avoidance_enabled and self.scene_query is not None:
+            for arm in self.assembly.enabled_arms:
+                scene_task = self._engine_collision_task(
+                    state,
+                    arm.name,
+                )
+                if scene_task is not None:
+                    if (
+                        arm.name == observer_name
+                        and self.config.observer_scene_avoidance_mode != "disabled"
+                    ):
+                        observer_scene_tasks.append(scene_task)
+                    elif (
+                        arm.name == executor_name
+                        and self.config.executor_scene_avoidance_mode != "disabled"
+                    ):
+                        executor_scene_tasks.append(scene_task)
+
+        if observer_name is not None:
             if (
                 observer_mode in ("tracking", "collision_avoidance")
                 and self.config.observer_look_at_executor_tip
@@ -382,43 +452,76 @@ class CoordinatedTrackingController:
                         state,
                         executor_name,
                         observer_name,
-                        avoidance_task=(
-                            collision_result.task
-                            if observer_collision_active
-                            and collision_result is not None
-                            else None
-                        ),
+                        avoidance_tasks=(),
                     )
                 )
                 if look_at_task is not None:
-                    observer_tasks.append(look_at_task)
+                    observer_look_at_tasks.append(look_at_task)
                     observer_look_at_active = True
                     observer_look_at_error = look_at_error
                     observer_look_at_velocity = look_at_velocity
                     if not observer_collision_active and not observer_tracking_active:
                         observer_target_velocity = look_at_velocity.copy()
-
-        if self.scene_query is not None:
-            for arm in self.assembly.enabled_arms:
-                scene_task = self._engine_collision_task(
-                    state,
-                    arm.name,
+        if executor_orientation_task is not None:
+            if self.config.executor_orientation_tracking_mode == "weighted":
+                executor_tasks.append(executor_orientation_task)
+                if executor_scene_tasks:
+                    executor_result = self.solver.solve_priority_stack(
+                        (tuple(executor_tasks), tuple(executor_scene_tasks)),
+                        active_arm_names=(executor_name,),
+                        include_base=True,
+                    )
+                else:
+                    executor_result = self.solver.solve(
+                        executor_tasks,
+                        active_arm_names=(executor_name,),
+                        include_base=True,
+                    )
+            elif self.config.executor_orientation_tracking_mode == "nullspace":
+                executor_result = self.solver.solve_priority_stack(
+                    (
+                        tuple(executor_tasks),
+                        (executor_orientation_task,),
+                        tuple(executor_scene_tasks),
+                    ),
+                    active_arm_names=(executor_name,),
+                    include_base=True,
                 )
-                if scene_task is not None:
-                    if arm.name == observer_name:
-                        observer_tasks.append(scene_task)
-                    else:
-                        executor_tasks.append(scene_task)
-        executor_result = self.solver.solve(
-            executor_tasks,
-            active_arm_names=(executor_name,),
-            include_base=True,
-        )
+            else:
+                if executor_scene_tasks:
+                    executor_result = self.solver.solve_priority_stack(
+                        (tuple(executor_tasks), tuple(executor_scene_tasks)),
+                        active_arm_names=(executor_name,),
+                        include_base=True,
+                    )
+                else:
+                    executor_result = self.solver.solve(
+                        executor_tasks,
+                        active_arm_names=(executor_name,),
+                        include_base=True,
+                    )
+        else:
+            if executor_scene_tasks:
+                executor_result = self.solver.solve_priority_stack(
+                    (tuple(executor_tasks), tuple(executor_scene_tasks)),
+                    active_arm_names=(executor_name,),
+                    include_base=True,
+                )
+            else:
+                executor_result = self.solver.solve(
+                    executor_tasks,
+                    active_arm_names=(executor_name,),
+                    include_base=True,
+                )
         observer_result = (
             None
             if observer_name is None
-            else self.solver.solve(
-                observer_tasks,
+            else self.solver.solve_priority_stack(
+                (
+                    tuple(observer_tasks),
+                    tuple(observer_look_at_tasks),
+                    tuple(observer_scene_tasks),
+                ),
                 active_arm_names=(observer_name,),
                 include_base=False,
             )
@@ -469,6 +572,23 @@ class CoordinatedTrackingController:
             "observer_collision_active": observer_collision_active,
             "observer_tracking_active": observer_tracking_active,
             "observer_look_at_active": observer_look_at_active,
+            "observer_look_at_nullspace_tasks": tuple(
+                task.name for task in observer_avoidance_tasks
+            ),
+            "scene_avoidance_enabled": self.config.scene_avoidance_enabled,
+            "executor_scene_avoidance_mode": (
+                self.config.executor_scene_avoidance_mode
+            ),
+            "observer_scene_avoidance_mode": (
+                self.config.observer_scene_avoidance_mode
+            ),
+            "engine_min_clearance_m": self.config.engine_min_clearance_m,
+            "engine_influence_distance_m": (
+                self.config.engine_influence_distance_m
+            ),
+            "engine_avoidance_gain": self.config.engine_avoidance_gain,
+            "executor_scene_collision_active": bool(executor_scene_tasks),
+            "observer_scene_collision_active": bool(observer_scene_tasks),
             "observer_look_at_error_world": observer_look_at_error,
             "observer_look_at_velocity_world": observer_look_at_velocity,
             "inter_arm_distance_m": inter_arm_distance,
@@ -547,6 +667,9 @@ class CoordinatedTrackingController:
             },
             "executor_target_velocity_world": executor_target_velocity,
             "executor_orientation_control_active": executor_orientation_active,
+            "executor_orientation_tracking_mode": (
+                self.config.executor_orientation_tracking_mode
+            ),
             "executor_target_orientation_world_wxyz": (
                 np.full(4, np.nan, dtype=float)
                 if self.target.executor_orientation_world_wxyz is None
@@ -604,7 +727,7 @@ class CoordinatedTrackingController:
         executor_name: str,
         observer_name: str,
         *,
-        avoidance_task: WholeBodyTask | None,
+        avoidance_tasks: tuple[WholeBodyTask, ...],
     ) -> tuple[WholeBodyTask | None, np.ndarray, np.ndarray]:
         observer_state = state.arms[observer_name]
         executor_tip = state.arms[executor_name].tip_pose_world.position
@@ -629,10 +752,11 @@ class CoordinatedTrackingController:
             self._arm_orientation_system_jacobian(state, observer_name),
             observer_name,
         )
-        if avoidance_task is not None and avoidance_task.jacobian.size:
+        avoidance_jacobian = _stack_task_jacobians(avoidance_tasks)
+        if avoidance_jacobian is not None:
             jacobian = self._project_observer_task_to_avoidance_nullspace(
                 jacobian,
-                avoidance_task.jacobian,
+                avoidance_jacobian,
                 observer_name,
             )
         if np.linalg.norm(jacobian) <= self.solver.config.singularity.rank_tolerance:
@@ -1039,3 +1163,12 @@ def _quat4(values: np.ndarray, name: str) -> np.ndarray:
     if norm <= 1.0e-12:
         raise ValueError(f"{name} must have non-zero length.")
     return (result / norm).copy()
+
+
+def _stack_task_jacobians(
+    tasks: tuple[WholeBodyTask, ...],
+) -> np.ndarray | None:
+    rows = [task.jacobian for task in tasks if task.jacobian.size]
+    if not rows:
+        return None
+    return np.vstack(rows)

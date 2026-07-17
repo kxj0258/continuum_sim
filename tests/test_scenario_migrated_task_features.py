@@ -100,6 +100,19 @@ def test_tracking_control_config_loads_scenario_overrides() -> None:
     assert config.task.tracking_control.kinematics_mode == "discrete_hinge"
 
 
+def test_navigation_scene_avoidance_config_loads_task_policy() -> None:
+    config = load_scenario_config("configs/scenarios/dual_mujoco_navigation.yaml")
+
+    avoidance = config.task.scene_avoidance
+
+    assert avoidance.enabled is True
+    assert avoidance.executor_mode == "nullspace_after_pose"
+    assert avoidance.observer_mode == "nullspace_after_interarm_lookat"
+    assert avoidance.engine_min_clearance_m == 0.003
+    assert avoidance.engine_influence_distance_m == 0.010
+    assert avoidance.engine_avoidance_gain == 5.0
+
+
 def test_mujoco_point_servo_scenario_uses_four_waypoint_step_limited_servo() -> None:
     config = load_scenario_config("configs/scenarios/single_mujoco_point_servo.yaml")
 
@@ -239,7 +252,9 @@ def test_waypoint_scheduler_supports_time_and_tolerance_modes() -> None:
         controller_dt_s=0.02,
     )
     assert tolerance.update(error_norm_m=0.02) == 0
+    assert tolerance.last_advance_reason == ""
     assert tolerance.update(error_norm_m=0.001) == 1
+    assert tolerance.last_advance_reason == "tolerance_reached"
 
     timed = WaypointScheduler(
         waypoint_count=4,
@@ -250,6 +265,7 @@ def test_waypoint_scheduler_supports_time_and_tolerance_modes() -> None:
         step_interval=2,
     )
     assert [timed.update(error_norm_m=10.0) for _ in range(5)] == [0, 1, 1, 2, 2]
+    assert timed.last_advance_reason == ""
 
 
 def test_tolerance_scheduler_advances_after_waypoint_step_limit() -> None:
@@ -263,8 +279,11 @@ def test_tolerance_scheduler_advances_after_waypoint_step_limit() -> None:
     )
 
     assert scheduler.update(error_norm_m=0.01) == 0
+    assert scheduler.last_advance_reason == ""
     assert scheduler.update(error_norm_m=0.01) == 1
+    assert scheduler.last_advance_reason == "max_steps_reached"
     assert scheduler.update(error_norm_m=0.01) == 1
+    assert scheduler.last_advance_reason == ""
 
 
 def test_navigation_mission_resolves_scene_target_ids() -> None:

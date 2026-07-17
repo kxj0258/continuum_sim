@@ -2,7 +2,7 @@
   <compiler angle="radian" />
   <option timestep="0.001" integrator="implicitfast" iterations="50" gravity="0 0 0" />
   <visual>
-    <global azimuth="210" elevation="-45" offwidth="1920" offheight="1080" />
+    <global azimuth="210" elevation="-45" offwidth="1080" offheight="720" />
     <headlight ambient="0.35 0.35 0.35" diffuse="0.75 0.75 0.75" specular="0.2 0.2 0.2" />
     <map znear="0.001" zfar="2" />
     <quality shadowsize="2048" />

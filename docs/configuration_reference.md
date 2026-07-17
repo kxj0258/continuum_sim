@@ -138,7 +138,7 @@ tracking 后 executor 与 observer 分开求解。observer 使用与 dual MuJoCo
 | `tracking_control.approach_samples` | 普通 `40`；engine `0` | 在原轨迹前添加从直臂末端到首点的五次平滑直线样本。time 模式下它会分走固定总时长；增大可增加几何采样，但也会改变 approach/主轨迹的时间比例。engine 已用 base approach，不应再添加世界坐标 arm approach。 |
 | `tracking_control.tracking_mode` | `time` | 按仿真时间连续插值；改为 `waypoint` 后才使用 tolerance/advance 参数，并改用 waypoint 前馈逻辑。 |
 | `tracking_control.trajectory_duration_s` | `30.0` | time 模式总时长或 loop 周期。增大可降低路径前馈速度、通常更易跟踪；减小会提高速度和误差。engine 的 base approach 时间不计入这 30 s。 |
-| `tracking_control.stage_mobile_base` | engine 为 `true`；普通场景省略/false | 对 mobile assembly 启用 base-only 接近。engine tracking 仍只在主轨迹前接近一次；普通 navigation 会替代 arm approach samples，并对每个 waypoint 重复“移动基座让当前 executor tip 对齐该 waypoint，然后固定 base 做局部 tendon 伺服”；逐点 staged navigation 按 tolerance 进入下一点，不用 `max_steps_per_waypoint` 截断单点伺服。 |
+| `tracking_control.stage_mobile_base` | engine 为 `true`；普通场景省略/false | 对 mobile assembly 启用 base-only 接近。engine tracking 仍只在主轨迹前接近一次；普通 navigation 会替代 arm approach samples，并对每个 waypoint 重复“移动基座让当前 executor tip 对齐该 waypoint，然后固定 base 做局部 tendon 伺服”；逐点 staged navigation 会按 tolerance 或 `max_steps_per_waypoint` 进入下一点。 |
 | `base_position_gain` | `1.5 s^-1` | `v_base = gain * position_error`。增大可缩短接近时间；普通 staged navigation 会按 assembly base 速度限幅，engine staged controller 仍需谨慎调大以避免跳动或穿越场景。 |
 | `base_orientation_gain` | `2.0 s^-1` | 旋转向量误差到角速度的比例。当前目标姿态等于初始姿态，正常情况下误差接近零；有姿态扰动时才明显生效。 |
 | `base_position_tolerance_m` | `0.005` | base approach 切换阈值。减小可提高交接位置精度，但会增加接近步数，并可能因噪声迟迟不切换。 |

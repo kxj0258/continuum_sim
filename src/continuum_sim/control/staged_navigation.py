@@ -85,9 +85,6 @@ class StagedNavigationController:
             or self._orientation_tolerance_rad < 0.0
         ):
             raise ValueError("orientation_tolerance_rad must be non-negative.")
-        self._waypoint_completion_tolerance_m = (
-            self._waypoint_tolerance_m + 5.0e-4
-        )
         self._min_clearance_m = float(min_clearance_m)
         self._terminate_on_clearance_violation = bool(
             terminate_on_clearance_violation
@@ -130,7 +127,7 @@ class StagedNavigationController:
             "controller_dt_s": controller_dt_s,
             "advance_time_s": advance_time_s,
             "advance_steps": advance_steps,
-            "max_steps_per_waypoint": None,
+            "max_steps_per_waypoint": max_steps_per_waypoint,
             "executor_position_gain": executor_position_gain,
             "observer_position_gain": observer_position_gain,
             "feedforward_speed_mps": feedforward_speed_mps,
@@ -236,6 +233,7 @@ class StagedNavigationController:
                 "achieved_waypoint_index": -1,
                 "achieved_waypoint_error_m": np.nan,
                 "waypoint_advanced": False,
+                "waypoint_advance_reason": "",
                 "tracking_complete": False,
                 "tracking_approach": True,
                 "base_target_position_m": self._base_target.position.copy(),
@@ -277,37 +275,55 @@ class StagedNavigationController:
         command_phase = self.phase
         if self._tracking.done:
             tracker_reason = self._tracking.terminal_reason
+            tracker_advance_reason = str(
+                metadata.get("waypoint_advance_reason", "")
+            )
             tip_position = state.arms[self._executor_name].tip_pose_world.position
             waypoint_error = float(
                 np.linalg.norm(self._waypoints[waypoint_index] - tip_position)
             )
             orientation_error = self._orientation_error(state, waypoint_index)
             waypoint_reached = (
-                waypoint_error <= self._waypoint_completion_tolerance_m
+                waypoint_error <= self._waypoint_tolerance_m
                 and (
                     not np.isfinite(orientation_error)
                     or orientation_error <= self._orientation_tolerance_rad
                 )
             )
-            if not waypoint_reached:
+            advance_reason = (
+                "tolerance_reached"
+                if waypoint_reached
+                else (
+                    "max_steps_reached"
+                    if tracker_advance_reason == "max_steps_reached"
+                    else ""
+                )
+            )
+            if not advance_reason:
                 self._tracking = self._make_tracker(waypoint_index)
                 metadata["tracking_complete"] = False
                 metadata["waypoint_advanced"] = False
+                metadata["waypoint_advance_reason"] = ""
                 metadata["achieved_waypoint_index"] = -1
                 metadata["achieved_waypoint_error_m"] = np.nan
                 metadata["achieved_waypoint_orientation_error_rad"] = np.nan
             elif waypoint_index >= self._waypoints.shape[0] - 1:
                 self.phase = "complete"
                 command_phase = self.phase
-                self._terminal_reason = tracker_reason or "completed"
+                self._terminal_reason = (
+                    "max_steps_reached"
+                    if advance_reason == "max_steps_reached"
+                    else (tracker_reason or "completed")
+                )
                 metadata["tracking_complete"] = True
                 metadata["waypoint_advanced"] = True
+                metadata["waypoint_advance_reason"] = advance_reason
                 metadata["achieved_waypoint_index"] = waypoint_index
                 metadata["achieved_waypoint_error_m"] = waypoint_error
                 metadata["achieved_waypoint_orientation_error_rad"] = (
                     orientation_error
                 )
-            elif waypoint_reached:
+            else:
                 self._active_index = waypoint_index + 1
                 self.phase = "base_approach"
                 self._tracking = None
@@ -315,6 +331,7 @@ class StagedNavigationController:
                 self._base_target_index = -1
                 metadata["tracking_complete"] = False
                 metadata["waypoint_advanced"] = True
+                metadata["waypoint_advance_reason"] = advance_reason
                 metadata["achieved_waypoint_index"] = waypoint_index
                 metadata["achieved_waypoint_error_m"] = waypoint_error
                 metadata["achieved_waypoint_orientation_error_rad"] = (
@@ -391,6 +408,7 @@ class StagedNavigationController:
                 "achieved_waypoint_index": -1,
                 "achieved_waypoint_error_m": np.nan,
                 "waypoint_advanced": False,
+                "waypoint_advance_reason": "",
                 "tracking_complete": True,
                 "tracking_approach": False,
                 "base_target_position_m": self._base_target.position.copy(),

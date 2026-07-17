@@ -56,6 +56,12 @@ WIPING_FORCE_STRATEGY_TYPES = (
 TRACKING_MODES = ("waypoint", "time")
 OBSERVER_CONTROL_MODES = ("tracking", "collision_avoidance", "disabled")
 SINGULARITY_STRATEGIES = ("damping_scale", "svd_projection")
+EXECUTOR_ORIENTATION_TRACKING_MODES = ("disabled", "weighted", "nullspace")
+EXECUTOR_SCENE_AVOIDANCE_MODES = ("disabled", "nullspace_after_pose")
+OBSERVER_SCENE_AVOIDANCE_MODES = (
+    "disabled",
+    "nullspace_after_interarm_lookat",
+)
 WAYPOINT_ORIENTATION_SOURCES = (
     "none",
     "explicit",
@@ -149,6 +155,7 @@ class ScenarioTrackingControlConfig:
     max_target_angular_speed_rad_s: float | None = None
     executor_tracking_weight: float = 100.0
     executor_orientation_tracking_weight: float = 20.0
+    executor_orientation_tracking_mode: str = "nullspace"
     observer_tracking_weight: float = 40.0
     executor_collision_avoidance_weight: float = 80.0
     base_regularization_weight: float = 1.0
@@ -183,6 +190,11 @@ class ScenarioTrackingControlConfig:
             raise ValueError(
                 "tracking_control.singularity_strategy must be one of "
                 f"{SINGULARITY_STRATEGIES}."
+            )
+        if self.executor_orientation_tracking_mode not in EXECUTOR_ORIENTATION_TRACKING_MODES:
+            raise ValueError(
+                "tracking_control.tendon_command.executor_orientation_tracking_mode "
+                f"must be one of {EXECUTOR_ORIENTATION_TRACKING_MODES}."
             )
         if self.tracking_mode == "time" and (
             self.trajectory_duration_s is None
@@ -349,6 +361,56 @@ class ScenarioObserverControlConfig:
 
 
 @dataclass(frozen=True)
+class ScenarioSceneAvoidanceConfig:
+    """Task-level scene collision-avoidance policy."""
+
+    enabled: bool = True
+    executor_mode: str = "nullspace_after_pose"
+    observer_mode: str = "nullspace_after_interarm_lookat"
+    engine_min_clearance_m: float = 0.010
+    engine_influence_distance_m: float = 0.025
+    engine_avoidance_gain: float = 4.0
+
+    def __post_init__(self) -> None:
+        if self.executor_mode not in EXECUTOR_SCENE_AVOIDANCE_MODES:
+            raise ValueError(
+                "scene_avoidance.executor_mode must be one of "
+                f"{EXECUTOR_SCENE_AVOIDANCE_MODES}."
+            )
+        if self.observer_mode not in OBSERVER_SCENE_AVOIDANCE_MODES:
+            raise ValueError(
+                "scene_avoidance.observer_mode must be one of "
+                f"{OBSERVER_SCENE_AVOIDANCE_MODES}."
+            )
+        if (
+            not np.isfinite(self.engine_min_clearance_m)
+            or self.engine_min_clearance_m < 0.0
+        ):
+            raise ValueError(
+                "scene_avoidance.engine_min_clearance_m must be non-negative and finite."
+            )
+        if (
+            not np.isfinite(self.engine_influence_distance_m)
+            or self.engine_influence_distance_m < 0.0
+        ):
+            raise ValueError(
+                "scene_avoidance.engine_influence_distance_m must be non-negative and finite."
+            )
+        if self.engine_influence_distance_m < self.engine_min_clearance_m:
+            raise ValueError(
+                "scene_avoidance.engine_influence_distance_m must be at least "
+                "engine_min_clearance_m."
+            )
+        if (
+            not np.isfinite(self.engine_avoidance_gain)
+            or self.engine_avoidance_gain <= 0.0
+        ):
+            raise ValueError(
+                "scene_avoidance.engine_avoidance_gain must be positive and finite."
+            )
+
+
+@dataclass(frozen=True)
 class ScenarioForceStrategyConfig:
     type: str = "contact_distance"
 
@@ -399,6 +461,9 @@ class ScenarioTaskConfig:
     observer_control_mode: str = "collision_avoidance"
     observer_control: ScenarioObserverControlConfig = field(
         default_factory=ScenarioObserverControlConfig
+    )
+    scene_avoidance: ScenarioSceneAvoidanceConfig = field(
+        default_factory=ScenarioSceneAvoidanceConfig
     )
     loop: bool = False
     target_advance_mode: str = "tolerance"
@@ -705,6 +770,7 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
         kinematics_mode=kinematics_mode,
     )
     observer_control = _load_observer_control_config(task_values)
+    scene_avoidance = _load_scene_avoidance_config(task_values)
     contact_admittance = _load_contact_admittance_config(task_values)
     if wiping_control_type == "contact_triggered_admittance" and contact_admittance is None:
         contact_admittance = ContactTriggeredAdmittanceConfig(
@@ -767,6 +833,7 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             observer_roi_world=None if roi is None else roi.copy(),
             observer_control_mode=observer_control_mode,
             observer_control=observer_control,
+            scene_avoidance=scene_avoidance,
             loop=bool(task_values.get("loop", False)),
             target_advance_mode=target_advance_mode,
             advance_time_s=_optional_float(task_values.get("advance_time_s")),
@@ -1002,6 +1069,9 @@ def _load_tracking_control_config(
         executor_orientation_tracking_weight=float(
             tendon_command.get("executor_orientation_tracking_weight", 20.0)
         ),
+        executor_orientation_tracking_mode=str(
+            tendon_command.get("executor_orientation_tracking_mode", "nullspace")
+        ),
         observer_tracking_weight=float(
             tendon_command.get("observer_tracking_weight", 40.0)
         ),
@@ -1105,6 +1175,29 @@ def _load_observer_control_config(
         look_at_max_angular_speed_rad_s=_optional_float(
             values.get("look_at_max_angular_speed_rad_s")
         ),
+    )
+
+
+def _load_scene_avoidance_config(
+    task_values: dict[str, Any],
+) -> ScenarioSceneAvoidanceConfig:
+    values = _mapping(
+        task_values.get("scene_avoidance", {}),
+        "scenario.task.scene_avoidance",
+    )
+    return ScenarioSceneAvoidanceConfig(
+        enabled=bool(values.get("enabled", True)),
+        executor_mode=str(values.get("executor_mode", "nullspace_after_pose")),
+        observer_mode=str(
+            values.get("observer_mode", "nullspace_after_interarm_lookat")
+        ),
+        engine_min_clearance_m=float(
+            values.get("engine_min_clearance_m", 0.010)
+        ),
+        engine_influence_distance_m=float(
+            values.get("engine_influence_distance_m", 0.025)
+        ),
+        engine_avoidance_gain=float(values.get("engine_avoidance_gain", 4.0)),
     )
 
 

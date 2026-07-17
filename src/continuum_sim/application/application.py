@@ -11,6 +11,7 @@ import numpy as np
 from continuum_sim.application.scenario import (
     ScenarioConfig,
     ScenarioObserverControlConfig,
+    ScenarioSceneAvoidanceConfig,
     ScenarioTrackingControlConfig,
     load_scenario_config,
 )
@@ -168,6 +169,7 @@ class SimulationApplication:
                     _tracking_coordinated_config(
                         tracking,
                         config.task.observer_control,
+                        config.task.scene_avoidance,
                     )
                 ),
                 low_level_solver_config=_tracking_solver_config(tracking),
@@ -205,6 +207,7 @@ class SimulationApplication:
                 "coordinated_config": _tracking_coordinated_config(
                     tracking,
                     config.task.observer_control,
+                    config.task.scene_avoidance,
                 ),
                 "control_type": config.task.navigation_control_type,
                 "cbf_gain": config.task.navigation_cbf_gain,
@@ -269,6 +272,7 @@ class SimulationApplication:
                 coordinated_config=_tracking_coordinated_config(
                     tracking,
                     config.task.observer_control,
+                    config.task.scene_avoidance,
                 ),
             )
         elif config.task.type == "engine_cleaning":
@@ -299,6 +303,7 @@ class SimulationApplication:
                 coordinated_config=_tracking_coordinated_config(
                     tracking,
                     config.task.observer_control,
+                    config.task.scene_avoidance,
                 ),
             )
         else:
@@ -328,6 +333,7 @@ class SimulationApplication:
                     coordinated_config=_tracking_coordinated_config(
                         tracking,
                         config.task.observer_control,
+                        config.task.scene_avoidance,
                     ),
                     **(
                         {
@@ -380,6 +386,7 @@ class SimulationApplication:
                     coordinated_config=_tracking_coordinated_config(
                         tracking,
                         config.task.observer_control,
+                        config.task.scene_avoidance,
                     ),
                 )
         hooks: list[object] = []
@@ -669,8 +676,14 @@ def _tracking_solver_config(
 def _tracking_coordinated_config(
     tracking: ScenarioTrackingControlConfig,
     observer: ScenarioObserverControlConfig | None = None,
+    scene_avoidance: ScenarioSceneAvoidanceConfig | None = None,
 ) -> CoordinatedTrackingConfig:
     observer = ScenarioObserverControlConfig() if observer is None else observer
+    scene_avoidance = (
+        ScenarioSceneAvoidanceConfig()
+        if scene_avoidance is None
+        else scene_avoidance
+    )
     return CoordinatedTrackingConfig(
         kinematics_mode=tracking.kinematics_mode,
         executor_position_gain=tracking.executor_position_gain,
@@ -681,6 +694,9 @@ def _tracking_coordinated_config(
         max_target_angular_speed_rad_s=tracking.max_target_angular_speed_rad_s,
         executor_orientation_tracking_weight=(
             tracking.executor_orientation_tracking_weight
+        ),
+        executor_orientation_tracking_mode=(
+            tracking.executor_orientation_tracking_mode
         ),
         inter_arm_min_distance_m=observer.minimum_distance_m,
         inter_arm_influence_distance_m=observer.influence_distance_m,
@@ -704,6 +720,14 @@ def _tracking_coordinated_config(
         observer_collision_priority=True,
         freeze_executor_inside_safe_distance=False,
         stop_all_on_critical_distance=False,
+        scene_avoidance_enabled=scene_avoidance.enabled,
+        executor_scene_avoidance_mode=scene_avoidance.executor_mode,
+        observer_scene_avoidance_mode=scene_avoidance.observer_mode,
+        engine_min_clearance_m=scene_avoidance.engine_min_clearance_m,
+        engine_influence_distance_m=(
+            scene_avoidance.engine_influence_distance_m
+        ),
+        engine_avoidance_gain=scene_avoidance.engine_avoidance_gain,
         enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
     )
 

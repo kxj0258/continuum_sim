@@ -121,6 +121,7 @@ class StateRecorderHook:
     tracking_error_m: list[float] = field(default_factory=list)
     achieved_waypoint_error_m: list[float] = field(default_factory=list)
     waypoint_advanced: list[bool] = field(default_factory=list)
+    waypoint_advance_reason: list[str] = field(default_factory=list)
     tracking_complete: list[bool] = field(default_factory=list)
     tracking_approach: list[bool] = field(default_factory=list)
     arm_saturation_scale: dict[str, list[float]] = field(default_factory=dict)
@@ -162,6 +163,7 @@ class StateRecorderHook:
         self.tracking_error_m.clear()
         self.achieved_waypoint_error_m.clear()
         self.waypoint_advanced.clear()
+        self.waypoint_advance_reason.clear()
         self.tracking_complete.clear()
         self.tracking_approach.clear()
         self.arm_saturation_scale = {name: [] for name in state.arms}
@@ -276,6 +278,9 @@ class StateRecorderHook:
             )
             self.waypoint_advanced.append(
                 bool(command.metadata.get("waypoint_advanced", False))
+            )
+            self.waypoint_advance_reason.append(
+                str(command.metadata.get("waypoint_advance_reason", ""))
             )
             self.tracking_complete.append(
                 bool(command.metadata.get("tracking_complete", False))

@@ -19,9 +19,9 @@ scenario:
     min_clearance_m: 0.010
     terminate_on_clearance_violation: false
     tracking_control:
-      approach_samples: 5
+      approach_samples: 10
       tracking_mode: waypoint
-      max_steps_per_waypoint: 100
+      max_steps_per_waypoint: 300
       feedforward_speed_mps: 0.0
     mission:
       waypoint_ids:

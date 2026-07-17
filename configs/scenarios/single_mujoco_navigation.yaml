@@ -14,10 +14,15 @@ scenario:
     structured_config_path: ../scenes/rocket_nozzle_entry.yaml
   task:
     type: navigation
-    waypoint_tolerance_m: 0.005
+    waypoint_tolerance_m: 0.003
     target_advance_mode: tolerance
     min_clearance_m: 0.010
-    terminate_on_clearance_violation: true
+    terminate_on_clearance_violation: false
+    tracking_control:
+      approach_samples: 5
+      tracking_mode: waypoint
+      max_steps_per_waypoint: 100
+      feedforward_speed_mps: 0.0
     mission:
       waypoint_ids:
         - entry_wall_30deg
@@ -26,12 +31,12 @@ scenario:
   runtime:
     controller_dt_s: 0.02
     n_substeps: 20
-    max_steps: 2000
+    max_steps: 10000
   hooks:
     recorder: true
     tendon_debug: true
     tendon_debug_stride: 5
-    show_live_tendon_panel: true
+    show_live_tendon_panel: false
     live_tendon_panel_stride: 5
     viewer: mujoco
     keep_viewer_open: false

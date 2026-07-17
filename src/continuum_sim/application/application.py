@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -71,7 +71,10 @@ from continuum_sim.scenes.engine_mjcf_adapter import (
 )
 from continuum_sim.scenes.engine_query import EnginePrimitiveSceneQuery
 from continuum_sim.scenes.engine_scene import load_engine_scene_config
-from continuum_sim.scenes.scene_config import load_navigation_scene_config
+from continuum_sim.scenes.scene_config import (
+    InspectionTargetConfig,
+    load_navigation_scene_config,
+)
 from continuum_sim.scenes.structured_query import StructuredSceneQuery
 from continuum_sim.scenes.scene_builder import (
     inject_structured_scene,
@@ -184,6 +187,7 @@ class SimulationApplication:
                 controller_dt_s=config.runtime.controller_dt_s,
                 advance_time_s=config.task.advance_time_s,
                 advance_steps=config.task.advance_steps,
+                max_steps_per_waypoint=tracking.max_steps_per_waypoint,
                 executor_position_gain=tracking.executor_position_gain,
                 observer_position_gain=tracking.observer_position_gain,
                 feedforward_speed_mps=tracking.feedforward_speed_mps,
@@ -448,10 +452,15 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
             include_collision_mesh=False,
             include_control_primitives=True,
         )
-    if structured_scene is not None:
-        inject_structured_scene(root, structured_scene)
+    visual_structured_scene = _structured_scene_for_mujoco_visuals(
+        config,
+        structured_scene,
+    )
+    if visual_structured_scene is not None:
+        inject_structured_scene(root, visual_structured_scene)
     if assembly.base.control_mode == "fixed":
         lock_mobile_base_freejoint(root)
+    _apply_mujoco_offscreen_rendering_config(root, mujoco_config)
     _apply_mujoco_tendon_position_actuator_config(root, mujoco_config)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     ET.indent(tree)
@@ -479,6 +488,48 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
         tendon_rate_servo_config=tendon_rate_servo_config,
         kinematics_mode=config.backend.kinematics_mode,
     )
+
+
+def _structured_scene_for_mujoco_visuals(config, structured_scene):
+    if structured_scene is None:
+        return None
+    task = config.task
+    if task.waypoint_source != "waypoints_world" or task.waypoints_world.size == 0:
+        return structured_scene
+    waypoints = np.asarray(task.waypoints_world, dtype=float)
+    if waypoints.ndim != 2 or waypoints.shape[1] != 3 or waypoints.shape[0] == 0:
+        return structured_scene
+    existing_targets = structured_scene.inspection_targets
+    visual_targets = []
+    for index, waypoint in enumerate(waypoints):
+        target_id = (
+            existing_targets[index].id
+            if index < len(existing_targets)
+            else f"waypoint_{index + 1}"
+        )
+        visual_targets.append(
+            InspectionTargetConfig(
+                id=target_id,
+                type="point",
+                pos_m=waypoint.copy(),
+            )
+        )
+    return replace(structured_scene, inspection_targets=tuple(visual_targets))
+
+
+def _apply_mujoco_offscreen_rendering_config(root, mujoco_config) -> None:
+    rendering = mujoco_config.rendering
+    visual = root.find("visual")
+    if visual is None:
+        visual = ET.Element("visual")
+        insert_index = 1 if root.find("option") is not None else 0
+        root.insert(insert_index, visual)
+    global_visual = visual.find("global")
+    if global_visual is None:
+        global_visual = ET.Element("global")
+        visual.insert(0, global_visual)
+    global_visual.set("offwidth", str(int(rendering.offscreen_width)))
+    global_visual.set("offheight", str(int(rendering.offscreen_height)))
 
 
 def _apply_mujoco_tendon_position_actuator_config(root, mujoco_config) -> None:
@@ -677,7 +728,7 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
         target_force = task.target_force_n
         normal = task.surface_normal_world
         surface_point = None
-    if task.type == "tracking":
+    if task.type in ("tracking", "navigation"):
         tracking_plan = prepend_tracking_approach(
             waypoints,
             assembly,

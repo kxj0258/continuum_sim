@@ -14,9 +14,12 @@ from continuum_sim.control.whole_body_controller import (
 from continuum_sim.kinematics.whole_body import (
     analyze_tendon_mapping,
     assemble_whole_body_jacobian,
+    base_orientation_jacobian_world,
     base_point_jacobian_world,
+    bending_orientation_jacobian,
     bending_position_jacobian,
     centerline_point_bending_jacobian,
+    rotate_angular_jacobian_to_world,
     rotate_position_jacobian_to_world,
 )
 from continuum_sim.kinematics.pcc import (
@@ -25,6 +28,10 @@ from continuum_sim.kinematics.pcc import (
     forward_kinematics,
 )
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
+from continuum_sim.model.base_pose import (
+    look_rotation_quaternion_wxyz,
+    quaternion_error_rotation_vector,
+)
 from continuum_sim.scenes.engine_query import EngineSceneQueryProtocol
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
 
@@ -37,6 +44,11 @@ class CoordinatedTrackingTarget:
     executor_velocity_world: np.ndarray = field(
         default_factory=lambda: np.zeros(3, dtype=float)
     )
+    executor_orientation_world_wxyz: np.ndarray | None = None
+    executor_angular_velocity_world: np.ndarray = field(
+        default_factory=lambda: np.zeros(3, dtype=float)
+    )
+    executor_orientation_control_mode: str = "disabled"
     observer_roi_position_world: np.ndarray | None = None
     observer_executor_offset_world: np.ndarray = field(
         default_factory=lambda: np.array([0.0, -0.04, 0.02], dtype=float)
@@ -55,6 +67,33 @@ class CoordinatedTrackingTarget:
             "executor_velocity_world",
             _vector3(self.executor_velocity_world, "executor_velocity_world"),
         )
+        if self.executor_orientation_world_wxyz is not None:
+            object.__setattr__(
+                self,
+                "executor_orientation_world_wxyz",
+                _quat4(
+                    self.executor_orientation_world_wxyz,
+                    "executor_orientation_world_wxyz",
+                ),
+            )
+        object.__setattr__(
+            self,
+            "executor_angular_velocity_world",
+            _vector3(
+                self.executor_angular_velocity_world,
+                "executor_angular_velocity_world",
+            ),
+        )
+        if self.executor_orientation_control_mode not in ("disabled", "quaternion"):
+            raise ValueError("Unsupported executor_orientation_control_mode.")
+        if (
+            self.executor_orientation_control_mode != "disabled"
+            and self.executor_orientation_world_wxyz is None
+        ):
+            raise ValueError(
+                "executor_orientation_world_wxyz is required when executor "
+                "orientation control is enabled."
+            )
         object.__setattr__(
             self,
             "observer_executor_offset_world",
@@ -93,9 +132,12 @@ class CoordinatedTrackingConfig:
 
     kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE
     executor_position_gain: float = 4.0
+    executor_orientation_gain: float = 2.0
     observer_position_gain: float = 5.0
+    executor_orientation_tracking_weight: float = 20.0
     feedforward_gain: float = 1.0
     max_target_speed_mps: float | None = None
+    max_target_angular_speed_rad_s: float | None = None
     inter_arm_min_distance_m: float = 0.010
     inter_arm_influence_distance_m: float = 0.05
     inter_arm_hard_stop_distance_m: float = 0.008
@@ -131,6 +173,9 @@ class CoordinatedTrackingConfig:
             "observer_look_at_gain": self.observer_look_at_gain,
             "observer_look_at_weight": self.observer_look_at_weight,
             "observer_look_at_distance_m": self.observer_look_at_distance_m,
+            "executor_orientation_tracking_weight": (
+                self.executor_orientation_tracking_weight
+            ),
         }
         for name, value in positive.items():
             if not np.isfinite(value) or value <= 0.0:
@@ -141,6 +186,15 @@ class CoordinatedTrackingConfig:
         ):
             raise ValueError(
                 "observer_look_at_max_speed_mps must be positive and finite."
+            )
+        if not np.isfinite(self.executor_orientation_gain) or self.executor_orientation_gain < 0.0:
+            raise ValueError("executor_orientation_gain must be non-negative and finite.")
+        if self.max_target_angular_speed_rad_s is not None and (
+            not np.isfinite(self.max_target_angular_speed_rad_s)
+            or self.max_target_angular_speed_rad_s <= 0.0
+        ):
+            raise ValueError(
+                "max_target_angular_speed_rad_s must be positive and finite."
             )
 
 
@@ -188,6 +242,10 @@ class CoordinatedTrackingController:
     def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
         jacobians = {
             arm.name: self._arm_system_jacobian(state, arm.name)
+            for arm in self.assembly.enabled_arms
+        }
+        orientation_jacobians = {
+            arm.name: self._arm_orientation_system_jacobian(state, arm.name)
             for arm in self.assembly.enabled_arms
         }
         executor_tasks: list[WholeBodyTask] = []
@@ -242,6 +300,28 @@ class CoordinatedTrackingController:
                 weight=self.solver.weight_for("executor_tracking"),
             )
         )
+        executor_orientation_error = np.zeros(3, dtype=float)
+        executor_orientation_velocity = np.zeros(3, dtype=float)
+        executor_orientation_active = (
+            self.target.executor_orientation_control_mode == "quaternion"
+            and self.target.executor_orientation_world_wxyz is not None
+        )
+        if executor_orientation_active:
+            executor_orientation_error = quaternion_error_rotation_vector(
+                self.target.executor_orientation_world_wxyz,
+                executor_state.tip_pose_world.quat,
+            )
+            executor_orientation_velocity = (
+                self.target.executor_angular_velocity_world.copy()
+            )
+            executor_tasks.append(
+                WholeBodyTask(
+                    name="executor_orientation_tracking",
+                    jacobian=orientation_jacobians[executor_name],
+                    target_velocity=executor_orientation_velocity,
+                    weight=self.config.executor_orientation_tracking_weight,
+                )
+            )
 
         observer_target_position = np.full(3, np.nan, dtype=float)
         observer_target_velocity = np.zeros(3, dtype=float)
@@ -294,7 +374,7 @@ class CoordinatedTrackingController:
                 )
                 observer_tracking_active = True
             if (
-                observer_mode == "collision_avoidance"
+                observer_mode in ("tracking", "collision_avoidance")
                 and self.config.observer_look_at_executor_tip
             ):
                 look_at_task, look_at_error, look_at_velocity = (
@@ -315,7 +395,7 @@ class CoordinatedTrackingController:
                     observer_look_at_active = True
                     observer_look_at_error = look_at_error
                     observer_look_at_velocity = look_at_velocity
-                    if not observer_collision_active:
+                    if not observer_collision_active and not observer_tracking_active:
                         observer_target_velocity = look_at_velocity.copy()
 
         if self.scene_query is not None:
@@ -466,6 +546,17 @@ class CoordinatedTrackingController:
                 for arm in self.assembly.enabled_arms
             },
             "executor_target_velocity_world": executor_target_velocity,
+            "executor_orientation_control_active": executor_orientation_active,
+            "executor_target_orientation_world_wxyz": (
+                np.full(4, np.nan, dtype=float)
+                if self.target.executor_orientation_world_wxyz is None
+                else self.target.executor_orientation_world_wxyz.copy()
+            ),
+            "executor_orientation_error_world": executor_orientation_error,
+            "executor_orientation_error_rad": float(
+                np.linalg.norm(executor_orientation_error)
+            ),
+            "executor_target_angular_velocity_world": executor_orientation_velocity,
             "arm_singularities": arm_singularities,
             "whole_body_solver": executor_result.solver_diagnostics or {},
             "observer_solver": (
@@ -524,19 +615,19 @@ class CoordinatedTrackingController:
             nan_error = np.full(3, np.nan, dtype=float)
             return None, nan_error, np.zeros(3, dtype=float)
         target_direction /= target_distance
-        tip_rotation = observer_state.tip_pose_world.as_matrix()[:3, :3]
-        current_axis = tip_rotation[:, 2]
-        look_at_distance = self.config.observer_look_at_distance_m
-        error = look_at_distance * (target_direction - current_axis)
+        target_orientation = look_rotation_quaternion_wxyz(target_direction)
+        error = quaternion_error_rotation_vector(
+            target_orientation,
+            observer_state.tip_pose_world.quat,
+        )
         velocity = self._limit_observer_look_at_velocity(
             self.config.observer_look_at_gain * error
         )
         if np.linalg.norm(velocity) <= 1.0e-12:
             return None, error, velocity
-        jacobian = self._observer_tip_forward_point_jacobian(
-            state,
+        jacobian = self._observer_only_jacobian(
+            self._arm_orientation_system_jacobian(state, observer_name),
             observer_name,
-            look_at_distance,
         )
         if avoidance_task is not None and avoidance_task.jacobian.size:
             jacobian = self._project_observer_task_to_avoidance_nullspace(
@@ -548,7 +639,7 @@ class CoordinatedTrackingController:
             return None, error, velocity
         return (
             WholeBodyTask(
-                name="observer_look_at_executor_tip",
+                name="observer_quaternion_look_at_executor_tip",
                 jacobian=jacobian,
                 target_velocity=velocity,
                 weight=self.config.observer_look_at_weight,
@@ -647,6 +738,33 @@ class CoordinatedTrackingController:
             self.solver.layout,
             arm_name,
             base_jacobian,
+            jacobian_world,
+        )
+
+    def _arm_orientation_system_jacobian(
+        self,
+        state: RobotSystemState,
+        arm_name: str,
+    ) -> np.ndarray:
+        arm_config = self.assembly.arms[arm_name]
+        arm_state = state.arms[arm_name]
+        model = self.solver.layout.bending_models[arm_name]
+        q = model.to_q(model.estimate(arm_state.tendon_displacement_m))
+        jacobian_local = bending_orientation_jacobian(
+            q,
+            arm_config.spatial_arm.params,
+            arm_config.spatial_arm.tendons,
+            kinematics_mode=self.solver.config.kinematics_mode,
+        )
+        world_mount = state.base.pose.compose(arm_config.mount_pose)
+        jacobian_world = rotate_angular_jacobian_to_world(
+            jacobian_local,
+            world_mount.as_matrix()[:3, :3],
+        )
+        return assemble_whole_body_jacobian(
+            self.solver.layout,
+            arm_name,
+            base_orientation_jacobian_world(),
             jacobian_world,
         )
 
@@ -911,3 +1029,13 @@ def _vector3(values: np.ndarray, name: str) -> np.ndarray:
     if result.shape != (3,) or not np.all(np.isfinite(result)):
         raise ValueError(f"{name} must be a finite vector with shape (3,).")
     return result.copy()
+
+
+def _quat4(values: np.ndarray, name: str) -> np.ndarray:
+    result = np.asarray(values, dtype=float)
+    if result.shape != (4,) or not np.all(np.isfinite(result)):
+        raise ValueError(f"{name} must be a finite vector with shape (4,).")
+    norm = float(np.linalg.norm(result))
+    if norm <= 1.0e-12:
+        raise ValueError(f"{name} must have non-zero length.")
+    return (result / norm).copy()

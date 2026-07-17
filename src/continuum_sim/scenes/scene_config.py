@@ -146,6 +146,7 @@ class InspectionTargetConfig:
     theta_deg: float | None = None
     z_m: float | None = None
     inward_offset_m: float | None = None
+    direction_world: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -331,9 +332,18 @@ def _load_target_config(
         raise ValueError("Each scene.inspection_targets item must be a mapping.")
     target_type = _choice_value(_required(values, "type"), "target.type", TARGET_TYPES)
     target_id = str(_required(values, "id"))
+    direction_world = _optional_direction(
+        values.get("direction_world", _MISSING),
+        f"{target_id}.direction_world",
+    )
     if target_type == "point":
         pos = _position_vector(_required(values, "pos_m"), f"{target_id}.pos_m")
-        return InspectionTargetConfig(id=target_id, type=target_type, pos_m=pos)
+        return InspectionTargetConfig(
+            id=target_id,
+            type=target_type,
+            pos_m=pos,
+            direction_world=direction_world,
+        )
     section_id = str(_required(values, "section_id"))
     theta_deg = float(_required(values, "theta_deg"))
     z_m = float(_required(values, "z_m"))
@@ -350,6 +360,7 @@ def _load_target_config(
         theta_deg=theta_deg,
         z_m=z_m,
         inward_offset_m=inward_offset_m,
+        direction_world=direction_world,
     )
 
 
@@ -480,6 +491,16 @@ def _optional_position(raw_value: object, name: str) -> np.ndarray | None:
     if raw_value is _MISSING:
         return None
     return _position_vector(raw_value, name)
+
+
+def _optional_direction(raw_value: object, name: str) -> np.ndarray | None:
+    if raw_value is _MISSING:
+        return None
+    direction = _position_vector(raw_value, name)
+    norm = float(np.linalg.norm(direction))
+    if not np.isfinite(norm) or norm <= 1.0e-12:
+        raise ValueError(f"{name} must be a finite nonzero 3-vector.")
+    return direction / norm
 
 
 def _required_optional_float(value: float | None, name: str) -> float:

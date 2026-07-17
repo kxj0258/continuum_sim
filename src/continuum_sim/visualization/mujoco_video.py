@@ -275,7 +275,7 @@ def _model_offscreen_size(model) -> tuple[int, int]:
 def _open_video_writer(imageio, path: Path, fps: int):
     if path.suffix.lower() == ".gif":
         return imageio.get_writer(path, mode="I", duration=1000.0 / fps, loop=0)
-    return imageio.get_writer(path, fps=fps)
+    return imageio.get_writer(path, fps=fps, macro_block_size=1)
 
 
 def _patched_offscreen_xml(

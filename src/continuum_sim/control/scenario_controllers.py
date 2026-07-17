@@ -49,6 +49,7 @@ from continuum_sim.kinematics.whole_body import (
     centerline_point_bending_jacobian,
     rotate_position_jacobian_to_world,
 )
+from continuum_sim.model.base_pose import quaternion_error_rotation_vector
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
 from continuum_sim.model.robot_params import PCC_VALUES_PER_SEGMENT
 from continuum_sim.scenes.engine_query import EngineSceneQueryProtocol
@@ -84,6 +85,8 @@ class WaypointTrackingController:
         waypoints_world: np.ndarray,
         *,
         waypoint_tolerance_m: float = 1.0e-3,
+        waypoint_orientations_world_wxyz: np.ndarray | None = None,
+        orientation_tolerance_rad: float = 0.08,
         observer_roi_world: np.ndarray | None = None,
         observer_control_mode: str = "tracking",
         loop: bool = False,
@@ -114,6 +117,16 @@ class WaypointTrackingController:
         self.assembly = assembly
         self.waypoints_world = waypoints.copy()
         self.waypoint_tolerance_m = float(waypoint_tolerance_m)
+        self.waypoint_orientations_world_wxyz = _waypoint_quaternions(
+            waypoint_orientations_world_wxyz,
+            waypoints.shape[0],
+        )
+        self.orientation_tolerance_rad = float(orientation_tolerance_rad)
+        if (
+            not np.isfinite(self.orientation_tolerance_rad)
+            or self.orientation_tolerance_rad < 0.0
+        ):
+            raise ValueError("orientation_tolerance_rad must be non-negative.")
         self.observer_roi_world = (
             None
             if observer_roi_world is None
@@ -214,9 +227,22 @@ class WaypointTrackingController:
         achieved_error = float(
             np.linalg.norm(self.waypoints_world[achieved_index] - position)
         )
+        achieved_orientation_error = self._orientation_error(
+            state,
+            achieved_index,
+        )
+        pose_reached = (
+            achieved_error <= self.waypoint_tolerance_m
+            and (
+                not np.isfinite(achieved_orientation_error)
+                or achieved_orientation_error <= self.orientation_tolerance_rad
+            )
+        )
         scheduler_paused = not (advance and self.advance_enabled)
         if not scheduler_paused:
-            self.scheduler.update(error_norm_m=achieved_error)
+            self.scheduler.update(
+                error_norm_m=achieved_error if pose_reached else float("inf")
+            )
         waypoint_advanced = self.done or self.active_index != achieved_index
         step = self._task_step()
         command = self._controller.compute_command(state, step)
@@ -252,11 +278,20 @@ class WaypointTrackingController:
                 "executor_feedforward_velocity_world": (
                     step.intent.executor.feedforward_velocity_world.copy()
                 ),
+                "executor_target_orientation_world_wxyz": (
+                    np.full(4, np.nan, dtype=float)
+                    if step.intent.executor.target_orientation_world_wxyz is None
+                    else step.intent.executor.target_orientation_world_wxyz.copy()
+                ),
+                "executor_orientation_error_rad": achieved_orientation_error,
                 "achieved_waypoint_index": (
                     achieved_index if waypoint_advanced else -1
                 ),
                 "achieved_waypoint_error_m": (
                     achieved_error if waypoint_advanced else np.nan
+                ),
+                "achieved_waypoint_orientation_error_rad": (
+                    achieved_orientation_error if waypoint_advanced else np.nan
                 ),
                 "waypoint_advanced": waypoint_advanced,
                 "tracking_complete": self.done,
@@ -268,6 +303,7 @@ class WaypointTrackingController:
 
     def _task_step(self) -> TaskStep:
         velocity_override = self.executor_velocity_override_world
+        target_orientation = self._target_orientation(self.active_index)
         return TaskStep(
             intent=SystemTaskIntent(
                 executor=CartesianTaskIntent(
@@ -279,6 +315,12 @@ class WaypointTrackingController:
                     ),
                     control_mode=(
                         "velocity" if velocity_override is not None else "position"
+                    ),
+                    target_orientation_world_wxyz=target_orientation,
+                    orientation_control_mode=(
+                        "quaternion"
+                        if target_orientation is not None
+                        else "disabled"
                     ),
                 ),
                 observer=ObserverTaskIntent(
@@ -296,6 +338,26 @@ class WaypointTrackingController:
                 stop_reason=("completed" if self.done else ""),
             ),
         )
+
+    def _target_orientation(self, index: int) -> np.ndarray | None:
+        if self.waypoint_orientations_world_wxyz.shape[0] == 0:
+            return None
+        return self.waypoint_orientations_world_wxyz[index].copy()
+
+    def _orientation_error(
+        self,
+        state: RobotSystemState,
+        index: int,
+    ) -> float:
+        target_orientation = self._target_orientation(index)
+        if target_orientation is None:
+            return float("nan")
+        current_orientation = state.arms[self._executor_name].tip_pose_world.quat
+        error = quaternion_error_rotation_vector(
+            target_orientation,
+            current_orientation,
+        )
+        return float(np.linalg.norm(error))
 
     def _feedforward_velocity(self) -> np.ndarray:
         return self._path_feedforward_velocity()
@@ -550,6 +612,8 @@ class NavigationController:
         waypoint_tolerance_m: float,
         min_clearance_m: float,
         terminate_on_clearance_violation: bool,
+        waypoint_orientations_world_wxyz: np.ndarray | None = None,
+        orientation_tolerance_rad: float = 0.08,
         observer_roi_world: np.ndarray | None = None,
         observer_control_mode: str = "tracking",
         target_advance_mode: str = "tolerance",
@@ -574,6 +638,8 @@ class NavigationController:
             assembly,
             waypoints_world,
             waypoint_tolerance_m=waypoint_tolerance_m,
+            waypoint_orientations_world_wxyz=waypoint_orientations_world_wxyz,
+            orientation_tolerance_rad=orientation_tolerance_rad,
             observer_roi_world=observer_roi_world,
             observer_control_mode=observer_control_mode,
             target_advance_mode=target_advance_mode,
@@ -1310,6 +1376,23 @@ def _waypoint_vector(
     if result.shape != (size,):
         raise ValueError(f"{name} must have shape ({size},).")
     return result.copy()
+
+
+def _waypoint_quaternions(
+    values: np.ndarray | None,
+    size: int,
+) -> np.ndarray:
+    if values is None:
+        return np.zeros((0, 4), dtype=float)
+    result = np.asarray(values, dtype=float)
+    if result.size == 0:
+        return np.zeros((0, 4), dtype=float)
+    if result.shape != (size, 4):
+        raise ValueError(f"waypoint_orientations_world_wxyz must have shape ({size}, 4).")
+    norms = np.linalg.norm(result, axis=1)
+    if np.any((~np.isfinite(norms)) | (norms <= 1.0e-12)):
+        raise ValueError("waypoint_orientations_world_wxyz rows must be finite nonzero quaternions.")
+    return result / norms[:, None]
 
 
 def _bending_dof_mask(params) -> np.ndarray:

@@ -225,6 +225,76 @@ def quaternion_wxyz_multiply(left: np.ndarray, right: np.ndarray) -> np.ndarray:
     return quat / norm
 
 
+def quaternion_wxyz_conjugate(quat: np.ndarray) -> np.ndarray:
+    """Return the conjugate of a unit quaternion in ``[w, x, y, z]`` order."""
+
+    q = _unit_quaternion_wxyz(quat)
+    return np.array([q[0], -q[1], -q[2], -q[3]], dtype=float)
+
+
+def quaternion_wxyz_to_rotation_matrix(quat: np.ndarray) -> np.ndarray:
+    """Return a 3x3 rotation matrix for a quaternion in ``[w, x, y, z]`` order."""
+
+    return _quaternion_wxyz_to_rotation_matrix(_unit_quaternion_wxyz(quat))
+
+
+def rotation_matrix_to_quaternion_wxyz(rotation: np.ndarray) -> np.ndarray:
+    """Return a quaternion in ``[w, x, y, z]`` order from a rotation matrix."""
+
+    return _rotation_matrix_to_quaternion_wxyz(rotation)
+
+
+def quaternion_error_rotation_vector(
+    target_quat_wxyz: np.ndarray,
+    current_quat_wxyz: np.ndarray,
+) -> np.ndarray:
+    """Return world-frame rotation vector that moves current orientation to target."""
+
+    target = _unit_quaternion_wxyz(target_quat_wxyz)
+    current = _unit_quaternion_wxyz(current_quat_wxyz)
+    error = quaternion_wxyz_multiply(target, quaternion_wxyz_conjugate(current))
+    if error[0] < 0.0:
+        error = -error
+    return quaternion_wxyz_to_rotation_vector(error)
+
+
+def quaternion_wxyz_to_rotation_vector(quat: np.ndarray) -> np.ndarray:
+    """Convert a unit quaternion to an axis-angle rotation vector."""
+
+    q = _unit_quaternion_wxyz(quat)
+    if q[0] < 0.0:
+        q = -q
+    vector = q[1:]
+    vector_norm = float(np.linalg.norm(vector))
+    if vector_norm <= 1.0e-12:
+        return np.zeros(3, dtype=float)
+    angle = 2.0 * float(np.arctan2(vector_norm, q[0]))
+    return angle * vector / vector_norm
+
+
+def look_rotation_quaternion_wxyz(
+    forward_world: np.ndarray,
+    up_reference_world: np.ndarray | None = None,
+) -> np.ndarray:
+    """Build a quaternion whose local +Z axis points along ``forward_world``."""
+
+    z_axis = _unit_vector3(forward_world, "forward_world")
+    up = (
+        np.array([0.0, 0.0, 1.0], dtype=float)
+        if up_reference_world is None
+        else _unit_vector3(up_reference_world, "up_reference_world")
+    )
+    if abs(float(np.dot(up, z_axis))) > 0.98:
+        up = np.array([0.0, 1.0, 0.0], dtype=float)
+        if abs(float(np.dot(up, z_axis))) > 0.98:
+            up = np.array([1.0, 0.0, 0.0], dtype=float)
+    x_axis = np.cross(up, z_axis)
+    x_axis /= float(np.linalg.norm(x_axis))
+    y_axis = np.cross(z_axis, x_axis)
+    rotation = np.column_stack((x_axis, y_axis, z_axis))
+    return _rotation_matrix_to_quaternion_wxyz(rotation)
+
+
 def rotation_vector_to_quaternion_wxyz(rotation_vector: np.ndarray) -> np.ndarray:
     """Convert an axis-angle rotation vector to a unit quaternion."""
 
@@ -246,6 +316,26 @@ def rotation_vector_to_quaternion_wxyz(rotation_vector: np.ndarray) -> np.ndarra
         ],
         dtype=float,
     )
+
+
+def _unit_quaternion_wxyz(quat: np.ndarray) -> np.ndarray:
+    q = np.asarray(quat, dtype=float)
+    if q.shape != (4,) or not np.all(np.isfinite(q)):
+        raise ValueError(f"Expected quaternion with shape (4,), got {q.shape}.")
+    norm = float(np.linalg.norm(q))
+    if norm <= 1.0e-12:
+        raise ValueError("Quaternion must have non-zero length.")
+    return q / norm
+
+
+def _unit_vector3(vector: np.ndarray, name: str) -> np.ndarray:
+    values = np.asarray(vector, dtype=float)
+    if values.shape != (3,) or not np.all(np.isfinite(values)):
+        raise ValueError(f"{name} must be a finite vector with shape (3,).")
+    norm = float(np.linalg.norm(values))
+    if norm <= 1.0e-12:
+        raise ValueError(f"{name} must have non-zero length.")
+    return values / norm
 
 
 def _position_field(values: dict[str, object]) -> np.ndarray:

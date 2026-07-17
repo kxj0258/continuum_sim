@@ -46,6 +46,7 @@ from continuum_sim.control.coordinated_tracking import CoordinatedTrackingConfig
 from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
 from continuum_sim.dynamics import load_pcc_dynamics_config
 from continuum_sim.kinematics.whole_body import SingularityConfig
+from continuum_sim.model.base_pose import look_rotation_quaternion_wxyz
 from continuum_sim.model.robot_assembly import load_robot_assembly_config
 from continuum_sim.runtime.hooks import (
     ControllerCompletionHook,
@@ -191,6 +192,12 @@ class SimulationApplication:
                 "observer_position_gain": tracking.observer_position_gain,
                 "feedforward_speed_mps": tracking.feedforward_speed_mps,
                 "max_target_speed_mps": _tracking_target_speed_limit(tracking),
+                "waypoint_orientations_world_wxyz": (
+                    task_plan["waypoint_orientations_world_wxyz"]
+                ),
+                "orientation_tolerance_rad": (
+                    config.task.orientation_tolerance_rad
+                ),
                 "solver_config": _tracking_solver_config(tracking),
                 "enforce_backend_tendon_limits": (
                     tracking.enforce_backend_tendon_limits
@@ -216,6 +223,10 @@ class SimulationApplication:
                     base_orientation_tolerance_rad=(
                         tracking.base_orientation_tolerance_rad
                     ),
+                    base_approach_standoff_m=(
+                        tracking.base_approach_standoff_m
+                    ),
+                    base_approach_z_bias=tracking.base_approach_z_bias,
                 )
             else:
                 controller = NavigationController(
@@ -343,6 +354,12 @@ class SimulationApplication:
                     assembly,
                     task_plan["waypoints_world"],
                     waypoint_tolerance_m=config.task.waypoint_tolerance_m,
+                    waypoint_orientations_world_wxyz=(
+                        task_plan["waypoint_orientations_world_wxyz"]
+                    ),
+                    orientation_tolerance_rad=(
+                        config.task.orientation_tolerance_rad
+                    ),
                     observer_roi_world=config.task.observer_roi_world,
                     observer_control_mode=config.task.observer_control_mode,
                     loop=config.task.loop,
@@ -518,6 +535,9 @@ def _structured_scene_for_mujoco_visuals(config, structured_scene):
     waypoints = np.asarray(task.waypoints_world, dtype=float)
     if waypoints.ndim != 2 or waypoints.shape[1] != 3 or waypoints.shape[0] == 0:
         return structured_scene
+    directions = task.waypoint_directions_world
+    if directions.shape != waypoints.shape:
+        directions = np.zeros((0, 3), dtype=float)
     existing_targets = structured_scene.inspection_targets
     visual_targets = []
     for index, waypoint in enumerate(waypoints):
@@ -531,6 +551,11 @@ def _structured_scene_for_mujoco_visuals(config, structured_scene):
                 id=target_id,
                 type="point",
                 pos_m=waypoint.copy(),
+                direction_world=(
+                    directions[index].copy()
+                    if directions.shape[0] == waypoints.shape[0]
+                    else None
+                ),
             )
         )
     return replace(structured_scene, inspection_targets=tuple(visual_targets))
@@ -649,9 +674,14 @@ def _tracking_coordinated_config(
     return CoordinatedTrackingConfig(
         kinematics_mode=tracking.kinematics_mode,
         executor_position_gain=tracking.executor_position_gain,
+        executor_orientation_gain=tracking.executor_orientation_gain,
         observer_position_gain=tracking.observer_position_gain,
         feedforward_gain=tracking.feedforward_gain,
         max_target_speed_mps=_tracking_target_speed_limit(tracking),
+        max_target_angular_speed_rad_s=tracking.max_target_angular_speed_rad_s,
+        executor_orientation_tracking_weight=(
+            tracking.executor_orientation_tracking_weight
+        ),
         inter_arm_min_distance_m=observer.minimum_distance_m,
         inter_arm_influence_distance_m=observer.influence_distance_m,
         inter_arm_hard_stop_distance_m=observer.critical_distance_m,
@@ -666,7 +696,11 @@ def _tracking_coordinated_config(
         observer_look_at_gain=observer.look_at_gain,
         observer_look_at_weight=observer.look_at_weight,
         observer_look_at_distance_m=observer.look_at_distance_m,
-        observer_look_at_max_speed_mps=observer.look_at_max_speed_mps,
+        observer_look_at_max_speed_mps=(
+            observer.look_at_max_angular_speed_rad_s
+            if observer.look_at_max_angular_speed_rad_s is not None
+            else observer.look_at_max_speed_mps
+        ),
         observer_collision_priority=True,
         freeze_executor_inside_safe_distance=False,
         stop_all_on_critical_distance=False,
@@ -779,8 +813,14 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
                     target_force[index] = task.target_normal_force_n
     elif target_force.shape != (waypoints.shape[0],):
         raise ValueError("scenario.task.target_force_n must match waypoint count.")
+    waypoint_orientations = _resolve_waypoint_orientations(
+        task,
+        waypoints,
+        structured_scene,
+    )
     return {
         "waypoints_world": waypoints,
+        "waypoint_orientations_world_wxyz": waypoint_orientations,
         "phases": phases,
         "target_force_n": target_force,
         "surface_normal_world": normal,
@@ -790,6 +830,65 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
         "approach_mask": approach_mask,
         "source_waypoint_index": source_waypoint_index,
     }
+
+
+def _resolve_waypoint_orientations(task, waypoints, structured_scene) -> np.ndarray:
+    explicit = task.waypoint_orientations_world_wxyz
+    if explicit.shape[0] > 0:
+        if explicit.shape[0] != waypoints.shape[0]:
+            raise ValueError(
+                "scenario.task.waypoint_orientations_world_wxyz must match "
+                "resolved waypoint count."
+            )
+        return explicit.copy()
+    directions = task.waypoint_directions_world
+    if directions.shape[0] > 0:
+        if directions.shape[0] != waypoints.shape[0]:
+            raise ValueError(
+                "scenario.task.pose_servo.waypoint_directions_world must match "
+                "resolved waypoint count."
+            )
+        return np.asarray(
+            [
+                look_rotation_quaternion_wxyz(
+                    direction,
+                    task.orientation_roll_reference_world,
+                )
+                for direction in directions
+            ],
+            dtype=float,
+        )
+    if not task.pose_servo_enabled or task.waypoint_orientation_source == "none":
+        return np.zeros((0, 4), dtype=float)
+    if task.waypoint_orientation_source == "explicit_directions":
+        raise ValueError(
+            "scenario.task.pose_servo.orientation_source='explicit_directions' "
+            "requires waypoint_directions_world."
+        )
+    if task.waypoint_orientation_source != "nearest_clearance":
+        raise ValueError(
+            "Unsupported waypoint orientation source "
+            f"{task.waypoint_orientation_source!r}."
+        )
+    if structured_scene is None:
+        raise ValueError(
+            "scenario.task.pose_servo.orientation_source='nearest_clearance' "
+            "requires scenario.scene.structured_config_path."
+        )
+    query = StructuredSceneQuery(structured_scene)
+    orientations = []
+    for waypoint in waypoints:
+        clearance = query.nearest_distance(waypoint)
+        direction = -np.asarray(clearance.normal, dtype=float)
+        if np.linalg.norm(direction) <= 1.0e-12:
+            direction = np.array([1.0, 0.0, 0.0], dtype=float)
+        orientations.append(
+            look_rotation_quaternion_wxyz(
+                direction,
+                task.orientation_roll_reference_world,
+            )
+        )
+    return np.asarray(orientations, dtype=float)
 
 
 def _load_task_dynamics_config(config, assembly):

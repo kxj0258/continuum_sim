@@ -27,7 +27,17 @@ scenario:
       look_at_weight: 1.0
       look_at_distance_m: 0.005
       look_at_max_speed_mps: 0.005
+      look_at_max_angular_speed_rad_s: 1.0
     waypoint_tolerance_m: 0.003
+    pose_servo:
+      enabled: true
+      orientation_source: explicit_directions
+      waypoint_directions_world:
+        - [1.0, 1.0, 3.0]
+        - [1.0, -1.0, 3.0]
+        - [-1.0, -1.0, 3.0]
+      orientation_tolerance_rad: 3.2
+      roll_reference_world: [0.0, 0.0, 1.0]
     min_clearance_m: 0.010
     terminate_on_clearance_violation: false
     observer_roi_world: [0.025, -0.022, 0.095]
@@ -38,9 +48,16 @@ scenario:
       base_orientation_gain: 2.0
       base_position_tolerance_m: 0.005
       base_orientation_tolerance_rad: 0.035
+      base_approach_standoff_m: 0.015
+      base_approach_z_bias: 1.0
       tracking_mode: waypoint
       max_steps_per_waypoint: 300
       feedforward_speed_mps: 0.0
+      task_space_servo:
+        orientation_gain: 2.0
+        max_angular_speed_rad_s: 1.0
+      tendon_command:
+        executor_orientation_tracking_weight: 20.0
     waypoints_world:
       - [0.0415692194, 0.024, 0.075]
       - [0.025, -0.022, 0.095]
@@ -48,7 +65,7 @@ scenario:
   runtime:
     controller_dt_s: 0.02
     n_substeps: 20
-    max_steps: 10000
+    max_steps: 3000
   hooks:
     recorder: true
     tendon_debug: true

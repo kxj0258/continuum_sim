@@ -1041,11 +1041,11 @@ def _load_mujoco_rendering_config(raw: dict[str, Any]) -> MujocoRenderingConfig:
     values = _optional_section(raw, "rendering")
     return MujocoRenderingConfig(
         offscreen_width=_positive_int_value(
-            values.get("offscreen_width", 640),
+            values.get("offscreen_width", 1080),
             "rendering.offscreen_width",
         ),
         offscreen_height=_positive_int_value(
-            values.get("offscreen_height", 480),
+            values.get("offscreen_height", 720),
             "rendering.offscreen_height",
         ),
     )

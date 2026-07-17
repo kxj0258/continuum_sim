@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import numpy as np
+
 from continuum_sim.control.coordinated_tracking import (
     CoordinatedTrackingConfig,
 )
@@ -38,13 +40,20 @@ class UnifiedLowLevelController:
         self._task_space_servo = TaskSpaceServo(
             TaskSpaceServoConfig(
                 position_gain=coordinated_config.executor_position_gain,
+                orientation_gain=coordinated_config.executor_orientation_gain,
                 feedforward_gain=coordinated_config.feedforward_gain,
                 max_speed_mps=coordinated_config.max_target_speed_mps,
+                max_angular_speed_rad_s=(
+                    coordinated_config.max_target_angular_speed_rad_s
+                ),
             )
         )
         tendon_config = CoordinatedTrackingConfig(
             kinematics_mode=coordinated_config.kinematics_mode,
             executor_position_gain=0.0,
+            executor_orientation_tracking_weight=(
+                coordinated_config.executor_orientation_tracking_weight
+            ),
             observer_position_gain=coordinated_config.observer_position_gain,
             feedforward_gain=1.0,
             max_target_speed_mps=None,
@@ -126,12 +135,21 @@ class UnifiedLowLevelController:
     ) -> RobotSystemCommand:
         executor = step.intent.executor
         measured_position = state.arms[self._executor_name].tip_pose_world.position
+        measured_orientation = state.arms[self._executor_name].tip_pose_world.quat
         task_velocity = self._task_space_servo.compute(
             measured_position,
+            measured_orientation,
             TaskSpaceReference(
                 target_position_world=executor.target_position_world,
                 feedforward_velocity_world=executor.feedforward_velocity_world,
+                target_orientation_world_wxyz=(
+                    executor.target_orientation_world_wxyz
+                ),
+                feedforward_angular_velocity_world=(
+                    executor.feedforward_angular_velocity_world
+                ),
                 control_mode=executor.control_mode,
+                orientation_control_mode=executor.orientation_control_mode,
             ),
         )
         observer = step.intent.observer
@@ -163,21 +181,47 @@ class UnifiedLowLevelController:
                 "task_intent_velocity_world": (
                     executor.feedforward_velocity_world.copy()
                 ),
+                "task_intent_target_orientation_world_wxyz": (
+                    np.full(4, np.nan, dtype=float)
+                    if executor.target_orientation_world_wxyz is None
+                    else executor.target_orientation_world_wxyz.copy()
+                ),
+                "task_intent_angular_velocity_world": (
+                    executor.feedforward_angular_velocity_world.copy()
+                ),
                 "executor_feedforward_gain": self._task_space_servo.config.feedforward_gain,
                 "executor_scaled_feedforward_velocity_world": (
                     task_velocity.scaled_feedforward_velocity_world.copy()
+                ),
+                "executor_scaled_feedforward_angular_velocity_world": (
+                    task_velocity.scaled_feedforward_angular_velocity_world.copy()
                 ),
                 "task_space_servo": type(self._task_space_servo).__name__,
                 "task_space_position_error_world": (
                     task_velocity.position_error_world.copy()
                 ),
+                "task_space_orientation_error_world": (
+                    task_velocity.orientation_error_world.copy()
+                ),
+                "task_space_orientation_error_norm_rad": (
+                    task_velocity.orientation_error_norm_rad
+                ),
                 "task_space_raw_velocity_world": (
                     task_velocity.raw_velocity_world.copy()
+                ),
+                "task_space_raw_angular_velocity_world": (
+                    task_velocity.raw_angular_velocity_world.copy()
                 ),
                 "task_space_velocity_world": (
                     task_velocity.tcp_velocity_world.copy()
                 ),
+                "task_space_angular_velocity_world": (
+                    task_velocity.tcp_angular_velocity_world.copy()
+                ),
                 "task_space_speed_limited": task_velocity.speed_limited,
+                "task_space_angular_speed_limited": (
+                    task_velocity.angular_speed_limited
+                ),
                 "task_status_type": step.status.task_type,
                 "task_status_phase": step.status.phase,
                 "task_status_active_index": step.status.active_index,

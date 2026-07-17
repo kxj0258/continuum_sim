@@ -56,6 +56,12 @@ WIPING_FORCE_STRATEGY_TYPES = (
 TRACKING_MODES = ("waypoint", "time")
 OBSERVER_CONTROL_MODES = ("tracking", "collision_avoidance", "disabled")
 SINGULARITY_STRATEGIES = ("damping_scale", "svd_projection")
+WAYPOINT_ORIENTATION_SOURCES = (
+    "none",
+    "explicit",
+    "explicit_directions",
+    "nearest_clearance",
+)
 
 
 @dataclass(frozen=True)
@@ -132,12 +138,17 @@ class ScenarioTrackingControlConfig:
     base_orientation_gain: float = 2.0
     base_position_tolerance_m: float = 0.005
     base_orientation_tolerance_rad: float = 0.035
+    base_approach_standoff_m: float = 0.030
+    base_approach_z_bias: float = 1.0
     executor_position_gain: float = 4.0
+    executor_orientation_gain: float = 2.0
     observer_position_gain: float = 5.0
     feedforward_gain: float = 1.0
     feedforward_speed_mps: float = 0.0
     max_target_speed_mps: float | None = None
+    max_target_angular_speed_rad_s: float | None = None
     executor_tracking_weight: float = 100.0
+    executor_orientation_tracking_weight: float = 20.0
     observer_tracking_weight: float = 40.0
     executor_collision_avoidance_weight: float = 80.0
     base_regularization_weight: float = 1.0
@@ -195,8 +206,12 @@ class ScenarioTrackingControlConfig:
             "base_position_tolerance_m": self.base_position_tolerance_m,
             "base_orientation_tolerance_rad": self.base_orientation_tolerance_rad,
             "executor_position_gain": self.executor_position_gain,
+            "executor_orientation_gain": self.executor_orientation_gain,
             "observer_position_gain": self.observer_position_gain,
             "executor_tracking_weight": self.executor_tracking_weight,
+            "executor_orientation_tracking_weight": (
+                self.executor_orientation_tracking_weight
+            ),
             "observer_tracking_weight": self.observer_tracking_weight,
             "executor_collision_avoidance_weight": self.executor_collision_avoidance_weight,
             "base_regularization_weight": self.base_regularization_weight,
@@ -209,6 +224,17 @@ class ScenarioTrackingControlConfig:
         for name, value in positive.items():
             if not np.isfinite(value) or value <= 0.0:
                 raise ValueError(f"tracking_control.{name} must be positive and finite.")
+        if (
+            not np.isfinite(self.base_approach_standoff_m)
+            or self.base_approach_standoff_m < 0.0
+        ):
+            raise ValueError(
+                "tracking_control.base_approach_standoff_m must be non-negative and finite."
+            )
+        if not np.isfinite(self.base_approach_z_bias):
+            raise ValueError(
+                "tracking_control.base_approach_z_bias must be finite."
+            )
         if not np.isfinite(self.feedforward_speed_mps) or self.feedforward_speed_mps < 0.0:
             raise ValueError(
                 "tracking_control.feedforward_speed_mps must be non-negative and finite."
@@ -228,6 +254,13 @@ class ScenarioTrackingControlConfig:
         ):
             raise ValueError(
                 "tracking_control.max_target_speed_mps must be positive and finite."
+            )
+        if self.max_target_angular_speed_rad_s is not None and (
+            not np.isfinite(self.max_target_angular_speed_rad_s)
+            or self.max_target_angular_speed_rad_s <= 0.0
+        ):
+            raise ValueError(
+                "tracking_control.max_target_angular_speed_rad_s must be positive and finite."
             )
         if self.maximum_damping < self.nominal_damping:
             raise ValueError(
@@ -256,6 +289,7 @@ class ScenarioObserverControlConfig:
     look_at_weight: float = 10.0
     look_at_distance_m: float = 0.010
     look_at_max_speed_mps: float | None = 0.005
+    look_at_max_angular_speed_rad_s: float | None = None
 
     def __post_init__(self) -> None:
         non_negative = {
@@ -305,6 +339,13 @@ class ScenarioObserverControlConfig:
             raise ValueError(
                 "observer_control.look_at_max_speed_mps must be positive and finite."
             )
+        if self.look_at_max_angular_speed_rad_s is not None and (
+            not np.isfinite(self.look_at_max_angular_speed_rad_s)
+            or self.look_at_max_angular_speed_rad_s <= 0.0
+        ):
+            raise ValueError(
+                "observer_control.look_at_max_angular_speed_rad_s must be positive and finite."
+            )
 
 
 @dataclass(frozen=True)
@@ -342,6 +383,18 @@ class ScenarioTaskConfig:
     )
     waypoint_source: str = "waypoints_world"
     waypoint_tolerance_m: float = 0.001
+    pose_servo_enabled: bool = False
+    waypoint_orientations_world_wxyz: np.ndarray = field(
+        default_factory=lambda: np.zeros((0, 4), dtype=float)
+    )
+    waypoint_directions_world: np.ndarray = field(
+        default_factory=lambda: np.zeros((0, 3), dtype=float)
+    )
+    waypoint_orientation_source: str = "none"
+    orientation_tolerance_rad: float = 0.08
+    orientation_roll_reference_world: np.ndarray = field(
+        default_factory=lambda: np.array([0.0, 0.0, 1.0], dtype=float)
+    )
     observer_roi_world: np.ndarray | None = None
     observer_control_mode: str = "collision_avoidance"
     observer_control: ScenarioObserverControlConfig = field(
@@ -530,6 +583,78 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     if surface_normal.shape != (3,) or np.linalg.norm(surface_normal) <= 0.0:
         raise ValueError("scenario.task.surface_normal_world must be a nonzero 3D vector.")
     surface_normal /= np.linalg.norm(surface_normal)
+    pose_servo_values = _mapping(
+        task_values.get("pose_servo", {}),
+        "scenario.task.pose_servo",
+    )
+    pose_servo_enabled = bool(pose_servo_values.get("enabled", False))
+    waypoint_orientation_source = str(
+        pose_servo_values.get("orientation_source", "none")
+    )
+    if waypoint_orientation_source not in WAYPOINT_ORIENTATION_SOURCES:
+        raise ValueError(
+            "scenario.task.pose_servo.orientation_source must be one of "
+            f"{WAYPOINT_ORIENTATION_SOURCES}."
+        )
+    waypoint_orientations = _waypoint_orientations(
+        task_values.get(
+            "waypoint_orientations_world_wxyz",
+            pose_servo_values.get("waypoint_orientations_world_wxyz", []),
+        )
+    )
+    waypoint_directions = _waypoint_directions(
+        task_values.get(
+            "waypoint_directions_world",
+            pose_servo_values.get("waypoint_directions_world", []),
+        )
+    )
+    if waypoint_orientations.shape[0] > 0 and waypoint_source == "waypoints_world":
+        if waypoint_orientations.shape[0] != waypoints.shape[0]:
+            raise ValueError(
+                "scenario.task.waypoint_orientations_world_wxyz must match "
+                "waypoints_world count."
+            )
+        waypoint_orientation_source = "explicit"
+        pose_servo_enabled = True
+    if waypoint_directions.shape[0] > 0 and waypoint_source == "waypoints_world":
+        if waypoint_directions.shape[0] != waypoints.shape[0]:
+            raise ValueError(
+                "scenario.task.pose_servo.waypoint_directions_world must match "
+                "waypoints_world count."
+            )
+        if waypoint_orientations.shape[0] > 0:
+            raise ValueError(
+                "Provide either waypoint_orientations_world_wxyz or "
+                "waypoint_directions_world, not both."
+            )
+        waypoint_orientation_source = "explicit_directions"
+        pose_servo_enabled = True
+    orientation_tolerance_rad = float(
+        pose_servo_values.get("orientation_tolerance_rad", 0.08)
+    )
+    if (
+        not np.isfinite(orientation_tolerance_rad)
+        or orientation_tolerance_rad < 0.0
+    ):
+        raise ValueError(
+            "scenario.task.pose_servo.orientation_tolerance_rad must be non-negative."
+        )
+    orientation_roll_reference = np.asarray(
+        pose_servo_values.get("roll_reference_world", [0.0, 0.0, 1.0]),
+        dtype=float,
+    )
+    if (
+        orientation_roll_reference.shape != (3,)
+        or not np.all(np.isfinite(orientation_roll_reference))
+        or np.linalg.norm(orientation_roll_reference) <= 1.0e-12
+    ):
+        raise ValueError(
+            "scenario.task.pose_servo.roll_reference_world must be a finite "
+            "nonzero 3-vector."
+        )
+    orientation_roll_reference = (
+        orientation_roll_reference / np.linalg.norm(orientation_roll_reference)
+    )
     runtime_values = _mapping(values.get("runtime", {}), "scenario.runtime")
     hook_values = _mapping(values.get("hooks", {}), "scenario.hooks")
     scene_values = _mapping(values.get("scene", {}), "scenario.scene")
@@ -633,6 +758,12 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             waypoints_world=waypoints.copy(),
             waypoint_source=waypoint_source,
             waypoint_tolerance_m=float(task_values.get("waypoint_tolerance_m", 0.001)),
+            pose_servo_enabled=pose_servo_enabled,
+            waypoint_orientations_world_wxyz=waypoint_orientations,
+            waypoint_directions_world=waypoint_directions,
+            waypoint_orientation_source=waypoint_orientation_source,
+            orientation_tolerance_rad=orientation_tolerance_rad,
+            orientation_roll_reference_world=orientation_roll_reference,
             observer_roi_world=None if roi is None else roi.copy(),
             observer_control_mode=observer_control_mode,
             observer_control=observer_control,
@@ -841,6 +972,12 @@ def _load_tracking_control_config(
         base_orientation_tolerance_rad=float(
             task_control_values.get("base_orientation_tolerance_rad", 0.035)
         ),
+        base_approach_standoff_m=float(
+            task_control_values.get("base_approach_standoff_m", 0.030)
+        ),
+        base_approach_z_bias=float(
+            task_control_values.get("base_approach_z_bias", 1.0)
+        ),
         executor_position_gain=float(
             task_space.get("position_gain", task_space.get("executor_position_gain", 4.0))
         ),
@@ -850,8 +987,20 @@ def _load_tracking_control_config(
         feedforward_gain=float(task_space.get("feedforward_gain", 1.0)),
         feedforward_speed_mps=float(task_space.get("feedforward_speed_mps", 0.0)),
         max_target_speed_mps=_optional_float(task_space.get("max_speed_mps")),
+        max_target_angular_speed_rad_s=_optional_float(
+            task_space.get("max_angular_speed_rad_s")
+        ),
+        executor_orientation_gain=float(
+            task_space.get(
+                "orientation_gain",
+                task_space.get("executor_orientation_gain", 2.0),
+            )
+        ),
         executor_tracking_weight=float(
             tendon_command.get("executor_tracking_weight", 100.0)
+        ),
+        executor_orientation_tracking_weight=float(
+            tendon_command.get("executor_orientation_tracking_weight", 20.0)
         ),
         observer_tracking_weight=float(
             tendon_command.get("observer_tracking_weight", 40.0)
@@ -952,6 +1101,9 @@ def _load_observer_control_config(
         look_at_distance_m=float(values.get("look_at_distance_m", 0.010)),
         look_at_max_speed_mps=_optional_float(
             values.get("look_at_max_speed_mps", 0.005)
+        ),
+        look_at_max_angular_speed_rad_s=_optional_float(
+            values.get("look_at_max_angular_speed_rad_s")
         ),
     )
 
@@ -1116,3 +1268,37 @@ def _optional_float(value: object) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+def _waypoint_orientations(value: object) -> np.ndarray:
+    orientations = np.asarray(value, dtype=float)
+    if orientations.size == 0:
+        return np.zeros((0, 4), dtype=float)
+    if orientations.ndim != 2 or orientations.shape[1] != 4:
+        raise ValueError(
+            "scenario.task.waypoint_orientations_world_wxyz must have shape (N, 4)."
+        )
+    norms = np.linalg.norm(orientations, axis=1)
+    if np.any((~np.isfinite(norms)) | (norms <= 1.0e-12)):
+        raise ValueError(
+            "scenario.task.waypoint_orientations_world_wxyz rows must be finite "
+            "nonzero quaternions."
+        )
+    return orientations / norms[:, None]
+
+
+def _waypoint_directions(value: object) -> np.ndarray:
+    directions = np.asarray(value, dtype=float)
+    if directions.size == 0:
+        return np.zeros((0, 3), dtype=float)
+    if directions.ndim != 2 or directions.shape[1] != 3:
+        raise ValueError(
+            "scenario.task.pose_servo.waypoint_directions_world must have shape (N, 3)."
+        )
+    norms = np.linalg.norm(directions, axis=1)
+    if np.any((~np.isfinite(norms)) | (norms <= 1.0e-12)):
+        raise ValueError(
+            "scenario.task.pose_servo.waypoint_directions_world rows must be finite "
+            "nonzero 3-vectors."
+        )
+    return directions / norms[:, None]

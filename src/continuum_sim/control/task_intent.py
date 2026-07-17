@@ -9,6 +9,7 @@ import numpy as np
 
 
 CARTESIAN_CONTROL_MODES = ("position", "velocity")
+ORIENTATION_CONTROL_MODES = ("disabled", "quaternion")
 OBSERVER_CONTROL_MODES = ("tracking", "collision_avoidance", "disabled")
 
 
@@ -25,7 +26,12 @@ class CartesianTaskIntent:
     feedforward_velocity_world: np.ndarray = field(
         default_factory=lambda: np.zeros(3, dtype=float)
     )
+    target_orientation_world_wxyz: np.ndarray | None = None
+    feedforward_angular_velocity_world: np.ndarray = field(
+        default_factory=lambda: np.zeros(3, dtype=float)
+    )
     control_mode: str = "position"
+    orientation_control_mode: str = "disabled"
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -41,10 +47,40 @@ class CartesianTaskIntent:
                 "feedforward_velocity_world",
             ),
         )
+        if self.target_orientation_world_wxyz is not None:
+            object.__setattr__(
+                self,
+                "target_orientation_world_wxyz",
+                _quat4(
+                    self.target_orientation_world_wxyz,
+                    "target_orientation_world_wxyz",
+                ),
+            )
+        object.__setattr__(
+            self,
+            "feedforward_angular_velocity_world",
+            _vector3(
+                self.feedforward_angular_velocity_world,
+                "feedforward_angular_velocity_world",
+            ),
+        )
         if self.control_mode not in CARTESIAN_CONTROL_MODES:
             raise ValueError(
                 "control_mode must be one of "
                 f"{CARTESIAN_CONTROL_MODES}."
+            )
+        if self.orientation_control_mode not in ORIENTATION_CONTROL_MODES:
+            raise ValueError(
+                "orientation_control_mode must be one of "
+                f"{ORIENTATION_CONTROL_MODES}."
+            )
+        if (
+            self.orientation_control_mode != "disabled"
+            and self.target_orientation_world_wxyz is None
+        ):
+            raise ValueError(
+                "target_orientation_world_wxyz is required when orientation "
+                "control is enabled."
             )
 
 
@@ -162,3 +198,13 @@ def _vector3(values: np.ndarray, name: str) -> np.ndarray:
     if result.shape != (3,) or not np.all(np.isfinite(result)):
         raise ValueError(f"{name} must be a finite vector with shape (3,).")
     return result.copy()
+
+
+def _quat4(values: np.ndarray, name: str) -> np.ndarray:
+    result = np.asarray(values, dtype=float)
+    if result.shape != (4,) or not np.all(np.isfinite(result)):
+        raise ValueError(f"{name} must be a finite vector with shape (4,).")
+    norm = float(np.linalg.norm(result))
+    if norm <= 1.0e-12:
+        raise ValueError(f"{name} must have non-zero length.")
+    return (result / norm).copy()

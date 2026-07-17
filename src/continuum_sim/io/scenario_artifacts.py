@@ -658,6 +658,9 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
             ("observer_avoidance_desired_speed_mps", float),
             ("observer_residual_norm", float),
             ("executor_feedforward_gain", float),
+            ("executor_orientation_error_rad", float),
+            ("task_space_orientation_error_norm_rad", float),
+            ("task_space_angular_speed_limited", bool),
         ):
             arrays[key] = np.asarray(
                 [metadata.get(key, _metadata_default(dtype)) for metadata in command_metadata],
@@ -666,18 +669,36 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
         for key in (
             "executor_target_velocity_world",
             "task_intent_velocity_world",
+            "task_intent_angular_velocity_world",
             "executor_scaled_feedforward_velocity_world",
+            "executor_scaled_feedforward_angular_velocity_world",
             "observer_target_position_world",
             "observer_target_error_world",
             "observer_target_velocity_world",
             "observer_look_at_error_world",
             "observer_look_at_velocity_world",
+            "executor_orientation_error_world",
+            "executor_target_angular_velocity_world",
+            "task_space_orientation_error_world",
+            "task_space_raw_angular_velocity_world",
+            "task_space_angular_velocity_world",
             "inter_arm_closest_observer_point_world",
             "inter_arm_closest_executor_point_world",
         ):
             arrays[key] = np.asarray(
                 [
                     metadata.get(key, np.full(3, np.nan, dtype=float))
+                    for metadata in command_metadata
+                ],
+                dtype=float,
+            )
+        for key in (
+            "task_intent_target_orientation_world_wxyz",
+            "executor_target_orientation_world_wxyz",
+        ):
+            arrays[key] = np.asarray(
+                [
+                    metadata.get(key, np.full(4, np.nan, dtype=float))
                     for metadata in command_metadata
                 ],
                 dtype=float,
@@ -700,6 +721,22 @@ def _add_four_layer_control_arrays(
     arrays["layer1_task_feedforward_velocity_world"] = _metadata_vector_series(
         command_metadata,
         "task_intent_velocity_world",
+    )
+    arrays["layer1_task_target_orientation_world_wxyz"] = np.asarray(
+        [
+            metadata.get(
+                "task_intent_target_orientation_world_wxyz",
+                np.full(4, np.nan, dtype=float),
+            )
+            for metadata in command_metadata
+        ],
+        dtype=float,
+    )
+    arrays["layer1_task_feedforward_angular_velocity_world"] = (
+        _metadata_vector_series(
+            command_metadata,
+            "task_intent_angular_velocity_world",
+        )
     )
     arrays["layer1_task_control_mode"] = _metadata_string_series(
         command_metadata,
@@ -748,6 +785,30 @@ def _add_four_layer_control_arrays(
     arrays["layer2_servo_speed_limited"] = _metadata_scalar_series(
         command_metadata,
         "task_space_speed_limited",
+        dtype=bool,
+        default=False,
+    )
+    arrays["layer2_servo_orientation_error_world"] = _metadata_vector_series(
+        command_metadata,
+        "task_space_orientation_error_world",
+    )
+    arrays["layer2_servo_orientation_error_norm_rad"] = _metadata_scalar_series(
+        command_metadata,
+        "task_space_orientation_error_norm_rad",
+        dtype=float,
+        default=0.0,
+    )
+    arrays["layer2_servo_raw_angular_velocity_world"] = _metadata_vector_series(
+        command_metadata,
+        "task_space_raw_angular_velocity_world",
+    )
+    arrays["layer2_servo_angular_velocity_world"] = _metadata_vector_series(
+        command_metadata,
+        "task_space_angular_velocity_world",
+    )
+    arrays["layer2_servo_angular_speed_limited"] = _metadata_scalar_series(
+        command_metadata,
+        "task_space_angular_speed_limited",
         dtype=bool,
         default=False,
     )

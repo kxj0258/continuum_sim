@@ -119,8 +119,8 @@ smoke_tests:
   single_tendon_delta_m: -0.003
   symmetric_tendon_delta_m: -0.003
 rendering:
-  offscreen_width: 640
-  offscreen_height: 480
+  offscreen_width: 1080
+  offscreen_height: 720
 site_names:
   base: base_site
   segments:

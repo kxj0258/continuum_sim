@@ -12,6 +12,7 @@ import numpy as np
 
 from continuum_sim.model.mount_frame import load_mobile_base_mount_config
 from continuum_sim.scenes.scene_config import (
+    InspectionTargetConfig,
     NavigationSceneConfig,
     ScenePrimitiveConfig,
 )
@@ -91,18 +92,7 @@ def inject_structured_scene(
     for primitive in scene_config.primitives:
         _append_primitive(scene_body, scene_config, primitive)
     for target in scene_config.inspection_targets:
-        ET.SubElement(
-            scene_body,
-            "site",
-            {
-                "name": f"scene_target_{_safe_name(target.id)}",
-                "type": "sphere",
-                "pos": _format_vec(target.pos_m),
-                "size": _format_float(scene_config.builder.target_radius_m),
-                "rgba": _format_tuple(scene_config.builder.target_rgba),
-                "group": str(scene_config.builder.geom_group),
-            },
-        )
+        _append_target_marker(scene_body, scene_config, target)
     return root
 
 
@@ -411,6 +401,83 @@ def _append_primitive(
         _append_box_obstacle(parent, scene_config, primitive)
         return
     raise ValueError(f"Unsupported scene primitive type {primitive.type!r}.")
+
+
+def _append_target_marker(
+    parent: ET.Element,
+    scene_config: NavigationSceneConfig,
+    target: InspectionTargetConfig,
+) -> None:
+    target_name = _safe_name(target.id)
+    radius = scene_config.builder.target_radius_m
+    ET.SubElement(
+        parent,
+        "site",
+        {
+            "name": f"scene_target_{target_name}",
+            "type": "sphere",
+            "pos": _format_vec(target.pos_m),
+            "size": _format_float(radius),
+            "rgba": _format_tuple(scene_config.builder.target_rgba),
+            "group": str(scene_config.builder.geom_group),
+        },
+    )
+    direction = _target_marker_direction(scene_config, target)
+    arrow_length = max(6.0 * radius, 0.018)
+    shaft_start = target.pos_m + direction * (1.35 * radius)
+    shaft_end = target.pos_m + direction * arrow_length
+    ET.SubElement(
+        parent,
+        "geom",
+        {
+            "name": f"scene_target_{target_name}_orientation_shaft",
+            "type": "capsule",
+            "fromto": _format_tuple(
+                tuple(float(value) for value in np.concatenate((shaft_start, shaft_end)))
+            ),
+            "size": _format_float(max(0.25 * radius, 0.0006)),
+            "rgba": _format_tuple(scene_config.builder.target_rgba),
+            "group": str(scene_config.builder.geom_group),
+            "contype": "0",
+            "conaffinity": "0",
+        },
+    )
+    ET.SubElement(
+        parent,
+        "site",
+        {
+            "name": f"scene_target_{target_name}_orientation_tip",
+            "type": "sphere",
+            "pos": _format_vec(shaft_end),
+            "size": _format_float(max(0.65 * radius, 0.0015)),
+            "rgba": _format_tuple(scene_config.builder.target_rgba),
+            "group": str(scene_config.builder.geom_group),
+        },
+    )
+
+
+def _target_marker_direction(
+    scene_config: NavigationSceneConfig,
+    target: InspectionTargetConfig,
+) -> np.ndarray:
+    if target.direction_world is not None:
+        direction = np.asarray(target.direction_world, dtype=float)
+        norm = np.linalg.norm(direction)
+        if np.isfinite(norm) and norm > 1.0e-12:
+            return direction / norm
+    best_distance = float("inf")
+    best_normal: np.ndarray | None = None
+    for primitive in scene_config.clearance_primitives:
+        query = primitive.clearance(target.pos_m)
+        normal_norm = float(np.linalg.norm(query.normal))
+        if not np.isfinite(query.distance_m) or normal_norm <= 1.0e-12:
+            continue
+        if query.distance_m < best_distance:
+            best_distance = float(query.distance_m)
+            best_normal = query.normal / normal_norm
+    if best_normal is None:
+        return np.array([0.0, 0.0, 1.0], dtype=float)
+    return -best_normal
 
 
 def _append_shell(

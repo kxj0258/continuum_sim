@@ -16,7 +16,15 @@ from continuum_sim.model.bending_space import BendingSpaceModel
 from continuum_sim.model.robot_params import ThreeSegmentRobotParams
 from continuum_sim.model.tendon_coupling import TendonPathLike, build_coupling_matrix
 from continuum_sim.system.control_layout import ControlLayout
-from continuum_sim.kinematics.pcc import DEFAULT_PCC_KINEMATICS_MODE, PCCKinematicsMode
+from continuum_sim.kinematics.pcc import (
+    DEFAULT_PCC_KINEMATICS_MODE,
+    PCCKinematicsMode,
+    forward_kinematics,
+)
+from continuum_sim.model.base_pose import (
+    quaternion_wxyz_to_rotation_vector,
+    rotation_matrix_to_quaternion_wxyz,
+)
 
 
 @dataclass(frozen=True)
@@ -53,6 +61,12 @@ def base_point_jacobian_world(
     origin = _vector(base_origin_world, 3, "base_origin_world")
     radius = point - origin
     return np.hstack((np.eye(3, dtype=float), -_skew(radius)))
+
+
+def base_orientation_jacobian_world() -> np.ndarray:
+    """Map world-frame base twist to world-frame angular velocity."""
+
+    return np.hstack((np.zeros((3, 3), dtype=float), np.eye(3, dtype=float)))
 
 
 def tendon_rate_to_shape_rate_matrix(
@@ -101,6 +115,45 @@ def bending_position_jacobian(
         model.selection_matrix,
         kinematics_mode=kinematics_mode,
     )
+
+
+def bending_orientation_jacobian(
+    q: np.ndarray,
+    params: ThreeSegmentRobotParams,
+    physical_tendons: tuple[TendonPathLike, ...],
+    *,
+    step: float = 1.0e-6,
+    kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
+) -> np.ndarray:
+    """Map bending-coordinate rates to local tip angular velocity."""
+
+    model = BendingSpaceModel.from_arm(params, physical_tendons)
+    # Preserve the caller's q while moving through the local bending subspace.
+    q_array = np.asarray(q, dtype=float)
+    if q_array.shape != (params.q_size,):
+        raise ValueError(f"q must have shape ({params.q_size},), got {q_array.shape}.")
+    bending = model.selection_matrix.T @ q_array
+    jacobian = np.zeros((3, model.bending_size), dtype=float)
+    for index in range(model.bending_size):
+        delta = step * max(1.0, abs(float(bending[index])))
+        plus = bending.copy()
+        minus = bending.copy()
+        plus[index] += delta
+        minus[index] -= delta
+        plus_rotation = forward_kinematics(
+            model.to_q(plus),
+            params,
+            kinematics_mode=kinematics_mode,
+        ).tip_pose[:3, :3]
+        minus_rotation = forward_kinematics(
+            model.to_q(minus),
+            params,
+            kinematics_mode=kinematics_mode,
+        ).tip_pose[:3, :3]
+        delta_rotation = plus_rotation @ minus_rotation.T
+        quat = rotation_matrix_to_quaternion_wxyz(delta_rotation)
+        jacobian[:, index] = quaternion_wxyz_to_rotation_vector(quat) / (2.0 * delta)
+    return jacobian
 
 
 def centerline_point_tendon_jacobian(
@@ -163,6 +216,15 @@ def rotate_position_jacobian_to_world(
     if rotation.shape != (3, 3):
         raise ValueError("rotation_world_from_local must have shape (3, 3).")
     return rotation @ jacobian
+
+
+def rotate_angular_jacobian_to_world(
+    jacobian_local: np.ndarray,
+    rotation_world_from_local: np.ndarray,
+) -> np.ndarray:
+    """Express a local angular-velocity Jacobian in world coordinates."""
+
+    return rotate_position_jacobian_to_world(jacobian_local, rotation_world_from_local)
 
 
 def assemble_whole_body_jacobian(

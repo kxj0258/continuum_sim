@@ -63,6 +63,9 @@ class TendonCommandController:
             CoordinatedTrackingTarget(
                 executor_position_world=np.zeros(3, dtype=float),
                 executor_velocity_world=np.zeros(3, dtype=float),
+                executor_orientation_world_wxyz=None,
+                executor_angular_velocity_world=np.zeros(3, dtype=float),
+                executor_orientation_control_mode="disabled",
             ),
             config=coordinated_config,
             solver_config=solver_config,
@@ -91,6 +94,15 @@ class TendonCommandController:
             CoordinatedTrackingTarget(
                 executor_position_world=task_velocity.servo_anchor_position_world,
                 executor_velocity_world=task_velocity.tcp_velocity_world,
+                executor_orientation_world_wxyz=(
+                    task_velocity.semantic_target_orientation_world_wxyz
+                ),
+                executor_angular_velocity_world=(
+                    task_velocity.tcp_angular_velocity_world
+                ),
+                executor_orientation_control_mode=(
+                    task_velocity.orientation_control_mode
+                ),
                 observer_roi_position_world=observer.roi_position_world,
                 observer_executor_offset_world=observer.executor_offset_world,
                 observer_roi_blend=observer.roi_blend,

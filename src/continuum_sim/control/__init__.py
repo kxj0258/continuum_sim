@@ -88,6 +88,7 @@ from continuum_sim.control.tendon_command_controller import (
 from continuum_sim.control.staged_engine_navigation import (
     StagedEngineNavigationController,
 )
+from continuum_sim.control.staged_navigation import StagedNavigationController
 from continuum_sim.control.task_intent import (
     CartesianTaskIntent,
     ContactTaskIntent,
@@ -135,6 +136,7 @@ __all__ = [
     "ObserverTaskIntent",
     "SafetyTaskIntent",
     "StagedEngineNavigationController",
+    "StagedNavigationController",
     "SystemTaskIntent",
     "TaskSpaceReference",
     "TaskSpaceServo",

@@ -41,6 +41,7 @@ from continuum_sim.control.staged_engine_navigation import (
 from continuum_sim.control.staged_engine_tracking import (
     StagedEngineTrackingController,
 )
+from continuum_sim.control.staged_navigation import StagedNavigationController
 from continuum_sim.control.coordinated_tracking import CoordinatedTrackingConfig
 from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
 from continuum_sim.dynamics import load_pcc_dynamics_config
@@ -172,38 +173,56 @@ class SimulationApplication:
             )
         elif config.task.type == "navigation":
             tracking = config.task.tracking_control
-            controller = NavigationController(
-                assembly,
-                task_plan["waypoints_world"],
-                waypoint_tolerance_m=config.task.waypoint_tolerance_m,
-                observer_roi_world=config.task.observer_roi_world,
-                observer_control_mode=config.task.observer_control_mode,
-                scene_query=scene_query,
-                min_clearance_m=config.task.min_clearance_m,
-                terminate_on_clearance_violation=(
+            navigation_kwargs = {
+                "waypoint_tolerance_m": config.task.waypoint_tolerance_m,
+                "observer_roi_world": config.task.observer_roi_world,
+                "observer_control_mode": config.task.observer_control_mode,
+                "scene_query": scene_query,
+                "min_clearance_m": config.task.min_clearance_m,
+                "terminate_on_clearance_violation": (
                     config.task.terminate_on_clearance_violation
                 ),
-                target_advance_mode=config.task.target_advance_mode,
-                controller_dt_s=config.runtime.controller_dt_s,
-                advance_time_s=config.task.advance_time_s,
-                advance_steps=config.task.advance_steps,
-                max_steps_per_waypoint=tracking.max_steps_per_waypoint,
-                executor_position_gain=tracking.executor_position_gain,
-                observer_position_gain=tracking.observer_position_gain,
-                feedforward_speed_mps=tracking.feedforward_speed_mps,
-                max_target_speed_mps=_tracking_target_speed_limit(tracking),
-                solver_config=_tracking_solver_config(tracking),
-                enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
-                coordinated_config=_tracking_coordinated_config(
+                "target_advance_mode": config.task.target_advance_mode,
+                "controller_dt_s": config.runtime.controller_dt_s,
+                "advance_time_s": config.task.advance_time_s,
+                "advance_steps": config.task.advance_steps,
+                "max_steps_per_waypoint": tracking.max_steps_per_waypoint,
+                "executor_position_gain": tracking.executor_position_gain,
+                "observer_position_gain": tracking.observer_position_gain,
+                "feedforward_speed_mps": tracking.feedforward_speed_mps,
+                "max_target_speed_mps": _tracking_target_speed_limit(tracking),
+                "solver_config": _tracking_solver_config(tracking),
+                "enforce_backend_tendon_limits": (
+                    tracking.enforce_backend_tendon_limits
+                ),
+                "coordinated_config": _tracking_coordinated_config(
                     tracking,
                     config.task.observer_control,
                 ),
-                control_type=config.task.navigation_control_type,
-                cbf_gain=config.task.navigation_cbf_gain,
-                cbf_influence_distance_m=(
+                "control_type": config.task.navigation_control_type,
+                "cbf_gain": config.task.navigation_cbf_gain,
+                "cbf_influence_distance_m": (
                     config.task.navigation_cbf_influence_distance_m
                 ),
-            )
+            }
+            if tracking.stage_mobile_base:
+                controller = StagedNavigationController(
+                    assembly,
+                    task_plan["waypoints_world"],
+                    **navigation_kwargs,
+                    base_position_gain=tracking.base_position_gain,
+                    base_orientation_gain=tracking.base_orientation_gain,
+                    base_position_tolerance_m=tracking.base_position_tolerance_m,
+                    base_orientation_tolerance_rad=(
+                        tracking.base_orientation_tolerance_rad
+                    ),
+                )
+            else:
+                controller = NavigationController(
+                    assembly,
+                    task_plan["waypoints_world"],
+                    **navigation_kwargs,
+                )
         elif config.task.type == "wiping":
             tracking = config.task.tracking_control
             controller = WipingController(
@@ -728,7 +747,10 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
         target_force = task.target_force_n
         normal = task.surface_normal_world
         surface_point = None
-    if task.type in ("tracking", "navigation"):
+    use_arm_approach = task.type in ("tracking", "navigation") and not (
+        task.type == "navigation" and task.tracking_control.stage_mobile_base
+    )
+    if use_arm_approach:
         tracking_plan = prepend_tracking_approach(
             waypoints,
             assembly,

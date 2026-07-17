@@ -138,8 +138,8 @@ tracking 后 executor 与 observer 分开求解。observer 使用与 dual MuJoCo
 | `tracking_control.approach_samples` | 普通 `40`；engine `0` | 在原轨迹前添加从直臂末端到首点的五次平滑直线样本。time 模式下它会分走固定总时长；增大可增加几何采样，但也会改变 approach/主轨迹的时间比例。engine 已用 base approach，不应再添加世界坐标 arm approach。 |
 | `tracking_control.tracking_mode` | `time` | 按仿真时间连续插值；改为 `waypoint` 后才使用 tolerance/advance 参数，并改用 waypoint 前馈逻辑。 |
 | `tracking_control.trajectory_duration_s` | `30.0` | time 模式总时长或 loop 周期。增大可降低路径前馈速度、通常更易跟踪；减小会提高速度和误差。engine 的 base approach 时间不计入这 30 s。 |
-| `tracking_control.stage_mobile_base` | engine 为 `true`；普通场景省略/false | 在 time tracking 前执行一次 base-only 接近。只允许 mobile assembly；普通 fixed-base 场景不能开启。 |
-| `base_position_gain` | `1.5 s^-1` | `v_base = gain * position_error`。增大可缩短接近时间，但当前 staged controller 不做速度裁剪，过大可能跳动或穿越场景。 |
+| `tracking_control.stage_mobile_base` | engine 为 `true`；普通场景省略/false | 对 mobile assembly 启用 base-only 接近。engine tracking 仍只在主轨迹前接近一次；普通 navigation 会替代 arm approach samples，并对每个 waypoint 重复“移动基座让当前 executor tip 对齐该 waypoint，然后固定 base 做局部 tendon 伺服”；逐点 staged navigation 按 tolerance 进入下一点，不用 `max_steps_per_waypoint` 截断单点伺服。 |
+| `base_position_gain` | `1.5 s^-1` | `v_base = gain * position_error`。增大可缩短接近时间；普通 staged navigation 会按 assembly base 速度限幅，engine staged controller 仍需谨慎调大以避免跳动或穿越场景。 |
 | `base_orientation_gain` | `2.0 s^-1` | 旋转向量误差到角速度的比例。当前目标姿态等于初始姿态，正常情况下误差接近零；有姿态扰动时才明显生效。 |
 | `base_position_tolerance_m` | `0.005` | base approach 切换阈值。减小可提高交接位置精度，但会增加接近步数，并可能因噪声迟迟不切换。 |
 | `base_orientation_tolerance_rad` | `0.035` | 姿态切换阈值，约 2°。与 position tolerance 必须同时满足。 |
@@ -330,8 +330,8 @@ constrained-realized RMS、最大 target lead 和最大 actuator force utilizati
    `trajectory_duration_s`；仍有相位滞后再将 `arm_position_gain` 以小步幅提高。若振荡或 force 峰值增大，反向调整。
 4. **普通方形先分清 approach 与主路径**：`approach_samples` 会占用总时长。希望保留更多主轨迹时间时，
    减少 approach 点或同步增加 duration；不要只增加 samples 后直接比较 mean error。
-5. **engine 再调基座交接**：base approach 太慢时小幅提高 `base_position_gain` 或放宽 tolerance；
-   交接跳变时降低 gain 或收紧 tolerance。由于当前无速度裁剪，应优先观察 base twist/position，不做大幅增加。
+5. **staged controller 再调基座交接**：base approach 太慢时小幅提高 `base_position_gain` 或放宽 tolerance；
+   交接跳变时降低 gain 或收紧 tolerance。普通 navigation 会按 assembly base 限速；engine staged controller 仍应优先观察 base twist/position，不做大幅增加。
 6. **dual 最后调 observer**：先用 `influence_distance_m` 决定何时避让，再用 `avoidance_gain` 决定避让速度，
    最后按需添加 `max_avoidance_speed_mps`。同时检查最小臂间距和 observer tendon/force，不用 executor error 单独判断安全性。
 7. **最后调 solver 与限幅**：只有诊断显示 weak singular directions、projection residual、rate/force 或 target error

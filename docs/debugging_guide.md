@@ -9,7 +9,7 @@ viewer 或更重的 MuJoCo 工具。
 2. 关闭交互 viewer：`hooks.viewer: none`，避免窗口生命周期影响复现。
 3. 开启轻量记录：`hooks.recorder: true`、`artifacts.save_npz: true`、`artifacts.save_plots: true`。
 4. 运行后查看 `output/runs/<scenario>_<timestamp>/metadata.json` 和 `result.npz`。
-5. 如果 MuJoCo GIF 失败，先看 `videos/video_error.txt`，数值产物通常仍然可用。
+5. 如果 MuJoCo 视频失败，先看 `videos/video_error.txt`，数值产物通常仍然可用。
 
 ## 常用 hooks
 
@@ -64,6 +64,7 @@ output/runs/<scenario>_<timestamp>/
   model/                     运行用 MuJoCo XML 副本
   plots/                     静态诊断图
   videos/simulation.gif      回放或 live_mujoco GIF
+  videos/simulation.mp4      回放或 live_mujoco MP4
   videos/video_error.txt     视频导出失败原因
 ```
 

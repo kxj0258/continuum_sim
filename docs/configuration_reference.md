@@ -165,6 +165,13 @@ tracking 后 executor 与 observer 分开求解。observer 使用与 dual MuJoCo
 | `observer_control.release_margin_m` | `0.002` | 避碰激活后的滞回；当前释放距离为 20 mm。增大可减少阈值附近频繁切换，但延长避让状态。 |
 | `observer_control.avoidance_gain` | `1.2 s^-1` | `avoidance_speed = gain * max(influence_distance - distance, 0)`。增大可更快分离，也会增大 tendon 速度和抖动风险。 |
 | `observer_control.max_avoidance_speed_mps` | 省略/`None` | 不设 observer 避碰专用速度上限。需要限制峰值时添加正值；它独立于 Cartesian target speed 开关。 |
+| `observer_control.collision_pair_count` | `3` | 两臂中心线最近点对的 top-k 数量；dual tracking 默认同时约束 3 个最近点对，降低只推开单点后其他位置继续靠近的风险。 |
+| `observer_control.collision_pair_index_separation` | `1` | top-k 点对筛选的索引去重距离；默认只排除完全相同点对。增大可让多个避碰约束分布得更开。 |
+| `observer_control.look_at_executor_tip` | `true` | 在 collision mode 下为 observer 增加末端朝向 executor tip 的任务。避碰任务存在时，该任务会投影到 `J_avoid` 的近似零空间，避免主动破坏避碰。 |
+| `observer_control.look_at_gain` | `1.0 s^-1` | 朝向误差到笛卡尔速度的比例增益；增大可更快调整朝向，但会占用更多从臂自由度。 |
+| `observer_control.look_at_weight` | `10.0` | 朝向任务权重；避碰优先级仍由零空间投影保证，权重主要影响没有避碰或剩余自由度内的解分配。 |
+| `observer_control.look_at_distance_m` | `0.010` | 用 tip 前方 10 mm 虚拟点来近似末端朝向；越大代表越重视姿态变化，数值过大会放大速度需求。 |
+| `observer_control.look_at_max_speed_mps` | `0.005` | 朝向任务虚拟点速度上限；设为 `null` 可不单独限速。 |
 
 #### runtime 与时间一致性
 
@@ -200,10 +207,11 @@ backend 用 `controller_dt_s` 积分 base/tendon target，但 time controller �
 | `artifacts.save_npz` | engine 显式 `true`；普通默认 `true` | 保存数值历史。 |
 | `artifacts.save_plots` | engine 显式 `true`；普通默认 `true` | 生成误差、tendon 和 safety 图。 |
 | `artifacts.save_gif` | `true` | 启用 GIF；与 `video_mode` 一起决定 live/replay 路径。 |
+| `artifacts.save_mp4` | MuJoCo 场景显式 `true` | 启用 MP4；可与 `save_gif` 同时开启，产物为 `videos/simulation.mp4`。 |
 | `artifacts.save_mujoco_pcc_diagnostics` | `true` | MuJoCo backend 运行结束后是否导出 PCC-MuJoCo FK/Jacobian/速度残差诊断；设为 `false` 可完全跳过这部分后处理。 |
 | `artifacts.mujoco_pcc_diagnostics_stride` | `1` | MuJoCo-PCC 诊断的 state 采样间隔；例如 `10` 表示只对第 0、10、20... 个 state 计算诊断。 |
 | `artifacts.video_mode` | `live_mujoco` | 仿真运行时直接抓取 MuJoCo 帧，不在结束后重放 qpos。 |
-| `artifacts.video_fps` | `10` | 输出 GIF 播放帧率，不是控制频率。 |
+| `artifacts.video_fps` | `10` | 输出视频播放帧率，不是控制频率。 |
 | `artifacts.video_stride` | `10` | 每 10 个 controller step 抓一帧；当前每 0.2 s 仿真时间取一帧，即 5 capture fps，以 10 fps 播放约为 2 倍速。 |
 
 四份 YAML 未显式写出的 artifact 默认值还包括 `output_root: ../../output/runs`、`save_model: true`；
@@ -355,11 +363,11 @@ python scripts/run_scenario.py configs/scenarios/single_mujoco_wiping.yaml
 ```
 
 保存产物包括 `result.npz`、`metadata.json`、复制后的 YAML 配置、PNG 曲线图、可用时生成的
-MuJoCo 场景 XML，以及 `videos/simulation.gif`。MuJoCo 回放视频会在独立子进程中根据保存的
+MuJoCo 场景 XML，以及 `videos/simulation.gif` / `videos/simulation.mp4`。MuJoCo 回放视频会在独立子进程中根据保存的
 `qpos/qvel` 历史和归档的 `model/scene.xml` 导出，尺寸使用 MuJoCo 后端中的
 `rendering.offscreen_*`，相机使用 `viewer.camera`。如果离屏渲染或视频编码不可用，命令仍会保存
 NPZ/PNG，失败原因写入 `videos/video_error.txt`，并同步汇总到 `metadata.json.errors`；
-`metadata.json.video_status` 会标记为 `ok`、`failed` 或 `disabled`。
+`metadata.json.video_status` 会标记为 `ok`、`partial`、`failed` 或 `disabled`。
 
 ### MuJoCo–PCC 模型与雅可比诊断
 

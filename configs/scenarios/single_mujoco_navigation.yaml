@@ -41,6 +41,7 @@ scenario:
     save_npz: true
     save_plots: true
     save_gif: true
+    save_mp4: true
     video_mode: live_mujoco
     video_fps: 10
     video_stride: 10

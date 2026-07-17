@@ -249,6 +249,13 @@ class ScenarioObserverControlConfig:
     release_margin_m: float = 0.005
     avoidance_gain: float = 0.4
     max_avoidance_speed_mps: float | None = None
+    collision_pair_count: int = 1
+    collision_pair_index_separation: int = 1
+    look_at_executor_tip: bool = False
+    look_at_gain: float = 1.0
+    look_at_weight: float = 10.0
+    look_at_distance_m: float = 0.010
+    look_at_max_speed_mps: float | None = 0.005
 
     def __post_init__(self) -> None:
         non_negative = {
@@ -270,12 +277,33 @@ class ScenarioObserverControlConfig:
             )
         if not np.isfinite(self.avoidance_gain) or self.avoidance_gain <= 0.0:
             raise ValueError("observer_control.avoidance_gain must be positive and finite.")
+        if self.collision_pair_count <= 0:
+            raise ValueError("observer_control.collision_pair_count must be positive.")
+        if self.collision_pair_index_separation < 1:
+            raise ValueError(
+                "observer_control.collision_pair_index_separation must be at least 1."
+            )
+        positive = {
+            "look_at_gain": self.look_at_gain,
+            "look_at_weight": self.look_at_weight,
+            "look_at_distance_m": self.look_at_distance_m,
+        }
+        for name, value in positive.items():
+            if not np.isfinite(value) or value <= 0.0:
+                raise ValueError(f"observer_control.{name} must be positive and finite.")
         if self.max_avoidance_speed_mps is not None and (
             not np.isfinite(self.max_avoidance_speed_mps)
             or self.max_avoidance_speed_mps <= 0.0
         ):
             raise ValueError(
                 "observer_control.max_avoidance_speed_mps must be positive and finite."
+            )
+        if self.look_at_max_speed_mps is not None and (
+            not np.isfinite(self.look_at_max_speed_mps)
+            or self.look_at_max_speed_mps <= 0.0
+        ):
+            raise ValueError(
+                "observer_control.look_at_max_speed_mps must be positive and finite."
             )
 
 
@@ -394,6 +422,7 @@ class ScenarioArtifactConfig:
     save_npz: bool
     save_plots: bool
     save_gif: bool
+    save_mp4: bool
     save_model: bool
     save_mujoco_pcc_diagnostics: bool = True
     mujoco_pcc_diagnostics_stride: int = 1
@@ -508,6 +537,8 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     video_mode = str(artifact_values.get("video_mode", "replay"))
     if video_mode not in VIDEO_MODES:
         raise ValueError(f"scenario.artifacts.video_mode must be one of {VIDEO_MODES}.")
+    save_gif = bool(artifact_values.get("save_gif", True))
+    save_mp4 = bool(artifact_values.get("save_mp4", False))
     mujoco_pcc_diagnostics_stride = int(
         artifact_values.get("mujoco_pcc_diagnostics_stride", 1)
     )
@@ -515,7 +546,7 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
         raise ValueError("scenario.artifacts.mujoco_pcc_diagnostics_stride must be >= 1.")
     if (
         backend_type != "mujoco"
-        and bool(artifact_values.get("save_gif", True))
+        and (save_gif or save_mp4)
         and video_mode == "live_mujoco"
     ):
         raise ValueError("scenario.artifacts.video_mode='live_mujoco' requires a MuJoCo backend.")
@@ -691,7 +722,8 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             ),
             save_npz=bool(artifact_values.get("save_npz", True)),
             save_plots=bool(artifact_values.get("save_plots", True)),
-            save_gif=bool(artifact_values.get("save_gif", True)),
+            save_gif=save_gif,
+            save_mp4=save_mp4,
             save_model=bool(artifact_values.get("save_model", True)),
             save_mujoco_pcc_diagnostics=bool(
                 artifact_values.get("save_mujoco_pcc_diagnostics", True)
@@ -909,6 +941,17 @@ def _load_observer_control_config(
         avoidance_gain=float(values.get("avoidance_gain", 0.4)),
         max_avoidance_speed_mps=_optional_float(
             values.get("max_avoidance_speed_mps")
+        ),
+        collision_pair_count=int(values.get("collision_pair_count", 1)),
+        collision_pair_index_separation=int(
+            values.get("collision_pair_index_separation", 1)
+        ),
+        look_at_executor_tip=bool(values.get("look_at_executor_tip", False)),
+        look_at_gain=float(values.get("look_at_gain", 1.0)),
+        look_at_weight=float(values.get("look_at_weight", 10.0)),
+        look_at_distance_m=float(values.get("look_at_distance_m", 0.010)),
+        look_at_max_speed_mps=_optional_float(
+            values.get("look_at_max_speed_mps", 0.005)
         ),
     )
 

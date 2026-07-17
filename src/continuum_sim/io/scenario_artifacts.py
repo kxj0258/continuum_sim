@@ -83,6 +83,7 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
             plot_files = [str(path) for path in _save_plots(arrays, paths.plots_dir)]
         except Exception as exc:  # Artifact failure must not discard simulation data.
             errors.append(f"plots: {type(exc).__name__}: {exc}")
+    video_formats = _enabled_video_formats(settings)
     metadata = {
         "scenario": config.name,
         "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -105,51 +106,77 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
             "stride": settings.mujoco_pcc_diagnostics_stride,
         },
         "video": None,
-        "video_status": "disabled" if not settings.save_gif else "pending",
-        "video_mode": settings.video_mode if settings.save_gif else None,
+        "videos": {},
+        "video_status": "disabled" if not video_formats else "pending",
+        "video_mode": settings.video_mode if video_formats else None,
         "video_frames": None,
         "model": None if scene_xml is None else str(scene_xml),
         "errors": errors,
     }
     _write_metadata(paths.metadata_json, metadata)
-    video_path = None
-    if settings.save_gif:
+    video_paths: dict[str, str] = {}
+    if video_formats:
+        replay = None
         if settings.video_mode == "live_mujoco":
-            video_path = _collect_live_mujoco_video(
-                application,
-                paths.videos_dir / "simulation.gif",
-                errors,
-            )
+            for suffix in video_formats:
+                destination = paths.videos_dir / f"simulation.{suffix}"
+                video_path = _collect_live_mujoco_video(application, destination, errors)
+                if video_path is None:
+                    _collect_video_error_file(destination, errors)
+                else:
+                    video_paths[suffix] = str(video_path)
         else:
-            try:
-                replay = _replay_result(application, arrays, scene_xml)
-                video_path = save_replay_video(
-                    replay,
-                    paths.videos_dir / "simulation.gif",
-                    fps=settings.video_fps,
-                    stride=settings.video_stride,
-                    camera=(
-                        None
-                        if config.backend.type != "mujoco"
-                        else application.loop.backend.config.viewer.camera
-                    ),
-                )
-            except Exception as exc:  # Video errors are reported alongside successful data.
-                errors.append(f"video: {type(exc).__name__}: {exc}")
-        if video_path is None:
-            _collect_video_error_file(paths.videos_dir / "simulation.gif", errors)
-    metadata["video"] = None if video_path is None else str(video_path)
-    metadata["video_status"] = (
-        "disabled"
-        if not settings.save_gif
-        else "ok"
-        if video_path is not None
-        else "failed"
-    )
+            for suffix in video_formats:
+                destination = paths.videos_dir / f"simulation.{suffix}"
+                try:
+                    if replay is None:
+                        replay = _replay_result(application, arrays, scene_xml)
+                    video_path = save_replay_video(
+                        replay,
+                        destination,
+                        fps=settings.video_fps,
+                        stride=settings.video_stride,
+                        camera=(
+                            None
+                            if config.backend.type != "mujoco"
+                            else application.loop.backend.config.viewer.camera
+                        ),
+                    )
+                except Exception as exc:  # Video errors are reported alongside successful data.
+                    errors.append(
+                        f"video {suffix}: {type(exc).__name__}: {exc}"
+                    )
+                    video_path = None
+                if video_path is None:
+                    _collect_video_error_file(destination, errors)
+                else:
+                    video_paths[suffix] = str(video_path)
+    metadata["video"] = next(iter(video_paths.values()), None)
+    metadata["videos"] = video_paths
+    metadata["video_status"] = _video_status(video_formats, video_paths)
     metadata["video_frames"] = _video_frame_count(application)
     metadata["errors"] = errors
     _write_metadata(paths.metadata_json, metadata)
     return paths
+
+
+def _enabled_video_formats(settings) -> tuple[str, ...]:
+    formats: list[str] = []
+    if settings.save_gif:
+        formats.append("gif")
+    if settings.save_mp4:
+        formats.append("mp4")
+    return tuple(formats)
+
+
+def _video_status(video_formats: tuple[str, ...], video_paths: dict[str, str]) -> str:
+    if not video_formats:
+        return "disabled"
+    if len(video_paths) == len(video_formats):
+        return "ok"
+    if video_paths:
+        return "partial"
+    return "failed"
 
 
 def _video_frame_count(application) -> int | None:
@@ -165,20 +192,49 @@ def _collect_live_mujoco_video(application, destination: Path, errors: list[str]
         errors.append("video: live_mujoco recorder was not attached")
         return None
     for error in getattr(recorder, "errors", []):
-        errors.append(f"video: {error}")
-    source = getattr(recorder, "path", None)
-    if source is None:
-        source = getattr(recorder, "output_path", None)
-    source_path = None if source is None else Path(source)
+        _append_unique_error(errors, f"video: {error}")
+    source_path = _live_video_source_for_destination(recorder, destination)
     if source_path is None or not source_path.is_file():
         if not getattr(recorder, "errors", []):
-            errors.append("video: live_mujoco recorder produced no video file")
+            _append_unique_error(
+                errors,
+                f"video: live_mujoco recorder produced no {destination.suffix} file",
+            )
         _write_live_video_error(destination, recorder)
         return None
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(source_path), destination)
     _write_live_video_error(destination, recorder)
     return destination
+
+
+def _live_video_source_for_destination(
+    recorder: object,
+    destination: Path,
+) -> Path | None:
+    candidates: list[Path] = []
+    for attribute in ("paths", "output_paths"):
+        value = getattr(recorder, attribute, None)
+        if value is None:
+            continue
+        if isinstance(value, (str, Path)):
+            candidates.append(Path(value))
+        else:
+            candidates.extend(Path(path) for path in value)
+    for attribute in ("path", "output_path"):
+        value = getattr(recorder, attribute, None)
+        if value is not None:
+            candidates.append(Path(value))
+    suffix = destination.suffix.lower()
+    for candidate in candidates:
+        if candidate.suffix.lower() == suffix and candidate.is_file():
+            return candidate
+    return None
+
+
+def _append_unique_error(errors: list[str], message: str) -> None:
+    if message not in errors:
+        errors.append(message)
 
 
 def _write_live_video_error(destination: Path, recorder: object) -> None:
@@ -587,6 +643,7 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
             ("kinematics_mode", str),
             ("observer_collision_active", bool),
             ("observer_tracking_active", bool),
+            ("observer_look_at_active", bool),
             ("inter_arm_safety_mode", str),
             ("inter_arm_executor_frozen", bool),
             ("inter_arm_critical_distance", bool),
@@ -613,6 +670,8 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
             "observer_target_position_world",
             "observer_target_error_world",
             "observer_target_velocity_world",
+            "observer_look_at_error_world",
+            "observer_look_at_velocity_world",
             "inter_arm_closest_observer_point_world",
             "inter_arm_closest_executor_point_world",
         ):

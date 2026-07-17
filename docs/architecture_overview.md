@@ -65,7 +65,7 @@ continuum_sim.io
 - 执行什么任务：`task.type` 以及对应的 trajectory、mission、wiping、engine_navigation
 - 运行时节拍和最长步数：`runtime.controller_dt_s`、`n_substeps`、`max_steps`
 - 需要哪些观察器：`hooks.recorder`、`tendon_debug`、viewer、实时面板
-- 是否写产物：`artifacts.enabled`、`save_npz`、`save_plots`、`save_gif`、`save_model`
+- 是否写产物：`artifacts.enabled`、`save_npz`、`save_plots`、`save_gif`、`save_mp4`、`save_model`
 
 ## MuJoCo 组合路径
 

@@ -26,4 +26,5 @@ scenario:
   artifacts:
     enabled: false
     save_gif: false
+    save_mp4: false
     video_mode: live_mujoco

@@ -368,12 +368,12 @@ class SimulationApplication:
         if (
             config.backend.type == "mujoco"
             and config.artifacts.enabled
-            and config.artifacts.save_gif
+            and _video_artifacts_enabled(config.artifacts)
             and config.artifacts.video_mode == "live_mujoco"
         ):
             hooks_by_name["live_mujoco_video"] = MujocoLiveVideoRecorderHook(
                 backend,
-                config.artifacts.output_root / f"_{config.name}_live_mujoco_pending.gif",
+                _live_mujoco_pending_video_paths(config),
                 fps=config.artifacts.video_fps,
                 stride=config.artifacts.video_stride,
                 width=backend.config.rendering.offscreen_width,
@@ -588,6 +588,15 @@ def _tracking_coordinated_config(
         inter_arm_release_margin_m=observer.release_margin_m,
         inter_arm_avoidance_gain=observer.avoidance_gain,
         inter_arm_max_avoidance_speed_mps=observer.max_avoidance_speed_mps,
+        inter_arm_collision_pair_count=observer.collision_pair_count,
+        inter_arm_collision_pair_index_separation=(
+            observer.collision_pair_index_separation
+        ),
+        observer_look_at_executor_tip=observer.look_at_executor_tip,
+        observer_look_at_gain=observer.look_at_gain,
+        observer_look_at_weight=observer.look_at_weight,
+        observer_look_at_distance_m=observer.look_at_distance_m,
+        observer_look_at_max_speed_mps=observer.look_at_max_speed_mps,
         observer_collision_priority=True,
         freeze_executor_inside_safe_distance=False,
         stop_all_on_critical_distance=False,
@@ -601,6 +610,23 @@ def _tracking_target_speed_limit(
     if not tracking.enforce_target_speed_limit:
         return None
     return tracking.max_target_speed_mps
+
+
+def _video_artifacts_enabled(artifacts) -> bool:
+    return bool(artifacts.save_gif or artifacts.save_mp4)
+
+
+def _live_mujoco_pending_video_paths(config) -> list[Path]:
+    suffixes: list[str] = []
+    if config.artifacts.save_gif:
+        suffixes.append("gif")
+    if config.artifacts.save_mp4:
+        suffixes.append("mp4")
+    return [
+        config.artifacts.output_root
+        / f"_{config.name}_live_mujoco_pending.{suffix}"
+        for suffix in suffixes
+    ]
 
 
 def _resolve_task_plan(config, assembly, engine_scene, structured_scene):

@@ -183,7 +183,9 @@ solve 只包含 observer tendon 自由度且不允许使用 base；两个结果�
 
 所有 `dual_*.yaml` 场景都显式使用同一套 observer `collision_avoidance` 上层策略：两臂中心线最近
 距离低于 `0.018 m` 时激活，超过 `0.020 m` 时释放，排斥速度按
-`1.2 * (0.018 - distance)` 计算且不设置避碰专用速度上限。`0.010 m` minimum 和 `0.008 m`
+`1.2 * (0.018 - distance)` 计算且不设置避碰专用速度上限。dual MuJoCo tracking 默认从中心线
+top-3 最近点对构造多行避碰雅可比，并可让 observer 末端朝向 executor tip；朝向任务在避碰激活时
+投影到 `J_avoid` 的近似零空间，尽量只使用不破坏避碰的自由度。`0.010 m` minimum 和 `0.008 m`
 critical 当前用于配置校验与诊断，不是硬性间距、冻结或急停条件。ROI/offset 跟随仍可通过
 `tracking` 模式显式选择，但不用于当前 dual 场景。
 

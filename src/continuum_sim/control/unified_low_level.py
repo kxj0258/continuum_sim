@@ -62,6 +62,23 @@ class UnifiedLowLevelController:
             inter_arm_max_avoidance_speed_mps=(
                 coordinated_config.inter_arm_max_avoidance_speed_mps
             ),
+            inter_arm_collision_pair_count=(
+                coordinated_config.inter_arm_collision_pair_count
+            ),
+            inter_arm_collision_pair_index_separation=(
+                coordinated_config.inter_arm_collision_pair_index_separation
+            ),
+            observer_look_at_executor_tip=(
+                coordinated_config.observer_look_at_executor_tip
+            ),
+            observer_look_at_gain=coordinated_config.observer_look_at_gain,
+            observer_look_at_weight=coordinated_config.observer_look_at_weight,
+            observer_look_at_distance_m=(
+                coordinated_config.observer_look_at_distance_m
+            ),
+            observer_look_at_max_speed_mps=(
+                coordinated_config.observer_look_at_max_speed_mps
+            ),
             observer_collision_priority=coordinated_config.observer_collision_priority,
             freeze_executor_inside_safe_distance=(
                 coordinated_config.freeze_executor_inside_safe_distance

@@ -19,18 +19,25 @@ scenario:
       minimum_distance_m: 0.010
       influence_distance_m: 0.018
       critical_distance_m: 0.008
-      release_margin_m: 0.002
-      avoidance_gain: 1.2
+      release_margin_m: 0.0015
+      avoidance_gain: 5.0
+      collision_pair_count: 3
+      collision_pair_index_separation: 1
+      look_at_executor_tip: true
+      look_at_gain: 1.0
+      look_at_weight: 1.0
+      look_at_distance_m: 0.005
+      look_at_max_speed_mps: 0.005
     loop: false
     tracking_control:
-      approach_samples: 40
+      approach_samples: 5
       tracking_mode: waypoint # time
-      max_steps_per_waypoint: 200
+      max_steps_per_waypoint: 500
       feedforward_speed_mps: 0.0
       # trajectory_duration_s: 100.0
     trajectory:
       type: square
-      samples: 80
+      samples: 20
       radius_m: 0.018
       placement:
         center_mode: straight_tip_xy
@@ -51,11 +58,12 @@ scenario:
     live_tendon_panel_stride: 5
     show_live_diagnostics_panel: false
     live_diagnostics_panel_stride: 5
-    viewer: mujoco
+    viewer: none
     keep_viewer_open: false
   artifacts:
     mujoco_pcc_diagnostics_stride: 10
     save_gif: true
+    save_mp4: true
     video_mode: live_mujoco
     video_fps: 10
     video_stride: 10

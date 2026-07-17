@@ -402,7 +402,7 @@ class MujocoLiveVideoRecorderHook:
     def __init__(
         self,
         backend: object,
-        output_path: str | Path,
+        output_path: str | Path | list[str | Path] | tuple[str | Path, ...],
         *,
         fps: int = 20,
         stride: int | None = None,
@@ -414,31 +414,35 @@ class MujocoLiveVideoRecorderHook:
         if stride is not None and stride <= 0:
             raise ValueError("MujocoLiveVideoRecorderHook stride must be positive.")
         self.backend = backend
-        self.output_path = Path(output_path)
+        self.output_paths = _normalise_output_paths(output_path)
+        self.output_path = self.output_paths[0]
         self.fps = fps
         self.stride = 1 if stride is None else stride
         self.width = width
         self.height = height
         self.path: Path | None = None
+        self.paths: list[Path] = []
         self.errors: list[str] = []
         self.frame_count = 0
         self._mujoco = None
         self._renderer = None
-        self._writer = None
+        self._writers = []
         self._camera = None
         self._overlay_state = _TrackingOverlayState()
 
     def on_reset(self, state: RobotSystemState) -> None:
         del state
         self.path = None
+        self.paths.clear()
         self.errors.clear()
         self.frame_count = 0
         self._mujoco = None
         self._renderer = None
-        self._writer = None
+        self._writers = []
         self._camera = None
         self._overlay_state.clear()
-        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        for output_path in self.output_paths:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             import imageio.v2 as imageio
             import mujoco
@@ -454,7 +458,19 @@ class MujocoLiveVideoRecorderHook:
                 mujoco,
                 getattr(self.backend.config.viewer, "camera", None),
             )
-            self._writer = _open_video_writer(imageio, self.output_path, self.fps)
+            for output_path in self.output_paths:
+                try:
+                    writer = _open_video_writer(imageio, output_path, self.fps)
+                except Exception as exc:  # noqa: BLE001 - keep other formats alive.
+                    self._record_error(
+                        "live video writer setup failed for "
+                        f"{output_path.name}: {type(exc).__name__}: {exc}"
+                    )
+                    continue
+                self._writers.append((output_path, writer))
+            if not self._writers:
+                self._record_error("live video setup produced no active writers")
+                self._close_resources()
         except Exception as exc:  # noqa: BLE001 - video must not fail the run.
             self._record_error(f"live video setup failed: {type(exc).__name__}: {exc}")
             self._close_resources()
@@ -465,7 +481,7 @@ class MujocoLiveVideoRecorderHook:
         command: RobotSystemCommand,
         step_index: int,
     ) -> None:
-        if self._renderer is None or self._writer is None or self._mujoco is None:
+        if self._renderer is None or not self._writers or self._mujoco is None:
             return
         self._overlay_state.capture(
             state,
@@ -492,8 +508,30 @@ class MujocoLiveVideoRecorderHook:
                 reset_scene=False,
             )
             frame = self._renderer.render().copy()
-            self._writer.append_data(frame)
+            active_writers = []
+            for output_path, writer in self._writers:
+                try:
+                    writer.append_data(frame)
+                except Exception as exc:  # noqa: BLE001 - keep other formats alive.
+                    self._record_error(
+                        "live video frame append failed for "
+                        f"{output_path.name} at frame {self.frame_count}: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                    try:
+                        writer.close()
+                    except Exception as close_exc:  # noqa: BLE001
+                        self._record_error(
+                            "live video writer close failed for "
+                            f"{output_path.name}: "
+                            f"{type(close_exc).__name__}: {close_exc}"
+                        )
+                    continue
+                active_writers.append((output_path, writer))
+            self._writers = active_writers
             self.frame_count += 1
+            if not self._writers:
+                self._close_resources()
         except Exception as exc:  # noqa: BLE001 - preserve non-video artifacts.
             self._record_error(
                 f"live video frame {self.frame_count} failed at step "
@@ -508,8 +546,9 @@ class MujocoLiveVideoRecorderHook:
     def on_finish(self, state: RobotSystemState) -> None:
         del state
         self._close_resources()
-        if self.frame_count > 0 and not self.errors:
-            self.path = self.output_path
+        self.paths = [path for path in self.output_paths if path.is_file()]
+        if self.paths:
+            self.path = self.paths[0]
         elif self.frame_count > 0:
             self.path = self.output_path
         elif not self.errors:
@@ -525,14 +564,15 @@ class MujocoLiveVideoRecorderHook:
         error_path.write_text(existing + message + "\n", encoding="utf-8")
 
     def _close_resources(self) -> None:
-        writer = self._writer
-        self._writer = None
-        if writer is not None:
+        writers = self._writers
+        self._writers = []
+        for output_path, writer in writers:
             try:
                 writer.close()
             except Exception as exc:  # noqa: BLE001 - report writer close errors.
                 self._record_error(
-                    f"live video writer close failed: {type(exc).__name__}: {exc}"
+                    "live video writer close failed for "
+                    f"{output_path.name}: {type(exc).__name__}: {exc}"
                 )
         renderer = self._renderer
         self._renderer = None
@@ -550,6 +590,18 @@ def _open_video_writer(imageio, path: Path, fps: int):
     if path.suffix.lower() == ".gif":
         return imageio.get_writer(path, mode="I", duration=1000.0 / fps, loop=0)
     return imageio.get_writer(path, fps=fps)
+
+
+def _normalise_output_paths(
+    output_path: str | Path | list[str | Path] | tuple[str | Path, ...],
+) -> tuple[Path, ...]:
+    if isinstance(output_path, (list, tuple)):
+        paths = tuple(Path(path) for path in output_path)
+    else:
+        paths = (Path(output_path),)
+    if not paths:
+        raise ValueError("MujocoLiveVideoRecorderHook requires at least one output path.")
+    return paths
 
 
 def _mujoco_render_camera(mujoco, camera: object | None):

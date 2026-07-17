@@ -102,6 +102,13 @@ class CoordinatedTrackingConfig:
     inter_arm_release_margin_m: float = 0.002
     inter_arm_avoidance_gain: float = 0.4
     inter_arm_max_avoidance_speed_mps: float | None = None
+    inter_arm_collision_pair_count: int = 1
+    inter_arm_collision_pair_index_separation: int = 1
+    observer_look_at_executor_tip: bool = False
+    observer_look_at_gain: float = 1.0
+    observer_look_at_weight: float = 10.0
+    observer_look_at_distance_m: float = 0.010
+    observer_look_at_max_speed_mps: float | None = 0.005
     observer_collision_priority: bool = False
     freeze_executor_inside_safe_distance: bool = False
     stop_all_on_critical_distance: bool = False
@@ -114,6 +121,27 @@ class CoordinatedTrackingConfig:
     def __post_init__(self) -> None:
         if not np.isfinite(self.feedforward_gain) or self.feedforward_gain < 0.0:
             raise ValueError("feedforward_gain must be non-negative and finite.")
+        if self.inter_arm_collision_pair_count <= 0:
+            raise ValueError("inter_arm_collision_pair_count must be positive.")
+        if self.inter_arm_collision_pair_index_separation < 1:
+            raise ValueError(
+                "inter_arm_collision_pair_index_separation must be at least 1."
+            )
+        positive = {
+            "observer_look_at_gain": self.observer_look_at_gain,
+            "observer_look_at_weight": self.observer_look_at_weight,
+            "observer_look_at_distance_m": self.observer_look_at_distance_m,
+        }
+        for name, value in positive.items():
+            if not np.isfinite(value) or value <= 0.0:
+                raise ValueError(f"{name} must be positive and finite.")
+        if self.observer_look_at_max_speed_mps is not None and (
+            not np.isfinite(self.observer_look_at_max_speed_mps)
+            or self.observer_look_at_max_speed_mps <= 0.0
+        ):
+            raise ValueError(
+                "observer_look_at_max_speed_mps must be positive and finite."
+            )
 
 
 @dataclass(frozen=True)
@@ -128,6 +156,10 @@ class _InterArmCollisionResult:
     executor_point_world: np.ndarray
     separation_normal_world: np.ndarray
     desired_speed_mps: float
+    pair_observer_indices: np.ndarray
+    pair_executor_indices: np.ndarray
+    pair_distances_m: np.ndarray
+    pair_desired_speeds_mps: np.ndarray
 
 
 class CoordinatedTrackingController:
@@ -214,6 +246,9 @@ class CoordinatedTrackingController:
         observer_target_position = np.full(3, np.nan, dtype=float)
         observer_target_velocity = np.zeros(3, dtype=float)
         observer_target_error = np.full(3, np.nan, dtype=float)
+        observer_look_at_active = False
+        observer_look_at_error = np.full(3, np.nan, dtype=float)
+        observer_look_at_velocity = np.zeros(3, dtype=float)
         if observer_name is not None:
             if (
                 observer_mode == "collision_avoidance"
@@ -258,6 +293,30 @@ class CoordinatedTrackingController:
                     )
                 )
                 observer_tracking_active = True
+            if (
+                observer_mode == "collision_avoidance"
+                and self.config.observer_look_at_executor_tip
+            ):
+                look_at_task, look_at_error, look_at_velocity = (
+                    self._observer_look_at_task(
+                        state,
+                        executor_name,
+                        observer_name,
+                        avoidance_task=(
+                            collision_result.task
+                            if observer_collision_active
+                            and collision_result is not None
+                            else None
+                        ),
+                    )
+                )
+                if look_at_task is not None:
+                    observer_tasks.append(look_at_task)
+                    observer_look_at_active = True
+                    observer_look_at_error = look_at_error
+                    observer_look_at_velocity = look_at_velocity
+                    if not observer_collision_active:
+                        observer_target_velocity = look_at_velocity.copy()
 
         if self.scene_query is not None:
             for arm in self.assembly.enabled_arms:
@@ -300,6 +359,8 @@ class CoordinatedTrackingController:
             safety_mode = "avoidance"
         elif observer_tracking_active:
             safety_mode = "tracking"
+        elif observer_look_at_active:
+            safety_mode = "look_at"
         else:
             safety_mode = "idle"
         bending_control = {
@@ -327,6 +388,9 @@ class CoordinatedTrackingController:
             "observer_control_mode": observer_mode,
             "observer_collision_active": observer_collision_active,
             "observer_tracking_active": observer_tracking_active,
+            "observer_look_at_active": observer_look_at_active,
+            "observer_look_at_error_world": observer_look_at_error,
+            "observer_look_at_velocity_world": observer_look_at_velocity,
             "inter_arm_distance_m": inter_arm_distance,
             "inter_arm_min_distance_m": self.config.inter_arm_min_distance_m,
             "inter_arm_influence_distance_m": (
@@ -359,6 +423,26 @@ class CoordinatedTrackingController:
                 np.full(3, np.nan, dtype=float)
                 if collision_result is None
                 else collision_result.executor_point_world.copy()
+            ),
+            "inter_arm_collision_pair_observer_indices": (
+                np.zeros(0, dtype=int)
+                if collision_result is None
+                else collision_result.pair_observer_indices.copy()
+            ),
+            "inter_arm_collision_pair_executor_indices": (
+                np.zeros(0, dtype=int)
+                if collision_result is None
+                else collision_result.pair_executor_indices.copy()
+            ),
+            "inter_arm_collision_pair_distances_m": (
+                np.zeros(0, dtype=float)
+                if collision_result is None
+                else collision_result.pair_distances_m.copy()
+            ),
+            "inter_arm_collision_pair_desired_speeds_mps": (
+                np.zeros(0, dtype=float)
+                if collision_result is None
+                else collision_result.pair_desired_speeds_mps.copy()
             ),
             "observer_target_position_world": observer_target_position,
             "observer_target_error_world": observer_target_error,
@@ -414,6 +498,126 @@ class CoordinatedTrackingController:
         if limit is not None and norm > limit:
             velocity = velocity * (limit / norm)
         return velocity
+
+    def _limit_observer_look_at_velocity(self, velocity: np.ndarray) -> np.ndarray:
+        velocity = np.asarray(velocity, dtype=float).copy()
+        limit = self.config.observer_look_at_max_speed_mps
+        norm = float(np.linalg.norm(velocity))
+        if limit is not None and norm > limit:
+            velocity = velocity * (limit / norm)
+        return velocity
+
+    def _observer_look_at_task(
+        self,
+        state: RobotSystemState,
+        executor_name: str,
+        observer_name: str,
+        *,
+        avoidance_task: WholeBodyTask | None,
+    ) -> tuple[WholeBodyTask | None, np.ndarray, np.ndarray]:
+        observer_state = state.arms[observer_name]
+        executor_tip = state.arms[executor_name].tip_pose_world.position
+        observer_tip = observer_state.tip_pose_world.position
+        target_direction = executor_tip - observer_tip
+        target_distance = float(np.linalg.norm(target_direction))
+        if target_distance <= 1.0e-12:
+            nan_error = np.full(3, np.nan, dtype=float)
+            return None, nan_error, np.zeros(3, dtype=float)
+        target_direction /= target_distance
+        tip_rotation = observer_state.tip_pose_world.as_matrix()[:3, :3]
+        current_axis = tip_rotation[:, 2]
+        look_at_distance = self.config.observer_look_at_distance_m
+        error = look_at_distance * (target_direction - current_axis)
+        velocity = self._limit_observer_look_at_velocity(
+            self.config.observer_look_at_gain * error
+        )
+        if np.linalg.norm(velocity) <= 1.0e-12:
+            return None, error, velocity
+        jacobian = self._observer_tip_forward_point_jacobian(
+            state,
+            observer_name,
+            look_at_distance,
+        )
+        if avoidance_task is not None and avoidance_task.jacobian.size:
+            jacobian = self._project_observer_task_to_avoidance_nullspace(
+                jacobian,
+                avoidance_task.jacobian,
+                observer_name,
+            )
+        if np.linalg.norm(jacobian) <= self.solver.config.singularity.rank_tolerance:
+            return None, error, velocity
+        return (
+            WholeBodyTask(
+                name="observer_look_at_executor_tip",
+                jacobian=jacobian,
+                target_velocity=velocity,
+                weight=self.config.observer_look_at_weight,
+            ),
+            error,
+            velocity,
+        )
+
+    def _observer_tip_forward_point_jacobian(
+        self,
+        state: RobotSystemState,
+        observer_name: str,
+        look_at_distance_m: float,
+    ) -> np.ndarray:
+        arm_config = self.assembly.arms[observer_name]
+        arm_state = state.arms[observer_name]
+        model = self.solver.layout.bending_models[observer_name]
+        bending = model.estimate(arm_state.tendon_displacement_m)
+        mount = state.base.pose.compose(arm_config.mount_pose)
+
+        def point_from_bending(values: np.ndarray) -> np.ndarray:
+            q = model.to_q(values)
+            tip_pose_mount = forward_kinematics(
+                q,
+                arm_config.spatial_arm.params,
+                kinematics_mode=self.solver.config.kinematics_mode,
+            ).tip_pose
+            tip_pose_world = mount.as_matrix() @ tip_pose_mount
+            return (
+                tip_pose_world[:3, 3]
+                + look_at_distance_m * tip_pose_world[:3, 2]
+            )
+
+        local = np.empty((3, model.bending_size), dtype=float)
+        for index in range(model.bending_size):
+            step = 1.0e-6 * max(1.0, abs(float(bending[index])))
+            plus = bending.copy()
+            minus = bending.copy()
+            plus[index] += step
+            minus[index] -= step
+            local[:, index] = (
+                point_from_bending(plus) - point_from_bending(minus)
+            ) / (2.0 * step)
+        result = np.zeros((3, self.solver.layout.size), dtype=float)
+        result[:, self.solver.layout.arms[observer_name]] = local
+        return result
+
+    def _project_observer_task_to_avoidance_nullspace(
+        self,
+        task_jacobian: np.ndarray,
+        avoidance_jacobian: np.ndarray,
+        observer_name: str,
+    ) -> np.ndarray:
+        observer_slice = self.solver.layout.arms[observer_name]
+        active_avoidance = avoidance_jacobian[:, observer_slice]
+        active_task = task_jacobian[:, observer_slice]
+        if not active_avoidance.size or np.linalg.norm(active_avoidance) <= 0.0:
+            return task_jacobian
+        nullspace = (
+            np.eye(active_avoidance.shape[1], dtype=float)
+            - np.linalg.pinv(
+                active_avoidance,
+                rcond=self.solver.config.singularity.minimum_singular_value,
+            )
+            @ active_avoidance
+        )
+        projected = np.zeros_like(task_jacobian)
+        projected[:, observer_slice] = active_task @ nullspace
+        return projected
 
     def _arm_system_jacobian(
         self,
@@ -477,12 +681,10 @@ class CoordinatedTrackingController:
             - movable_executor[None, :, :]
         )
         distances = np.linalg.norm(pairwise, axis=2)
-        observer_offset, executor_offset = np.unravel_index(
-            int(np.argmin(distances)),
-            distances.shape,
-        )
-        observer_index = int(observer_offset + 1)
-        executor_index = int(executor_offset + 1)
+        selected_pairs = self._select_collision_pairs(distances)
+        closest_observer_offset, closest_executor_offset = selected_pairs[0]
+        observer_index = int(closest_observer_offset + 1)
+        executor_index = int(closest_executor_offset + 1)
         executor_point = executor_centerline[executor_index]
         observer_point = observer_centerline[observer_index]
         separation = observer_point - executor_point
@@ -492,40 +694,63 @@ class CoordinatedTrackingController:
             if distance > 1.0e-12
             else np.array([0.0, -1.0, 0.0], dtype=float)
         )
-        observer_point_jacobian = self._centerline_system_jacobian(
-            state,
-            observer_name,
-            observer_q,
-            observer_mount,
-            int(observer_index),
-            observer_point,
-        )
-        relative_jacobian = normal[None, :] @ self._observer_only_jacobian(
-            observer_point_jacobian,
-            observer_name,
-        )
         activation_distance = self.config.inter_arm_influence_distance_m
-        desired_speed = self.config.inter_arm_avoidance_gain * max(
-            activation_distance - distance,
-            0.0,
-        )
-        avoidance_speed_limit = self.config.inter_arm_max_avoidance_speed_mps
-        if avoidance_speed_limit is not None:
-            desired_speed = min(
-                float(avoidance_speed_limit),
-                desired_speed,
+        rows: list[np.ndarray] = []
+        targets: list[float] = []
+        pair_observer_indices: list[int] = []
+        pair_executor_indices: list[int] = []
+        pair_distances: list[float] = []
+        pair_speeds: list[float] = []
+        for observer_offset, executor_offset in selected_pairs:
+            pair_observer_index = int(observer_offset + 1)
+            pair_executor_index = int(executor_offset + 1)
+            pair_observer_point = observer_centerline[pair_observer_index]
+            pair_executor_point = executor_centerline[pair_executor_index]
+            pair_separation = pair_observer_point - pair_executor_point
+            pair_distance = float(np.linalg.norm(pair_separation))
+            pair_normal = (
+                pair_separation / pair_distance
+                if pair_distance > 1.0e-12
+                else np.array([0.0, -1.0, 0.0], dtype=float)
             )
-        if (
-            desired_speed <= 0.0
-            or np.linalg.norm(relative_jacobian)
-            <= self.solver.config.singularity.rank_tolerance
-        ):
-            task = None
-        else:
+            desired_speed = self.config.inter_arm_avoidance_gain * max(
+                activation_distance - pair_distance,
+                0.0,
+            )
+            avoidance_speed_limit = self.config.inter_arm_max_avoidance_speed_mps
+            if avoidance_speed_limit is not None:
+                desired_speed = min(float(avoidance_speed_limit), desired_speed)
+            pair_observer_indices.append(pair_observer_index)
+            pair_executor_indices.append(pair_executor_index)
+            pair_distances.append(pair_distance)
+            pair_speeds.append(float(desired_speed))
+            if desired_speed <= 0.0:
+                continue
+            observer_point_jacobian = self._centerline_system_jacobian(
+                state,
+                observer_name,
+                observer_q,
+                observer_mount,
+                pair_observer_index,
+                pair_observer_point,
+            )
+            relative_jacobian = pair_normal[None, :] @ self._observer_only_jacobian(
+                observer_point_jacobian,
+                observer_name,
+            )
+            if (
+                np.linalg.norm(relative_jacobian)
+                <= self.solver.config.singularity.rank_tolerance
+            ):
+                continue
+            rows.append(relative_jacobian)
+            targets.append(float(desired_speed))
+        task = None
+        if rows:
             task = WholeBodyTask(
                 name="executor_observer_collision_avoidance",
-                jacobian=relative_jacobian,
-                target_velocity=np.array([desired_speed], dtype=float),
+                jacobian=np.vstack(rows),
+                target_velocity=np.asarray(targets, dtype=float),
                 weight=self.solver.weight_for("observer_collision_avoidance"),
             )
         return _InterArmCollisionResult(
@@ -536,8 +761,43 @@ class CoordinatedTrackingController:
             observer_point_world=observer_point.copy(),
             executor_point_world=executor_point.copy(),
             separation_normal_world=normal.copy(),
-            desired_speed_mps=float(desired_speed),
+            desired_speed_mps=(
+                0.0 if not pair_speeds else float(np.max(pair_speeds))
+            ),
+            pair_observer_indices=np.asarray(pair_observer_indices, dtype=int),
+            pair_executor_indices=np.asarray(pair_executor_indices, dtype=int),
+            pair_distances_m=np.asarray(pair_distances, dtype=float),
+            pair_desired_speeds_mps=np.asarray(pair_speeds, dtype=float),
         )
+
+    def _select_collision_pairs(
+        self,
+        distances: np.ndarray,
+    ) -> list[tuple[int, int]]:
+        flat_order = np.argsort(distances, axis=None)
+        selected: list[tuple[int, int]] = []
+        separation = self.config.inter_arm_collision_pair_index_separation
+        for flat_index in flat_order:
+            observer_offset, executor_offset = np.unravel_index(
+                int(flat_index),
+                distances.shape,
+            )
+            if any(
+                abs(observer_offset - chosen_observer) < separation
+                and abs(executor_offset - chosen_executor) < separation
+                for chosen_observer, chosen_executor in selected
+            ):
+                continue
+            selected.append((int(observer_offset), int(executor_offset)))
+            if len(selected) >= self.config.inter_arm_collision_pair_count:
+                break
+        if not selected:
+            observer_offset, executor_offset = np.unravel_index(
+                int(np.argmin(distances)),
+                distances.shape,
+            )
+            selected.append((int(observer_offset), int(executor_offset)))
+        return selected
 
     def _world_centerline(
         self,

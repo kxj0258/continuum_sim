@@ -17,14 +17,14 @@ scenario:
     target_advance_mode: tolerance
     loop: false
     tracking_control:
-      approach_samples: 40
+      approach_samples: 5
       tracking_mode: waypoint #time
-      max_steps_per_waypoint: 200
+      max_steps_per_waypoint: 500
       feedforward_speed_mps: 0.0
       # trajectory_duration_s: 100.0
     trajectory:
       type: square
-      samples: 80
+      samples: 20
       radius_m: 0.018
       placement:
         center_mode: straight_tip_xy
@@ -45,11 +45,12 @@ scenario:
     live_tendon_panel_stride: 5
     show_live_diagnostics_panel: false
     live_diagnostics_panel_stride: 5
-    viewer: mujoco
+    viewer: none
     keep_viewer_open: false
   artifacts:
     mujoco_pcc_diagnostics_stride: 10
     save_gif: true
+    save_mp4: true
     video_mode: live_mujoco
     video_fps: 10
     video_stride: 10

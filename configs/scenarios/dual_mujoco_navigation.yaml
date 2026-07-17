@@ -30,8 +30,8 @@ scenario:
       look_at_max_angular_speed_rad_s: 1.0
     waypoint_tolerance_m: 0.003
     pose_servo:
-      enabled: true
-      orientation_source: explicit_directions
+      enabled: false
+      orientation_source: none
       waypoint_directions_world:
         - [1.0, 1.0, 0.5]
         - [1.0, -1.0, 0.5]
@@ -59,21 +59,22 @@ scenario:
       base_approach_z_bias: 1.0
       tracking_mode: waypoint
       max_steps_per_waypoint: 100
+      intermediate_waypoints_per_waypoint: 3
       feedforward_speed_mps: 0.0
       task_space_servo:
         orientation_gain: 2.0
         max_angular_speed_rad_s: 1.0
       tendon_command:
-        executor_orientation_tracking_mode: nullspace
+        executor_orientation_tracking_mode: disabled
         executor_orientation_tracking_weight: 20.0
     waypoints_world:
-      - [0.046, 0.035, 0.085]
+      - [0.036, 0.035, 0.085]
       - [0.025, -0.022, 0.095]
       - [-0.0348142212, -0.0201, 0.110]
   runtime:
     controller_dt_s: 0.02
     n_substeps: 20
-    max_steps: 600
+    max_steps: 2000
   hooks:
     recorder: true
     tendon_debug: true

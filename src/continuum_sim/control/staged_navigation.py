@@ -33,6 +33,7 @@ class StagedNavigationController:
         min_clearance_m: float,
         terminate_on_clearance_violation: bool,
         waypoint_orientations_world_wxyz: np.ndarray | None = None,
+        waypoint_directions_world: np.ndarray | None = None,
         orientation_tolerance_rad: float = 0.08,
         observer_roi_world: np.ndarray | None = None,
         observer_control_mode: str = "tracking",
@@ -57,6 +58,7 @@ class StagedNavigationController:
         base_orientation_tolerance_rad: float = 0.035,
         base_approach_standoff_m: float = 0.030,
         base_approach_z_bias: float = 1.0,
+        intermediate_waypoints_per_waypoint: int = 0,
     ) -> None:
         if assembly.base.control_mode == "fixed":
             raise ValueError("Staged navigation requires a mobile base.")
@@ -73,6 +75,10 @@ class StagedNavigationController:
         self._waypoints = waypoints.copy()
         self._orientations = _waypoint_quaternions(
             waypoint_orientations_world_wxyz,
+            waypoints.shape[0],
+        )
+        self._directions = _waypoint_directions(
+            waypoint_directions_world,
             waypoints.shape[0],
         )
         self._active_index = 0
@@ -95,6 +101,9 @@ class StagedNavigationController:
         )
         self._base_approach_standoff_m = float(base_approach_standoff_m)
         self._base_approach_z_bias = float(base_approach_z_bias)
+        self._intermediate_waypoints_per_waypoint = int(
+            intermediate_waypoints_per_waypoint
+        )
         if (
             not np.isfinite(self._base_approach_standoff_m)
             or self._base_approach_standoff_m < 0.0
@@ -102,6 +111,10 @@ class StagedNavigationController:
             raise ValueError("base_approach_standoff_m must be non-negative and finite.")
         if not np.isfinite(self._base_approach_z_bias):
             raise ValueError("base_approach_z_bias must be finite.")
+        if self._intermediate_waypoints_per_waypoint < 0:
+            raise ValueError(
+                "intermediate_waypoints_per_waypoint must be non-negative."
+            )
         self._pose_controller = MobileBasePoseController(
             position_gain=base_position_gain,
             orientation_gain=base_orientation_gain,
@@ -211,7 +224,7 @@ class StagedNavigationController:
         )
         if reached:
             self.phase = "tracking"
-            self._tracking = self._make_tracker(self._active_index)
+            self._tracking = self._make_tracker(self._active_index, state)
             return self._tracking_command(state, clearance)
         zero = RobotSystemCommand.zeros(self._tendon_counts)
         tip_position = state.arms[self._executor_name].tip_pose_world.position
@@ -244,6 +257,7 @@ class StagedNavigationController:
                 "base_orientation_error_rad": orientation_error,
                 "tendon_reaction_isolated": True,
                 "min_clearance_m": clearance.distance_m,
+                **self._arm_clearance_metadata(state),
                 "clearance_point": clearance.point.copy(),
                 "clearance_normal": clearance.normal.copy(),
                 "clearance_source_id": clearance.source_id,
@@ -262,13 +276,19 @@ class StagedNavigationController:
         clearance,
     ) -> RobotSystemCommand:
         if self._tracking is None:
-            self._tracking = self._make_tracker(self._active_index)
+            self._tracking = self._make_tracker(self._active_index, state)
         waypoint_index = self._active_index
         tracked = self._tracking.compute_command(state)
         metadata = self._global_tracking_metadata(
             tracked.metadata,
             waypoint_index,
         )
+        if not self._tracking.done:
+            metadata["waypoint_advanced"] = False
+            metadata["waypoint_advance_reason"] = ""
+            metadata["achieved_waypoint_index"] = -1
+            metadata["achieved_waypoint_error_m"] = np.nan
+            metadata["achieved_waypoint_orientation_error_rad"] = np.nan
         base_target = self._base_target
         if base_target is None:
             raise RuntimeError("Base target has not been initialized.")
@@ -300,7 +320,7 @@ class StagedNavigationController:
                 )
             )
             if not advance_reason:
-                self._tracking = self._make_tracker(waypoint_index)
+                self._tracking = self._make_tracker(waypoint_index, state)
                 metadata["tracking_complete"] = False
                 metadata["waypoint_advanced"] = False
                 metadata["waypoint_advance_reason"] = ""
@@ -341,6 +361,7 @@ class StagedNavigationController:
             base_twist_world=np.zeros(6, dtype=float),
             arms=tracked.arms,
             metadata={
+                **self._arm_clearance_metadata(state),
                 **metadata,
                 "staged_navigation_phase": command_phase,
                 "staged_navigation_waypoint_index": waypoint_index,
@@ -363,15 +384,22 @@ class StagedNavigationController:
             },
         )
 
-    def _make_tracker(self, waypoint_index: int) -> NavigationController:
+    def _make_tracker(
+        self,
+        waypoint_index: int,
+        state: RobotSystemState,
+    ) -> NavigationController:
+        waypoints = self._tracking_waypoints(waypoint_index, state)
+        orientation = self._target_orientation(waypoint_index)
+        orientations = (
+            None
+            if orientation is None
+            else np.repeat(orientation[None, :], waypoints.shape[0], axis=0)
+        )
         return NavigationController(
             self._fixed_assembly,
-            self._waypoints[waypoint_index][None, :],
-            waypoint_orientations_world_wxyz=(
-                None
-                if self._orientations.shape[0] == 0
-                else self._orientations[waypoint_index][None, :]
-            ),
+            waypoints,
+            waypoint_orientations_world_wxyz=orientations,
             **self._tracker_kwargs,
         )
 
@@ -381,6 +409,18 @@ class StagedNavigationController:
         waypoint_index: int,
     ) -> dict[str, object]:
         adjusted = dict(metadata)
+        adjusted["staged_navigation_subtarget_index"] = int(
+            adjusted.get("waypoint_index", 0)
+        )
+        adjusted["staged_navigation_subtarget_count"] = int(
+            self._intermediate_waypoints_per_waypoint + 1
+        )
+        adjusted["staged_navigation_subtarget_advanced"] = bool(
+            adjusted.get("waypoint_advanced", False)
+        )
+        adjusted["staged_navigation_subtarget_advance_reason"] = str(
+            adjusted.get("waypoint_advance_reason", "")
+        )
         adjusted["waypoint_index"] = waypoint_index
         adjusted["source_waypoint_index"] = waypoint_index
         achieved = int(adjusted.get("achieved_waypoint_index", -1))
@@ -389,8 +429,20 @@ class StagedNavigationController:
         adjusted["task_status_active_index"] = waypoint_index
         return adjusted
 
+    def _tracking_waypoints(
+        self,
+        waypoint_index: int,
+        state: RobotSystemState,
+    ) -> np.ndarray:
+        target = self._waypoints[waypoint_index].copy()
+        count = self._intermediate_waypoints_per_waypoint
+        if count <= 0:
+            return target[None, :]
+        start = state.arms[self._executor_name].tip_pose_world.position.copy()
+        fractions = np.linspace(0.0, 1.0, count + 2, dtype=float)[1:]
+        return start[None, :] + fractions[:, None] * (target - start)[None, :]
+
     def _zero_command(self, state: RobotSystemState, clearance) -> RobotSystemCommand:
-        del state
         zero = RobotSystemCommand.zeros(self._tendon_counts)
         if self._base_target is None:
             raise RuntimeError("Base target has not been initialized.")
@@ -416,6 +468,7 @@ class StagedNavigationController:
                 "base_orientation_error_rad": np.nan,
                 "tendon_reaction_isolated": True,
                 "min_clearance_m": clearance.distance_m,
+                **self._arm_clearance_metadata(state),
                 "clearance_point": clearance.point.copy(),
                 "clearance_normal": clearance.normal.copy(),
                 "clearance_source_id": clearance.source_id,
@@ -427,6 +480,25 @@ class StagedNavigationController:
                 "task_status_complete": True,
             },
         )
+
+    def _arm_clearance_metadata(self, state: RobotSystemState) -> dict[str, object]:
+        distances = {"executor": float("nan"), "observer": float("nan")}
+        for arm_name, arm_state in state.arms.items():
+            role = self.assembly.arms[arm_name].role
+            if role not in distances:
+                continue
+            query = self.scene_query.nearest_centerline_clearance(
+                arm_state.centerline_world
+                if arm_state.centerline_world is not None
+                else np.asarray([arm_state.tip_pose_world.position])
+            )
+            distances[role] = float(query.distance_m)
+        return {
+            "executor_clearance_m": distances["executor"],
+            "observer_clearance_m": distances["observer"],
+            "executor_scene_collision_active": False,
+            "observer_scene_collision_active": False,
+        }
 
     def _minimum_clearance(self, state: RobotSystemState):
         queries = [
@@ -463,6 +535,8 @@ class StagedNavigationController:
         )
 
     def _target_direction(self, waypoint_index: int) -> np.ndarray | None:
+        if self._directions.shape[0] > 0:
+            return self._directions[waypoint_index].copy()
         target_orientation = self._target_orientation(waypoint_index)
         if target_orientation is None:
             return None
@@ -544,4 +618,23 @@ def _waypoint_quaternions(
     norms = np.linalg.norm(result, axis=1)
     if np.any((~np.isfinite(norms)) | (norms <= 1.0e-12)):
         raise ValueError("waypoint_orientations_world_wxyz rows must be finite nonzero quaternions.")
+    return result / norms[:, None]
+
+
+def _waypoint_directions(
+    values: np.ndarray | None,
+    size: int,
+) -> np.ndarray:
+    if values is None:
+        return np.zeros((0, 3), dtype=float)
+    result = np.asarray(values, dtype=float)
+    if result.size == 0:
+        return np.zeros((0, 3), dtype=float)
+    if result.shape != (size, 3):
+        raise ValueError(f"waypoint_directions_world must have shape ({size}, 3).")
+    norms = np.linalg.norm(result, axis=1)
+    if np.any((~np.isfinite(norms)) | (norms <= 1.0e-12)):
+        raise ValueError(
+            "waypoint_directions_world rows must be finite nonzero 3-vectors."
+        )
     return result / norms[:, None]

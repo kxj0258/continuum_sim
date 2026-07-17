@@ -146,6 +146,7 @@ class ScenarioTrackingControlConfig:
     base_orientation_tolerance_rad: float = 0.035
     base_approach_standoff_m: float = 0.030
     base_approach_z_bias: float = 1.0
+    intermediate_waypoints_per_waypoint: int = 0
     executor_position_gain: float = 4.0
     executor_orientation_gain: float = 2.0
     observer_position_gain: float = 5.0
@@ -211,6 +212,10 @@ class ScenarioTrackingControlConfig:
         ):
             raise ValueError(
                 "tracking_control.max_steps_per_waypoint must be positive."
+            )
+        if self.intermediate_waypoints_per_waypoint < 0:
+            raise ValueError(
+                "tracking_control.intermediate_waypoints_per_waypoint must be non-negative."
             )
         positive = {
             "base_position_gain": self.base_position_gain,
@@ -652,7 +657,9 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
         task_values.get("pose_servo", {}),
         "scenario.task.pose_servo",
     )
-    pose_servo_enabled = bool(pose_servo_values.get("enabled", False))
+    pose_servo_enabled_value = pose_servo_values.get("enabled")
+    pose_servo_explicitly_disabled = pose_servo_enabled_value is False
+    pose_servo_enabled = bool(pose_servo_enabled_value)
     waypoint_orientation_source = str(
         pose_servo_values.get("orientation_source", "none")
     )
@@ -679,8 +686,9 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
                 "scenario.task.waypoint_orientations_world_wxyz must match "
                 "waypoints_world count."
             )
-        waypoint_orientation_source = "explicit"
-        pose_servo_enabled = True
+        if not pose_servo_explicitly_disabled:
+            waypoint_orientation_source = "explicit"
+            pose_servo_enabled = True
     if waypoint_directions.shape[0] > 0 and waypoint_source == "waypoints_world":
         if waypoint_directions.shape[0] != waypoints.shape[0]:
             raise ValueError(
@@ -692,8 +700,11 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
                 "Provide either waypoint_orientations_world_wxyz or "
                 "waypoint_directions_world, not both."
             )
-        waypoint_orientation_source = "explicit_directions"
-        pose_servo_enabled = True
+        if not pose_servo_explicitly_disabled:
+            waypoint_orientation_source = "explicit_directions"
+            pose_servo_enabled = True
+    if pose_servo_explicitly_disabled:
+        waypoint_orientation_source = "none"
     orientation_tolerance_rad = float(
         pose_servo_values.get("orientation_tolerance_rad", 0.08)
     )
@@ -1044,6 +1055,9 @@ def _load_tracking_control_config(
         ),
         base_approach_z_bias=float(
             task_control_values.get("base_approach_z_bias", 1.0)
+        ),
+        intermediate_waypoints_per_waypoint=int(
+            task_control_values.get("intermediate_waypoints_per_waypoint", 0)
         ),
         executor_position_gain=float(
             task_space.get("position_gain", task_space.get("executor_position_gain", 4.0))

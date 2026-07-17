@@ -222,6 +222,9 @@ class SimulationApplication:
                     **navigation_kwargs,
                     base_position_gain=tracking.base_position_gain,
                     base_orientation_gain=tracking.base_orientation_gain,
+                    waypoint_directions_world=(
+                        config.task.waypoint_directions_world
+                    ),
                     base_position_tolerance_m=tracking.base_position_tolerance_m,
                     base_orientation_tolerance_rad=(
                         tracking.base_orientation_tolerance_rad
@@ -230,6 +233,9 @@ class SimulationApplication:
                         tracking.base_approach_standoff_m
                     ),
                     base_approach_z_bias=tracking.base_approach_z_bias,
+                    intermediate_waypoints_per_waypoint=(
+                        tracking.intermediate_waypoints_per_waypoint
+                    ),
                 )
             else:
                 controller = NavigationController(
@@ -857,6 +863,8 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
 
 
 def _resolve_waypoint_orientations(task, waypoints, structured_scene) -> np.ndarray:
+    if not task.pose_servo_enabled or task.waypoint_orientation_source == "none":
+        return np.zeros((0, 4), dtype=float)
     explicit = task.waypoint_orientations_world_wxyz
     if explicit.shape[0] > 0:
         if explicit.shape[0] != waypoints.shape[0]:
@@ -882,8 +890,6 @@ def _resolve_waypoint_orientations(task, waypoints, structured_scene) -> np.ndar
             ],
             dtype=float,
         )
-    if not task.pose_servo_enabled or task.waypoint_orientation_source == "none":
-        return np.zeros((0, 4), dtype=float)
     if task.waypoint_orientation_source == "explicit_directions":
         raise ValueError(
             "scenario.task.pose_servo.orientation_source='explicit_directions' "

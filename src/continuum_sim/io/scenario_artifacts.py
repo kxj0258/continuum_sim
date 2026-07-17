@@ -540,6 +540,22 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
         )
         arrays["waypoint_index"] = np.asarray(recorder.waypoint_index, dtype=int)
         arrays["min_clearance_m"] = np.asarray(recorder.min_clearance_m)
+        arrays["executor_clearance_m"] = np.asarray(
+            getattr(recorder, "executor_clearance_m", ()),
+            dtype=float,
+        )
+        arrays["observer_clearance_m"] = np.asarray(
+            getattr(recorder, "observer_clearance_m", ()),
+            dtype=float,
+        )
+        arrays["executor_scene_collision_active"] = np.asarray(
+            getattr(recorder, "executor_scene_collision_active", ()),
+            dtype=bool,
+        )
+        arrays["observer_scene_collision_active"] = np.asarray(
+            getattr(recorder, "observer_scene_collision_active", ()),
+            dtype=bool,
+        )
         arrays["contact_distance_m"] = np.asarray(recorder.contact_distance_m)
         arrays["contact_error_m"] = np.asarray(recorder.contact_error_m)
         arrays["target_force_n"] = np.asarray(recorder.target_force_n)
@@ -648,6 +664,14 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
             ("observer_collision_active", bool),
             ("observer_tracking_active", bool),
             ("observer_look_at_active", bool),
+            ("executor_scene_collision_active", bool),
+            ("observer_scene_collision_active", bool),
+            ("executor_clearance_m", float),
+            ("observer_clearance_m", float),
+            ("staged_navigation_subtarget_index", int),
+            ("staged_navigation_subtarget_count", int),
+            ("staged_navigation_subtarget_advanced", bool),
+            ("staged_navigation_subtarget_advance_reason", str),
             ("inter_arm_safety_mode", str),
             ("inter_arm_executor_frozen", bool),
             ("inter_arm_critical_distance", bool),

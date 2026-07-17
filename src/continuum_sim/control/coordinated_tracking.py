@@ -45,6 +45,15 @@ OBSERVER_SCENE_AVOIDANCE_MODES = (
 
 
 @dataclass(frozen=True)
+class _SceneClearanceData:
+    query: object
+    centerline: np.ndarray
+    q: np.ndarray
+    mount: object
+    centerline_index: int
+
+
+@dataclass(frozen=True)
 class CoordinatedTrackingTarget:
     """World-frame executor target and observer tracking policy."""
 
@@ -378,6 +387,7 @@ class CoordinatedTrackingController:
         observer_look_at_tasks: list[WholeBodyTask] = []
         executor_scene_tasks: list[WholeBodyTask] = []
         observer_scene_tasks: list[WholeBodyTask] = []
+        scene_clearance_by_arm: dict[str, _SceneClearanceData] = {}
         if observer_name is not None:
             if (
                 observer_mode == "collision_avoidance"
@@ -424,11 +434,18 @@ class CoordinatedTrackingController:
                 )
                 observer_tracking_active = True
 
+        if self.scene_query is not None:
+            for arm in self.assembly.enabled_arms:
+                scene_clearance_by_arm[arm.name] = self._engine_clearance(
+                    state,
+                    arm.name,
+                )
         if self.config.scene_avoidance_enabled and self.scene_query is not None:
             for arm in self.assembly.enabled_arms:
                 scene_task = self._engine_collision_task(
                     state,
                     arm.name,
+                    scene_clearance_by_arm[arm.name],
                 )
                 if scene_task is not None:
                     if (
@@ -589,6 +606,14 @@ class CoordinatedTrackingController:
             "engine_avoidance_gain": self.config.engine_avoidance_gain,
             "executor_scene_collision_active": bool(executor_scene_tasks),
             "observer_scene_collision_active": bool(observer_scene_tasks),
+            "executor_clearance_m": _scene_clearance_distance(
+                scene_clearance_by_arm,
+                executor_name,
+            ),
+            "observer_clearance_m": _scene_clearance_distance(
+                scene_clearance_by_arm,
+                observer_name,
+            ),
             "observer_look_at_error_world": observer_look_at_error,
             "observer_look_at_velocity_world": observer_look_at_velocity,
             "inter_arm_distance_m": inter_arm_distance,
@@ -1092,20 +1117,18 @@ class CoordinatedTrackingController:
         self,
         state: RobotSystemState,
         arm_name: str,
+        clearance: _SceneClearanceData,
     ) -> WholeBodyTask | None:
-        centerline, q, mount = self._world_centerline(state, arm_name)
-        queries = [self.scene_query.nearest_distance(point) for point in centerline]
-        centerline_index = int(np.argmin([query.distance_m for query in queries]))
-        query = queries[centerline_index]
+        query = clearance.query
         if query.distance_m >= self.config.engine_influence_distance_m:
             return None
         point_jacobian = self._centerline_system_jacobian(
             state,
             arm_name,
-            q,
-            mount,
-            centerline_index,
-            centerline[centerline_index],
+            clearance.q,
+            clearance.mount,
+            clearance.centerline_index,
+            clearance.centerline[clearance.centerline_index],
         )
         if self.assembly.arms[arm_name].role == "observer":
             point_jacobian = self._observer_only_jacobian(point_jacobian, arm_name)
@@ -1118,6 +1141,24 @@ class CoordinatedTrackingController:
             jacobian=query.normal[None, :] @ point_jacobian,
             target_velocity=np.array([desired_speed], dtype=float),
             weight=self.solver.weight_for("executor_collision_avoidance"),
+        )
+
+    def _engine_clearance(
+        self,
+        state: RobotSystemState,
+        arm_name: str,
+    ) -> _SceneClearanceData:
+        if self.scene_query is None:
+            raise RuntimeError("Scene clearance requires a scene query.")
+        centerline, q, mount = self._world_centerline(state, arm_name)
+        queries = [self.scene_query.nearest_distance(point) for point in centerline]
+        centerline_index = int(np.argmin([query.distance_m for query in queries]))
+        return _SceneClearanceData(
+            query=queries[centerline_index],
+            centerline=centerline,
+            q=q,
+            mount=mount,
+            centerline_index=centerline_index,
         )
 
     def _measured_compatibility(
@@ -1163,6 +1204,15 @@ def _quat4(values: np.ndarray, name: str) -> np.ndarray:
     if norm <= 1.0e-12:
         raise ValueError(f"{name} must have non-zero length.")
     return (result / norm).copy()
+
+
+def _scene_clearance_distance(
+    clearances: dict[str, _SceneClearanceData],
+    arm_name: str | None,
+) -> float:
+    if arm_name is None or arm_name not in clearances:
+        return float("nan")
+    return float(clearances[arm_name].query.distance_m)
 
 
 def _stack_task_jacobians(

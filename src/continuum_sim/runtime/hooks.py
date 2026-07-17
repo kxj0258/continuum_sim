@@ -129,6 +129,10 @@ class StateRecorderHook:
     arm_tendon_target_error_max_m: dict[str, list[float]] = field(default_factory=dict)
     arm_peak_actuator_force_n: dict[str, list[float]] = field(default_factory=dict)
     min_clearance_m: list[float] = field(default_factory=list)
+    executor_clearance_m: list[float] = field(default_factory=list)
+    observer_clearance_m: list[float] = field(default_factory=list)
+    executor_scene_collision_active: list[bool] = field(default_factory=list)
+    observer_scene_collision_active: list[bool] = field(default_factory=list)
     contact_distance_m: list[float] = field(default_factory=list)
     target_force_n: list[float] = field(default_factory=list)
     estimated_force_n: list[float] = field(default_factory=list)
@@ -171,6 +175,10 @@ class StateRecorderHook:
         self.arm_tendon_target_error_max_m = {name: [] for name in state.arms}
         self.arm_peak_actuator_force_n = {name: [] for name in state.arms}
         self.min_clearance_m.clear()
+        self.executor_clearance_m.clear()
+        self.observer_clearance_m.clear()
+        self.executor_scene_collision_active.clear()
+        self.observer_scene_collision_active.clear()
         self.contact_distance_m.clear()
         self.target_force_n.clear()
         self.estimated_force_n.clear()
@@ -290,6 +298,18 @@ class StateRecorderHook:
             )
             self.min_clearance_m.append(
                 float(command.metadata.get("min_clearance_m", np.nan))
+            )
+            self.executor_clearance_m.append(
+                float(command.metadata.get("executor_clearance_m", np.nan))
+            )
+            self.observer_clearance_m.append(
+                float(command.metadata.get("observer_clearance_m", np.nan))
+            )
+            self.executor_scene_collision_active.append(
+                bool(command.metadata.get("executor_scene_collision_active", False))
+            )
+            self.observer_scene_collision_active.append(
+                bool(command.metadata.get("observer_scene_collision_active", False))
             )
             self.contact_distance_m.append(
                 float(command.metadata.get("contact_distance_m", np.nan))

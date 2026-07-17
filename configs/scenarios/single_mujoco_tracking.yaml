@@ -18,8 +18,10 @@ scenario:
     loop: false
     tracking_control:
       approach_samples: 40
-      tracking_mode: time
-      trajectory_duration_s: 100.0
+      tracking_mode: waypoint #time
+      max_steps_per_waypoint: 200
+      feedforward_speed_mps: 0.0
+      # trajectory_duration_s: 100.0
     trajectory:
       type: square
       samples: 80
@@ -43,7 +45,7 @@ scenario:
     live_tendon_panel_stride: 5
     show_live_diagnostics_panel: false
     live_diagnostics_panel_stride: 5
-    viewer: none
+    viewer: mujoco
     keep_viewer_open: false
   artifacts:
     mujoco_pcc_diagnostics_stride: 10

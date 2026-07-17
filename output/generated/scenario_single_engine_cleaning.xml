@@ -2,7 +2,7 @@
   <compiler angle="radian" />
   <option timestep="0.001" integrator="implicitfast" iterations="50" gravity="0 0 0" />
   <visual>
-    <global azimuth="315" elevation="-25" offwidth="640" offheight="480" />
+    <global azimuth="210" elevation="-45" offwidth="640" offheight="480" />
     <headlight ambient="0.35 0.35 0.35" diffuse="0.75 0.75 0.75" specular="0.2 0.2 0.2" />
     <map znear="0.001" zfar="2" />
     <quality shadowsize="2048" />
@@ -25,13 +25,14 @@
     <mesh name="engine_visual_mesh" file="engine_visual_mujoco_max_200000.stl" scale="0.001 0.001 0.001" />
   </asset>
   <default>
-    <joint damping="0.2" armature="0.0001" limited="true" range="-0.25 0.25" stiffness="0.02" springref="0" />
+    <joint damping="0.1" armature="0.0001" limited="true" range="-0.261799387799 0.261799387799" stiffness="0.01" springref="0" />
     <geom type="capsule" size="0.004" density="1100" rgba="0.2 0.45 0.85 1" group="0" />
     <site size="0.003" rgba="0.95 0.25 0.2 1" />
   </default>
   <worldbody>
     <body name="mobile_base" pos="0 0 0" quat="1 0 0 0">
       <inertial pos="0 0 0" mass="1" diaginertia="0.001 0.001 0.001" />
+      <freejoint name="mobile_base_freejoint" />
       <site name="mobile_base_frame" type="sphere" pos="0 0 0" size="0.002" rgba="0.2 0.6 1 0.8" group="2" />
       <site name="dual_arm_mount" type="sphere" pos="0 0 0" quat="1 0 0 0" size="0.002" rgba="0.95 0.55 0.12 0.85" group="2" />
       <body name="dual_mobile_base" pos="0 0 0" quat="1 0 0 0">
@@ -59,9 +60,8 @@
           <site name="executor_base_hole_12_out" pos="0.00433013 -0.0025 -0.00116025" size="0.0006" rgba="0.1 0.4 1 1" />
           <geom name="executor_base_visual" type="mesh" mesh="executor_base_visual_mesh" pos="-0 -0.01 -0.02" contype="0" conaffinity="0" density="0" group="1" />
           <body name="executor_segment_1_link_1" pos="0 0 0">
-            <joint name="executor_segment_1_link_1_x" type="hinge" axis="1 0 0" />
-            <joint name="executor_segment_1_link_1_y" type="hinge" axis="0 1 0" />
-            <geom name="executor_segment_1_link_1_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+            <joint name="executor_segment_1_link_1_y" type="hinge" axis="0 1 0" stiffness="0.0109589041096" />
+            <geom name="executor_segment_1_link_1_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" mass="0.0024748225" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
             <geom name="executor_segment_1_link_1_visual" type="mesh" mesh="executor_segment_1_link_1_visual_mesh" pos="-0 -0.01 -0.02" contype="0" conaffinity="0" density="0" group="1" />
             <site name="executor_segment_1_link_1_hole_01_in" pos="0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
             <site name="executor_segment_1_link_1_hole_03_in" pos="0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
@@ -82,9 +82,8 @@
             <site name="executor_segment_1_link_1_hole_11_out" pos="0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
             <site name="executor_segment_1_link_1_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
             <body name="executor_segment_1_link_2" pos="0 0 0.01">
-              <joint name="executor_segment_1_link_2_x" type="hinge" axis="1 0 0" />
-              <joint name="executor_segment_1_link_2_y" type="hinge" axis="0 1 0" />
-              <geom name="executor_segment_1_link_2_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+              <joint name="executor_segment_1_link_2_x" type="hinge" axis="1 0 0" stiffness="0.0109589041096" />
+              <geom name="executor_segment_1_link_2_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" mass="0.0024748225" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
               <geom name="executor_segment_1_link_2_visual" type="mesh" mesh="executor_segment_1_link_2_visual_mesh" pos="-0 -0.01 -0.03" contype="0" conaffinity="0" density="0" group="1" />
               <site name="executor_segment_1_link_2_hole_01_in" pos="0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
               <site name="executor_segment_1_link_2_hole_03_in" pos="0.0025 0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
@@ -105,9 +104,8 @@
               <site name="executor_segment_1_link_2_hole_11_out" pos="0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
               <site name="executor_segment_1_link_2_hole_12_out" pos="0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
               <body name="executor_segment_1_link_3" pos="0 0 0.01">
-                <joint name="executor_segment_1_link_3_x" type="hinge" axis="1 0 0" />
-                <joint name="executor_segment_1_link_3_y" type="hinge" axis="0 1 0" />
-                <geom name="executor_segment_1_link_3_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                <joint name="executor_segment_1_link_3_y" type="hinge" axis="0 1 0" stiffness="0.0109589041096" />
+                <geom name="executor_segment_1_link_3_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" mass="0.0024748225" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
                 <geom name="executor_segment_1_link_3_visual" type="mesh" mesh="executor_segment_1_link_3_visual_mesh" pos="-0 -0.01 -0.04" contype="0" conaffinity="0" density="0" group="1" />
                 <site name="executor_segment_1_link_3_hole_01_in" pos="0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
                 <site name="executor_segment_1_link_3_hole_03_in" pos="0.0025 0.00433013 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
@@ -128,9 +126,8 @@
                 <site name="executor_segment_1_link_3_hole_11_out" pos="0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
                 <site name="executor_segment_1_link_3_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
                 <body name="executor_segment_1_link_4" pos="0 0 0.01">
-                  <joint name="executor_segment_1_link_4_x" type="hinge" axis="1 0 0" />
-                  <joint name="executor_segment_1_link_4_y" type="hinge" axis="0 1 0" />
-                  <geom name="executor_segment_1_link_4_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                  <joint name="executor_segment_1_link_4_x" type="hinge" axis="1 0 0" stiffness="0.0109589041096" />
+                  <geom name="executor_segment_1_link_4_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" mass="0.0024748225" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
                   <geom name="executor_segment_1_link_4_visual" type="mesh" mesh="executor_segment_1_link_4_visual_mesh" pos="-0 -0.01 -0.05" contype="0" conaffinity="0" density="0" group="1" />
                   <site name="executor_segment_1_tip" pos="0 0 0.01" quat="1 0 0 0" />
                   <site name="executor_segment_1_link_4_hole_01_in" pos="0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
@@ -143,18 +140,17 @@
                   <site name="executor_segment_1_link_4_hole_11_in" pos="0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
                   <site name="executor_segment_1_link_4_hole_12_in" pos="0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
                   <site name="executor_segment_1_link_4_hole_01_out" pos="0.005 0 0.00866025" size="0.0006" rgba="0.1 0.4 1 1" />
-                  <site name="executor_segment_1_link_4_hole_03_out" pos="0.0025 0.00433013 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="executor_segment_1_link_4_hole_03_out" pos="0.0025 0.00433013 0.0065" size="0.0006" rgba="0.1 0.4 1 1" />
                   <site name="executor_segment_1_link_4_hole_04_out" pos="0 0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
                   <site name="executor_segment_1_link_4_hole_05_out" pos="-0.0025 0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
-                  <site name="executor_segment_1_link_4_hole_07_out" pos="-0.005 0 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="executor_segment_1_link_4_hole_07_out" pos="-0.005 0 0.0065" size="0.0006" rgba="0.1 0.4 1 1" />
                   <site name="executor_segment_1_link_4_hole_08_out" pos="-0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
                   <site name="executor_segment_1_link_4_hole_09_out" pos="-0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
-                  <site name="executor_segment_1_link_4_hole_11_out" pos="0.0025 -0.00433013 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                  <site name="executor_segment_1_link_4_hole_11_out" pos="0.0025 -0.00433013 0.0065" size="0.0006" rgba="0.1 0.4 1 1" />
                   <site name="executor_segment_1_link_4_hole_12_out" pos="0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
                   <body name="executor_segment_2_link_1" pos="0 0 0.01">
-                    <joint name="executor_segment_2_link_1_x" type="hinge" axis="1 0 0" />
-                    <joint name="executor_segment_2_link_1_y" type="hinge" axis="0 1 0" />
-                    <geom name="executor_segment_2_link_1_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                    <joint name="executor_segment_2_link_1_y" type="hinge" axis="0 1 0" stiffness="0.0109589041096" />
+                    <geom name="executor_segment_2_link_1_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" mass="0.0024748225" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
                     <geom name="executor_segment_2_link_1_visual" type="mesh" mesh="executor_segment_2_link_1_visual_mesh" pos="-0 -0.01 -0.06" contype="0" conaffinity="0" density="0" group="1" />
                     <site name="executor_segment_2_link_1_hole_01_in" pos="0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
                     <site name="executor_segment_2_link_1_hole_04_in" pos="0 0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
@@ -169,9 +165,8 @@
                     <site name="executor_segment_2_link_1_hole_09_out" pos="-0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
                     <site name="executor_segment_2_link_1_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
                     <body name="executor_segment_2_link_2" pos="0 0 0.01">
-                      <joint name="executor_segment_2_link_2_x" type="hinge" axis="1 0 0" />
-                      <joint name="executor_segment_2_link_2_y" type="hinge" axis="0 1 0" />
-                      <geom name="executor_segment_2_link_2_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                      <joint name="executor_segment_2_link_2_x" type="hinge" axis="1 0 0" stiffness="0.0109589041096" />
+                      <geom name="executor_segment_2_link_2_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" mass="0.0024748225" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
                       <geom name="executor_segment_2_link_2_visual" type="mesh" mesh="executor_segment_2_link_2_visual_mesh" pos="-0 -0.01 -0.07" contype="0" conaffinity="0" density="0" group="1" />
                       <site name="executor_segment_2_link_2_hole_01_in" pos="0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
                       <site name="executor_segment_2_link_2_hole_04_in" pos="0 0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
@@ -186,9 +181,8 @@
                       <site name="executor_segment_2_link_2_hole_09_out" pos="-0.0025 -0.00433013 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
                       <site name="executor_segment_2_link_2_hole_12_out" pos="0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
                       <body name="executor_segment_2_link_3" pos="0 0 0.01">
-                        <joint name="executor_segment_2_link_3_x" type="hinge" axis="1 0 0" />
-                        <joint name="executor_segment_2_link_3_y" type="hinge" axis="0 1 0" />
-                        <geom name="executor_segment_2_link_3_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                        <joint name="executor_segment_2_link_3_y" type="hinge" axis="0 1 0" stiffness="0.0109589041096" />
+                        <geom name="executor_segment_2_link_3_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" mass="0.0024748225" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
                         <geom name="executor_segment_2_link_3_visual" type="mesh" mesh="executor_segment_2_link_3_visual_mesh" pos="-0 -0.01 -0.08" contype="0" conaffinity="0" density="0" group="1" />
                         <site name="executor_segment_2_link_3_hole_01_in" pos="0.005 0 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
                         <site name="executor_segment_2_link_3_hole_04_in" pos="0 0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
@@ -203,9 +197,8 @@
                         <site name="executor_segment_2_link_3_hole_09_out" pos="-0.0025 -0.00433013 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
                         <site name="executor_segment_2_link_3_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
                         <body name="executor_segment_2_link_4" pos="0 0 0.01">
-                          <joint name="executor_segment_2_link_4_x" type="hinge" axis="1 0 0" />
-                          <joint name="executor_segment_2_link_4_y" type="hinge" axis="0 1 0" />
-                          <geom name="executor_segment_2_link_4_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                          <joint name="executor_segment_2_link_4_x" type="hinge" axis="1 0 0" stiffness="0.0109589041096" />
+                          <geom name="executor_segment_2_link_4_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" mass="0.0024748225" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
                           <geom name="executor_segment_2_link_4_visual" type="mesh" mesh="executor_segment_2_link_4_visual_mesh" pos="-0 -0.01 -0.09" contype="0" conaffinity="0" density="0" group="1" />
                           <site name="executor_segment_2_tip" pos="0 0 0.01" quat="1 0 0 0" />
                           <site name="executor_segment_2_link_4_hole_01_in" pos="0.005 0 0" size="0.0006" rgba="1 0.2 0.1 1" />
@@ -214,16 +207,15 @@
                           <site name="executor_segment_2_link_4_hole_08_in" pos="-0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
                           <site name="executor_segment_2_link_4_hole_09_in" pos="-0.0025 -0.00433013 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
                           <site name="executor_segment_2_link_4_hole_12_in" pos="0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
-                          <site name="executor_segment_2_link_4_hole_01_out" pos="0.005 0 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="executor_segment_2_link_4_hole_01_out" pos="0.005 0 0.0065" size="0.0006" rgba="0.1 0.4 1 1" />
                           <site name="executor_segment_2_link_4_hole_04_out" pos="0 0.005 0.01" size="0.0006" rgba="0.1 0.4 1 1" />
-                          <site name="executor_segment_2_link_4_hole_05_out" pos="-0.0025 0.00433013 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="executor_segment_2_link_4_hole_05_out" pos="-0.0025 0.00433013 0.0065" size="0.0006" rgba="0.1 0.4 1 1" />
                           <site name="executor_segment_2_link_4_hole_08_out" pos="-0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
-                          <site name="executor_segment_2_link_4_hole_09_out" pos="-0.0025 -0.00433013 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                          <site name="executor_segment_2_link_4_hole_09_out" pos="-0.0025 -0.00433013 0.0065" size="0.0006" rgba="0.1 0.4 1 1" />
                           <site name="executor_segment_2_link_4_hole_12_out" pos="0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
                           <body name="executor_segment_3_link_1" pos="0 0 0.01">
-                            <joint name="executor_segment_3_link_1_x" type="hinge" axis="1 0 0" />
-                            <joint name="executor_segment_3_link_1_y" type="hinge" axis="0 1 0" />
-                            <geom name="executor_segment_3_link_1_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                            <joint name="executor_segment_3_link_1_y" type="hinge" axis="0 1 0" stiffness="0.0109589041096" />
+                            <geom name="executor_segment_3_link_1_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" mass="0.0024748225" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
                             <geom name="executor_segment_3_link_1_visual" type="mesh" mesh="executor_segment_3_link_1_visual_mesh" pos="-0 -0.01 -0.1" contype="0" conaffinity="0" density="0" group="1" />
                             <site name="executor_segment_3_link_1_hole_04_in" pos="0 0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
                             <site name="executor_segment_3_link_1_hole_08_in" pos="-0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
@@ -232,9 +224,8 @@
                             <site name="executor_segment_3_link_1_hole_08_out" pos="-0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
                             <site name="executor_segment_3_link_1_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
                             <body name="executor_segment_3_link_2" pos="0 0 0.01">
-                              <joint name="executor_segment_3_link_2_x" type="hinge" axis="1 0 0" />
-                              <joint name="executor_segment_3_link_2_y" type="hinge" axis="0 1 0" />
-                              <geom name="executor_segment_3_link_2_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                              <joint name="executor_segment_3_link_2_x" type="hinge" axis="1 0 0" stiffness="0.0109589041096" />
+                              <geom name="executor_segment_3_link_2_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" mass="0.0024748225" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
                               <geom name="executor_segment_3_link_2_visual" type="mesh" mesh="executor_segment_3_link_2_visual_mesh" pos="-0 -0.01 -0.11" contype="0" conaffinity="0" density="0" group="1" />
                               <site name="executor_segment_3_link_2_hole_04_in" pos="0 0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
                               <site name="executor_segment_3_link_2_hole_08_in" pos="-0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
@@ -243,9 +234,8 @@
                               <site name="executor_segment_3_link_2_hole_08_out" pos="-0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
                               <site name="executor_segment_3_link_2_hole_12_out" pos="0.00433013 -0.0025 0.00883975" size="0.0006" rgba="0.1 0.4 1 1" />
                               <body name="executor_segment_3_link_3" pos="0 0 0.01">
-                                <joint name="executor_segment_3_link_3_x" type="hinge" axis="1 0 0" />
-                                <joint name="executor_segment_3_link_3_y" type="hinge" axis="0 1 0" />
-                                <geom name="executor_segment_3_link_3_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                                <joint name="executor_segment_3_link_3_y" type="hinge" axis="0 1 0" stiffness="0.0109589041096" />
+                                <geom name="executor_segment_3_link_3_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" mass="0.0024748225" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
                                 <geom name="executor_segment_3_link_3_visual" type="mesh" mesh="executor_segment_3_link_3_visual_mesh" pos="-0 -0.01 -0.12" contype="0" conaffinity="0" density="0" group="1" />
                                 <site name="executor_segment_3_link_3_hole_04_in" pos="0 0.005 0" size="0.0006" rgba="1 0.2 0.1 1" />
                                 <site name="executor_segment_3_link_3_hole_08_in" pos="-0.00433013 -0.0025 0.00116025" size="0.0006" rgba="1 0.2 0.1 1" />
@@ -254,18 +244,17 @@
                                 <site name="executor_segment_3_link_3_hole_08_out" pos="-0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
                                 <site name="executor_segment_3_link_3_hole_12_out" pos="0.00433013 -0.0025 0.00933013" size="0.0006" rgba="0.1 0.4 1 1" />
                                 <body name="executor_segment_3_link_4" pos="0 0 0.01">
-                                  <joint name="executor_segment_3_link_4_x" type="hinge" axis="1 0 0" />
-                                  <joint name="executor_segment_3_link_4_y" type="hinge" axis="0 1 0" />
-                                  <geom name="executor_segment_3_link_4_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
+                                  <joint name="executor_segment_3_link_4_x" type="hinge" axis="1 0 0" stiffness="0.0109589041096" />
+                                  <geom name="executor_segment_3_link_4_collision" type="capsule" fromto="0 0 0 0 0 0.01" size="0.00625" group="0" mass="0.0024748225" contype="0" conaffinity="0" rgba="0.2 0.45 0.85 0" />
                                   <geom name="executor_segment_3_link_4_visual" type="mesh" mesh="executor_segment_3_link_4_visual_mesh" pos="-0 -0.01 -0.13" contype="0" conaffinity="0" density="0" group="1" />
                                   <site name="executor_segment_3_tip" pos="0 0 0.01" quat="1 0 0 0" />
                                   <site name="executor_tip" pos="0 0 0.01" quat="1 0 0 0" />
                                   <site name="executor_segment_3_link_4_hole_04_in" pos="0 0.005 0.00133975" size="0.0006" rgba="1 0.2 0.1 1" />
                                   <site name="executor_segment_3_link_4_hole_08_in" pos="-0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
                                   <site name="executor_segment_3_link_4_hole_12_in" pos="0.00433013 -0.0025 0.00066987" size="0.0006" rgba="1 0.2 0.1 1" />
-                                  <site name="executor_segment_3_link_4_hole_04_out" pos="0 0.005 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
-                                  <site name="executor_segment_3_link_4_hole_08_out" pos="-0.00433013 -0.0025 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
-                                  <site name="executor_segment_3_link_4_hole_12_out" pos="0.00433013 -0.0025 0.007" size="0.0006" rgba="0.1 0.4 1 1" />
+                                  <site name="executor_segment_3_link_4_hole_04_out" pos="0 0.005 0.0065" size="0.0006" rgba="0.1 0.4 1 1" />
+                                  <site name="executor_segment_3_link_4_hole_08_out" pos="-0.00433013 -0.0025 0.0065" size="0.0006" rgba="0.1 0.4 1 1" />
+                                  <site name="executor_segment_3_link_4_hole_12_out" pos="0.00433013 -0.0025 0.0065" size="0.0006" rgba="0.1 0.4 1 1" />
                                 </body>
                               </body>
                             </body>
@@ -475,15 +464,15 @@
     </spatial>
   </tendon>
   <actuator>
-    <position name="act_executor_tendon_1" tendon="executor_tendon_1" kp="40000" forcelimited="true" forcerange="-30 30" ctrllimited="false" />
-    <position name="act_executor_tendon_2" tendon="executor_tendon_2" kp="40000" forcelimited="true" forcerange="-30 30" ctrllimited="false" />
-    <position name="act_executor_tendon_3" tendon="executor_tendon_3" kp="40000" forcelimited="true" forcerange="-30 30" ctrllimited="false" />
-    <position name="act_executor_tendon_4" tendon="executor_tendon_4" kp="40000" forcelimited="true" forcerange="-30 30" ctrllimited="false" />
-    <position name="act_executor_tendon_5" tendon="executor_tendon_5" kp="40000" forcelimited="true" forcerange="-30 30" ctrllimited="false" />
-    <position name="act_executor_tendon_6" tendon="executor_tendon_6" kp="40000" forcelimited="true" forcerange="-30 30" ctrllimited="false" />
-    <position name="act_executor_tendon_7" tendon="executor_tendon_7" kp="40000" forcelimited="true" forcerange="-30 30" ctrllimited="false" />
-    <position name="act_executor_tendon_8" tendon="executor_tendon_8" kp="40000" forcelimited="true" forcerange="-30 30" ctrllimited="false" />
-    <position name="act_executor_tendon_9" tendon="executor_tendon_9" kp="40000" forcelimited="true" forcerange="-30 30" ctrllimited="false" />
+    <position name="act_executor_tendon_1" tendon="executor_tendon_1" kp="100000" forcelimited="false" forcerange="-30 30" ctrllimited="false" />
+    <position name="act_executor_tendon_2" tendon="executor_tendon_2" kp="100000" forcelimited="false" forcerange="-30 30" ctrllimited="false" />
+    <position name="act_executor_tendon_3" tendon="executor_tendon_3" kp="100000" forcelimited="false" forcerange="-30 30" ctrllimited="false" />
+    <position name="act_executor_tendon_4" tendon="executor_tendon_4" kp="100000" forcelimited="false" forcerange="-30 30" ctrllimited="false" />
+    <position name="act_executor_tendon_5" tendon="executor_tendon_5" kp="100000" forcelimited="false" forcerange="-30 30" ctrllimited="false" />
+    <position name="act_executor_tendon_6" tendon="executor_tendon_6" kp="100000" forcelimited="false" forcerange="-30 30" ctrllimited="false" />
+    <position name="act_executor_tendon_7" tendon="executor_tendon_7" kp="100000" forcelimited="false" forcerange="-30 30" ctrllimited="false" />
+    <position name="act_executor_tendon_8" tendon="executor_tendon_8" kp="100000" forcelimited="false" forcerange="-30 30" ctrllimited="false" />
+    <position name="act_executor_tendon_9" tendon="executor_tendon_9" kp="100000" forcelimited="false" forcerange="-30 30" ctrllimited="false" />
   </actuator>
   <sensor>
     <tendonpos name="sensor_executor_tendon_1_length" tendon="executor_tendon_1" />

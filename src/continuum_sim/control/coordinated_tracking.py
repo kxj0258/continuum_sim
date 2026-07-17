@@ -66,6 +66,9 @@ class CoordinatedTrackingTarget:
         default_factory=lambda: np.zeros(3, dtype=float)
     )
     executor_orientation_control_mode: str = "disabled"
+    executor_force_normal_world: np.ndarray | None = None
+    executor_force_velocity_mps: float = 0.0
+    executor_force_control_weight: float = 20.0
     observer_roi_position_world: np.ndarray | None = None
     observer_executor_offset_world: np.ndarray = field(
         default_factory=lambda: np.array([0.0, -0.04, 0.02], dtype=float)
@@ -111,6 +114,26 @@ class CoordinatedTrackingTarget:
                 "executor_orientation_world_wxyz is required when executor "
                 "orientation control is enabled."
             )
+        if self.executor_force_normal_world is not None:
+            force_normal = _vector3(
+                self.executor_force_normal_world,
+                "executor_force_normal_world",
+            )
+            force_norm = float(np.linalg.norm(force_normal))
+            if force_norm <= 1.0e-12:
+                raise ValueError("executor_force_normal_world must be nonzero.")
+            object.__setattr__(
+                self,
+                "executor_force_normal_world",
+                force_normal / force_norm,
+            )
+        if not np.isfinite(self.executor_force_velocity_mps):
+            raise ValueError("executor_force_velocity_mps must be finite.")
+        if (
+            not np.isfinite(self.executor_force_control_weight)
+            or self.executor_force_control_weight <= 0.0
+        ):
+            raise ValueError("executor_force_control_weight must be positive.")
         object.__setattr__(
             self,
             "observer_executor_offset_world",
@@ -343,13 +366,31 @@ class CoordinatedTrackingController:
             - executor_state.tip_pose_world.position
         )
         executor_target_velocity = self._executor_target_velocity(executor_error)
+        executor_tracking_jacobian = jacobians[executor_name]
+        executor_tracking_velocity = executor_target_velocity
+        force_normal = self.target.executor_force_normal_world
+        executor_tracking_projected = False
+        if force_normal is not None:
+            tangent_projection = np.eye(3, dtype=float) - np.outer(
+                force_normal,
+                force_normal,
+            )
+            executor_tracking_jacobian = tangent_projection @ executor_tracking_jacobian
+            executor_tracking_velocity = tangent_projection @ executor_target_velocity
+            executor_tracking_projected = True
         executor_tasks.append(
             WholeBodyTask(
                 name="executor_tracking",
-                jacobian=jacobians[executor_name],
-                target_velocity=executor_target_velocity,
+                jacobian=executor_tracking_jacobian,
+                target_velocity=executor_tracking_velocity,
                 weight=self.solver.weight_for("executor_tracking"),
             )
+        )
+        executor_force_task = self._executor_force_control_task(
+            jacobians[executor_name]
+        )
+        executor_force_tasks = (
+            () if executor_force_task is None else (executor_force_task,)
         )
         executor_orientation_error = np.zeros(3, dtype=float)
         executor_orientation_velocity = np.zeros(3, dtype=float)
@@ -482,9 +523,13 @@ class CoordinatedTrackingController:
         if executor_orientation_task is not None:
             if self.config.executor_orientation_tracking_mode == "weighted":
                 executor_tasks.append(executor_orientation_task)
-                if executor_scene_tasks:
+                if executor_force_tasks or executor_scene_tasks:
                     executor_result = self.solver.solve_priority_stack(
-                        (tuple(executor_tasks), tuple(executor_scene_tasks)),
+                        (
+                            tuple(executor_tasks),
+                            tuple(executor_force_tasks),
+                            tuple(executor_scene_tasks),
+                        ),
                         active_arm_names=(executor_name,),
                         include_base=True,
                     )
@@ -498,6 +543,7 @@ class CoordinatedTrackingController:
                 executor_result = self.solver.solve_priority_stack(
                     (
                         tuple(executor_tasks),
+                        tuple(executor_force_tasks),
                         (executor_orientation_task,),
                         tuple(executor_scene_tasks),
                     ),
@@ -505,9 +551,13 @@ class CoordinatedTrackingController:
                     include_base=True,
                 )
             else:
-                if executor_scene_tasks:
+                if executor_force_tasks or executor_scene_tasks:
                     executor_result = self.solver.solve_priority_stack(
-                        (tuple(executor_tasks), tuple(executor_scene_tasks)),
+                        (
+                            tuple(executor_tasks),
+                            tuple(executor_force_tasks),
+                            tuple(executor_scene_tasks),
+                        ),
                         active_arm_names=(executor_name,),
                         include_base=True,
                     )
@@ -518,9 +568,13 @@ class CoordinatedTrackingController:
                         include_base=True,
                     )
         else:
-            if executor_scene_tasks:
+            if executor_force_tasks or executor_scene_tasks:
                 executor_result = self.solver.solve_priority_stack(
-                    (tuple(executor_tasks), tuple(executor_scene_tasks)),
+                    (
+                        tuple(executor_tasks),
+                        tuple(executor_force_tasks),
+                        tuple(executor_scene_tasks),
+                    ),
                     active_arm_names=(executor_name,),
                     include_base=True,
                 )
@@ -606,6 +660,21 @@ class CoordinatedTrackingController:
             "engine_avoidance_gain": self.config.engine_avoidance_gain,
             "executor_scene_collision_active": bool(executor_scene_tasks),
             "observer_scene_collision_active": bool(observer_scene_tasks),
+            "executor_force_control_active": bool(executor_force_tasks),
+            "executor_force_control_velocity_mps": (
+                self.target.executor_force_velocity_mps
+            ),
+            "executor_force_control_normal_world": (
+                np.full(3, np.nan, dtype=float)
+                if self.target.executor_force_normal_world is None
+                else self.target.executor_force_normal_world.copy()
+            ),
+            "executor_force_control_weight": (
+                self.target.executor_force_control_weight
+            ),
+            "executor_tracking_projected_for_force_control": (
+                executor_tracking_projected
+            ),
             "executor_clearance_m": _scene_clearance_distance(
                 scene_clearance_by_arm,
                 executor_name,
@@ -926,6 +995,24 @@ class CoordinatedTrackingController:
         observer_slice = self.solver.layout.arms[observer_name]
         result[:, observer_slice] = jacobian[:, observer_slice]
         return result
+
+    def _executor_force_control_task(
+        self,
+        executor_jacobian: np.ndarray,
+    ) -> WholeBodyTask | None:
+        normal = self.target.executor_force_normal_world
+        velocity = float(self.target.executor_force_velocity_mps)
+        if normal is None or abs(velocity) <= 1.0e-12:
+            return None
+        jacobian = normal.reshape(1, 3) @ executor_jacobian
+        if np.linalg.norm(jacobian) <= self.solver.config.singularity.rank_tolerance:
+            return None
+        return WholeBodyTask(
+            name="executor_normal_force_control",
+            jacobian=jacobian,
+            target_velocity=np.array([velocity], dtype=float),
+            weight=self.target.executor_force_control_weight,
+        )
 
     def _inter_arm_collision_task(
         self,

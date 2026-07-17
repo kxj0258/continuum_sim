@@ -428,6 +428,42 @@ def test_observer_critical_avoidance_does_not_change_executor_command() -> None:
     assert avoidance_command.metadata["observer_collision_active"] is True
 
 
+def test_executor_force_control_is_second_priority_after_position_tracking() -> None:
+    assembly = load_robot_assembly_config(
+        "configs/robots/assemblies/dual_spatial_mobile.yaml"
+    )
+    fixed_assembly = replace(
+        assembly,
+        base=replace(assembly.base, control_mode="fixed"),
+    )
+    state = _state(assembly, Pose6D.identity())
+    target = state.arms["executor"].tip_pose_world.position.copy()
+    controller = CoordinatedTrackingController(
+        fixed_assembly,
+        CoordinatedTrackingTarget(
+            executor_position_world=target,
+            executor_force_normal_world=np.array([-1.0, 0.0, 0.0]),
+            executor_force_velocity_mps=-0.005,
+            executor_force_control_weight=80.0,
+            observer_control_mode="disabled",
+        ),
+        solver_config=WholeBodyControllerConfig(decouple_arm_singularity=True),
+    )
+
+    command = controller.compute_command(state)
+
+    assert command.metadata["executor_force_control_active"] is True
+    assert command.metadata["executor_tracking_projected_for_force_control"] is True
+    assert command.metadata["executor_force_control_velocity_mps"] == -0.005
+    assert (
+        command.metadata["whole_body_solver"]["hierarchical_task_levels"][:2]
+        == (
+            ("executor_tracking",),
+            ("executor_normal_force_control",),
+        )
+    )
+
+
 def _minimal_plan(target: Pose6D) -> EngineNavigationPlan:
     point = target.transform_point(np.array([0.0, 0.0, 0.12]))
     return EngineNavigationPlan(

@@ -176,6 +176,7 @@ class UnifiedLowLevelController:
                 ),
                 roi_blend=0.25 if observer is None else observer.roi_blend,
             ),
+            contact=step.intent.contact,
         )
         return RobotSystemCommand(
             base_twist_world=command.base_twist_world,

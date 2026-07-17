@@ -281,6 +281,8 @@ class SimulationApplication:
                 control_type=config.task.wiping_control_type,
                 normal_force_gain=config.task.normal_force_gain,
                 force_proxy_stiffness_n_m=config.task.force_proxy_stiffness_n_m,
+                max_normal_velocity_m_s=config.task.max_normal_velocity_m_s,
+                force_control_weight=config.task.force_control_weight,
                 max_contact_force_n=config.task.max_contact_force_n,
                 force_strategy=_build_wiping_force_strategy(config, assembly),
                 tracking_mode=tracking.tracking_mode,

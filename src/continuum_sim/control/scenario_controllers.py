@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
 from continuum_sim.control.cbf_qp_kinematics import cbf_lower_bound, solve_cbf_qp_velocity
@@ -21,6 +23,7 @@ from continuum_sim.control.engine_cleaning_types import (
 from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
 from continuum_sim.control.task_intent import (
     CartesianTaskIntent,
+    ContactTaskIntent,
     ObserverTaskIntent,
     SystemTaskIntent,
     TaskStatus,
@@ -221,6 +224,7 @@ class WaypointTrackingController:
         state: RobotSystemState,
         *,
         advance: bool = True,
+        contact: ContactTaskIntent | None = None,
     ) -> RobotSystemCommand:
         position = state.arms[self._executor_name].tip_pose_world.position
         achieved_index = self.active_index
@@ -248,6 +252,11 @@ class WaypointTrackingController:
             self.scheduler.last_advance_reason if waypoint_advanced else ""
         )
         step = self._task_step()
+        if contact is not None:
+            step = replace(
+                step,
+                intent=replace(step.intent, contact=contact),
+            )
         command = self._controller.compute_command(state, step)
         controller_metadata = command.metadata
         if self.done:
@@ -486,7 +495,12 @@ class TimedTrajectoryTrackingController:
     def terminal_reason(self) -> str:
         return "duration_elapsed" if self.done else ""
 
-    def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
+    def compute_command(
+        self,
+        state: RobotSystemState,
+        *,
+        contact: ContactTaskIntent | None = None,
+    ) -> RobotSystemCommand:
         if self._start_time_s is None:
             self._start_time_s = float(state.time_s)
         elapsed = max(0.0, float(state.time_s) - self._start_time_s)
@@ -494,6 +508,7 @@ class TimedTrajectoryTrackingController:
         step, source_index, local_fraction = self._target_at(
             elapsed,
             complete=complete,
+            contact=contact,
         )
         self._elapsed_s = elapsed
         self._active_index = int(source_index)
@@ -545,6 +560,7 @@ class TimedTrajectoryTrackingController:
         elapsed_s: float,
         *,
         complete: bool = False,
+        contact: ContactTaskIntent | None = None,
     ) -> tuple[TaskStep, int, float]:
         position, velocity, source_index, fraction = self._sample_trajectory(elapsed_s)
         return (
@@ -560,6 +576,7 @@ class TimedTrajectoryTrackingController:
                         executor_offset_world=self.observer_executor_offset_world,
                         roi_blend=self.observer_roi_blend,
                     ),
+                    contact=contact,
                 ),
                 status=TaskStatus(
                     task_type="tracking",
@@ -842,6 +859,8 @@ class WipingController:
         control_type: str = "contact_distance",
         normal_force_gain: float = 0.0,
         force_proxy_stiffness_n_m: float = 600.0,
+        max_normal_velocity_m_s: float = 0.03,
+        force_control_weight: float = 20.0,
         max_contact_force_n: float | None = None,
         force_strategy: WipingForceStrategy | None = None,
         tracking_mode: str = "waypoint",
@@ -872,7 +891,11 @@ class WipingController:
             )
         self.assembly = assembly
         self.scene_query = scene_query
-        self.surface_normal_world = np.asarray(surface_normal_world, dtype=float)
+        normal = np.asarray(surface_normal_world, dtype=float)
+        normal_norm = float(np.linalg.norm(normal))
+        if normal.shape != (3,) or normal_norm <= 1.0e-12:
+            raise ValueError("surface_normal_world must be a nonzero 3-vector.")
+        self.surface_normal_world = normal / normal_norm
         self.surface_point_world = (
             None
             if surface_point_world is None
@@ -914,6 +937,15 @@ class WipingController:
         self._original_phases = self.phases
         self.normal_force_gain = float(normal_force_gain)
         self.force_proxy_stiffness_n_m = float(force_proxy_stiffness_n_m)
+        self.max_normal_velocity_m_s = float(max_normal_velocity_m_s)
+        if (
+            not np.isfinite(self.max_normal_velocity_m_s)
+            or self.max_normal_velocity_m_s <= 0.0
+        ):
+            raise ValueError("max_normal_velocity_m_s must be positive and finite.")
+        self.force_control_weight = float(force_control_weight)
+        if not np.isfinite(self.force_control_weight) or self.force_control_weight <= 0.0:
+            raise ValueError("force_control_weight must be positive and finite.")
         self.max_contact_force_n = max_contact_force_n
         self.force_strategy = (
             default_wiping_force_strategy(control_type)
@@ -1010,18 +1042,45 @@ class WipingController:
                 controller_dt_s=self.controller_dt_s,
             )
         )
+        force_control_velocity = self._force_control_velocity_mps(
+            contact_error,
+            force_error,
+        )
+        force_control_enabled = bool(
+            self.control_type == "hybrid_force_position"
+            and self.phase == "contact"
+            and np.isfinite(force_control_velocity)
+            and abs(force_control_velocity) > 1.0e-12
+        )
+        contact_intent = ContactTaskIntent(
+            surface_normal_world=(
+                self.surface_normal_world if query is None else query.normal
+            ),
+            target_normal_force_n=target_force,
+            target_contact_distance_m=self.target_contact_distance_m,
+            force_control_enabled=force_control_enabled,
+            force_control_velocity_mps=(
+                force_control_velocity if force_control_enabled else 0.0
+            ),
+            force_control_weight=self.force_control_weight,
+        )
         original_waypoint = self._tracking.waypoints_world[waypoint_index].copy()
-        if self.phase == "contact":
+        waypoint_correction_applied = self.phase == "contact" and not force_control_enabled
+        if waypoint_correction_applied:
             self._tracking.waypoints_world[waypoint_index] = (
                 strategy_result.corrected_waypoint
             )
         try:
             if self._tracking_mode == "time":
-                command = self._tracking.compute_command(state)
+                command = self._tracking.compute_command(
+                    state,
+                    contact=contact_intent,
+                )
             else:
                 command = self._tracking.compute_command(
                     state,
                     advance=not strategy_result.controls_waypoint_advance,
+                    contact=contact_intent,
                 )
         finally:
             self._tracking.waypoints_world[waypoint_index] = original_waypoint
@@ -1043,6 +1102,10 @@ class WipingController:
                 "force_error_n": force_error,
                 "normal_force_gain": self.normal_force_gain,
                 "force_proxy_stiffness_n_m": self.force_proxy_stiffness_n_m,
+                "max_normal_velocity_m_s": self.max_normal_velocity_m_s,
+                "force_control_velocity_mps": force_control_velocity,
+                "force_control_enabled": force_control_enabled,
+                "wiping_waypoint_correction_applied": waypoint_correction_applied,
                 "max_contact_force_n": self.max_contact_force_n,
                 "force_limit_exceeded": self.force_limit_exceeded,
                 "contact_distance_m": distance,
@@ -1056,6 +1119,30 @@ class WipingController:
                     or strategy_result.waypoint_advanced
                 ),
             },
+        )
+
+    def _force_control_velocity_mps(
+        self,
+        contact_error_m: float,
+        force_error_n: float,
+    ) -> float:
+        if not np.isfinite(contact_error_m):
+            return 0.0
+        distance_term = contact_error_m / max(self.controller_dt_s, 1.0e-12)
+        force_term = 0.0
+        if np.isfinite(force_error_n) and self.force_proxy_stiffness_n_m > 0.0:
+            force_term = -(
+                self.normal_force_gain
+                * force_error_n
+                / self.force_proxy_stiffness_n_m
+                / max(self.controller_dt_s, 1.0e-12)
+            )
+        return float(
+            np.clip(
+                distance_term + force_term,
+                -self.max_normal_velocity_m_s,
+                self.max_normal_velocity_m_s,
+            )
         )
 
     def _make_tracking_controller(

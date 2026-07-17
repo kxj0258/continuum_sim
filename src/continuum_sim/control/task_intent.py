@@ -124,6 +124,9 @@ class ContactTaskIntent:
     surface_normal_world: np.ndarray
     target_normal_force_n: float = 0.0
     target_contact_distance_m: float = 0.0
+    force_control_enabled: bool = False
+    force_control_velocity_mps: float = 0.0
+    force_control_weight: float = 20.0
 
     def __post_init__(self) -> None:
         normal = _vector3(self.surface_normal_world, "surface_normal_world")
@@ -135,6 +138,13 @@ class ContactTaskIntent:
             raise ValueError("target_normal_force_n must be finite.")
         if not np.isfinite(self.target_contact_distance_m):
             raise ValueError("target_contact_distance_m must be finite.")
+        if not np.isfinite(self.force_control_velocity_mps):
+            raise ValueError("force_control_velocity_mps must be finite.")
+        if (
+            not np.isfinite(self.force_control_weight)
+            or self.force_control_weight <= 0.0
+        ):
+            raise ValueError("force_control_weight must be positive and finite.")
 
 
 @dataclass(frozen=True)

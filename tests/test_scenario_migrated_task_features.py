@@ -234,6 +234,23 @@ def test_dynamic_wiping_scenario_loads_force_strategy_and_dynamics_path() -> Non
     assert config.task.tracking_control.tendon_regularization_weight == 0.5
 
 
+def test_dual_wiping_scenario_uses_raster_path_and_tolerance_tracking() -> None:
+    config = load_scenario_config("configs/scenarios/dual_mujoco_wiping.yaml")
+
+    assert config.task.type == "wiping"
+    assert config.task.wiping_path is not None
+    assert config.task.wiping_path.surface_id == "board_surface"
+    assert config.task.wiping_path.patch_id == "center_patch"
+    assert config.task.wiping_path.line_count == 5
+    assert config.task.wiping_path.samples_per_line == 30
+    assert config.task.target_advance_mode == "tolerance"
+    assert config.task.tracking_control.tracking_mode == "waypoint"
+    assert config.task.tracking_control.max_steps_per_waypoint == 500
+    assert config.task.wiping_control_type == "hybrid_force_position"
+    assert config.task.target_normal_force_n == pytest.approx(1.5)
+    assert config.task.max_normal_velocity_m_s == pytest.approx(0.03)
+
+
 def test_wiping_scenario_keeps_optional_admittance_parameters() -> None:
     config = load_scenario_config("configs/scenarios/single_mujoco_wiping.yaml")
 

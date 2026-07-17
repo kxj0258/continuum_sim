@@ -12,6 +12,7 @@ from continuum_sim.control.coordinated_tracking import (
     CoordinatedTrackingTarget,
 )
 from continuum_sim.control.task_space_servo import TaskSpaceVelocityCommand
+from continuum_sim.control.task_intent import ContactTaskIntent
 from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
 from continuum_sim.scenes.engine_query import EngineSceneQueryProtocol
@@ -89,6 +90,7 @@ class TendonCommandController:
         state: RobotSystemState,
         task_velocity: TaskSpaceVelocityCommand,
         observer: ObserverCommandReference,
+        contact: ContactTaskIntent | None = None,
     ) -> RobotSystemCommand:
         self._controller.set_target(
             CoordinatedTrackingTarget(
@@ -107,6 +109,17 @@ class TendonCommandController:
                 observer_executor_offset_world=observer.executor_offset_world,
                 observer_roi_blend=observer.roi_blend,
                 observer_control_mode=observer.control_mode,
+                executor_force_normal_world=(
+                    None
+                    if contact is None or not contact.force_control_enabled
+                    else contact.surface_normal_world
+                ),
+                executor_force_velocity_mps=(
+                    0.0 if contact is None else contact.force_control_velocity_mps
+                ),
+                executor_force_control_weight=(
+                    20.0 if contact is None else contact.force_control_weight
+                ),
             )
         )
         command = self._controller.compute_command(state)

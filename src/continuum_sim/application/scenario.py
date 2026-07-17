@@ -499,6 +499,8 @@ class ScenarioTaskConfig:
     normal_force_gain: float = 0.0
     target_normal_force_n: float = 0.0
     force_proxy_stiffness_n_m: float = 600.0
+    max_normal_velocity_m_s: float = 0.03
+    force_control_weight: float = 20.0
     max_contact_force_n: float | None = None
     contact_loss_tolerance_steps: int = 20
     force_strategy: ScenarioForceStrategyConfig = field(
@@ -886,6 +888,10 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             force_proxy_stiffness_n_m=float(
                 task_values.get("force_proxy_stiffness_n_m", 600.0)
             ),
+            max_normal_velocity_m_s=float(
+                task_values.get("max_normal_velocity_m_s", 0.03)
+            ),
+            force_control_weight=float(task_values.get("force_control_weight", 20.0)),
             max_contact_force_n=_optional_float(task_values.get("max_contact_force_n")),
             contact_loss_tolerance_steps=int(
                 task_values.get("contact_loss_tolerance_steps", 20)

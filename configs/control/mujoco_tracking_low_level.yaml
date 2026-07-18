@@ -11,9 +11,9 @@ low_level_control:
     enabled: true
     auto_advance_enabled: true
     score_threshold: 0.5
-    window_steps: 25
+    window_steps: 20
     min_steps_before_auto_advance: 50
-    low_score_patience_steps: 25
+    low_score_patience_steps: 20
     good_progress_mps: 0.001
     good_tendon_speed_ratio: 0.75
     good_alignment: 0.8

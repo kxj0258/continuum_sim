@@ -109,7 +109,7 @@ scenario:
   runtime:
     controller_dt_s: 0.02
     n_substeps: 20
-    max_steps: 8000
+    max_steps: 20000
   hooks:
     recorder: true
     tendon_debug: true
@@ -126,6 +126,7 @@ scenario:
     save_npz: true
     save_plots: true
     save_gif: true
+    save_mp4: true
     video_mode: live_mujoco
     video_fps: 10
     video_stride: 10

@@ -22,6 +22,7 @@ class WipingPathSpec:
     samples_per_line: int = 30
     approach_offset_m: float = 0.005
     contact_offset_m: float = 0.0
+    approach_reference: str = "center"
 
     @classmethod
     def from_mapping(cls, values: dict[str, object]) -> "WipingPathSpec":
@@ -35,6 +36,7 @@ class WipingPathSpec:
             samples_per_line=int(values.get("samples_per_line", 30)),
             approach_offset_m=float(values.get("approach_offset_m", 0.005)),
             contact_offset_m=float(values.get("contact_offset_m", 0.0)),
+            approach_reference=str(values.get("approach_reference", "center")),
         )
 
 
@@ -68,16 +70,28 @@ def build_wiping_plan(
     if spec.line_count <= 0 or spec.samples_per_line <= 0:
         raise ValueError("wiping_path line_count and samples_per_line must be positive.")
 
+    if spec.approach_reference not in ("center", "first_contact"):
+        raise ValueError("wiping_path.approach_reference must be 'center' or 'first_contact'.")
     contact_origin = center + spec.contact_offset_m * surface.normal
-    positions = [contact_origin + spec.approach_offset_m * surface.normal]
-    phases = ["approach"]
-    waypoint_indices = [0]
-    next_index = 1
     v_offsets = (
         np.array([0.0], dtype=float)
         if spec.line_count == 1
         else np.linspace(-0.5 * height, 0.5 * height, spec.line_count)
     )
+    first_u_offset = -0.5 * width
+    first_v_offset = float(v_offsets[0])
+    first_contact = (
+        contact_origin
+        + float(first_u_offset) * surface.tangent_u
+        + first_v_offset * surface.tangent_v
+    )
+    approach_anchor = (
+        first_contact if spec.approach_reference == "first_contact" else contact_origin
+    )
+    positions = [approach_anchor + spec.approach_offset_m * surface.normal]
+    phases = ["approach"]
+    waypoint_indices = [0]
+    next_index = 1
     for row_index, v_offset in enumerate(v_offsets):
         u_values = np.linspace(-0.5 * width, 0.5 * width, spec.samples_per_line)
         if row_index % 2 == 1:

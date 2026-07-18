@@ -14,38 +14,38 @@ scene:
   primitives:
     - id: board_surface_geom
       type: box_surface
-      center_m: [0.050, 0.0, 0.095]
+      center_m: [0.040, 0.005, 0.105]
       half_size_m: [0.0025, 0.035, 0.030]
       rgba: [0.12, 0.16, 0.17, 1.0]
 
     - id: board_frame_top
       type: box_obstacle
-      center_m: [0.0465, 0.0, 0.127]
+      center_m: [0.0365, 0.005, 0.137]
       half_size_m: [0.0015, 0.038, 0.001]
       rgba: [0.85, 0.82, 0.72, 1.0]
 
     - id: board_frame_bottom
       type: box_obstacle
-      center_m: [0.0465, 0.0, 0.063]
+      center_m: [0.0365, 0.005, 0.073]
       half_size_m: [0.0015, 0.038, 0.001]
       rgba: [0.85, 0.82, 0.72, 1.0]
 
     - id: board_frame_left
       type: box_obstacle
-      center_m: [0.0465, -0.038, 0.095]
+      center_m: [0.0365, -0.033, 0.105]
       half_size_m: [0.0015, 0.001, 0.032]
       rgba: [0.85, 0.82, 0.72, 1.0]
 
     - id: board_frame_right
       type: box_obstacle
-      center_m: [0.0465, 0.038, 0.095]
+      center_m: [0.0365, 0.043, 0.105]
       half_size_m: [0.0015, 0.001, 0.032]
       rgba: [0.85, 0.82, 0.72, 1.0]
 
   work_surfaces:
     - id: board_surface
       primitive_id: board_surface_geom
-      center_m: [0.0475, 0.0, 0.095]
+      center_m: [0.0375, 0.005, 0.105]
       normal: [-1.0, 0.0, 0.0]
       tangent_u: [0.0, 1.0, 0.0]
       width_m: 0.060
@@ -54,6 +54,6 @@ scene:
   wipe_patches:
     - id: center_patch
       surface_id: board_surface
-      center_m: [0.0475, 0.0, 0.095]
+      center_m: [0.0375, 0.005, 0.105]
       width_m: 0.040
       height_m: 0.025

@@ -28,10 +28,10 @@ scenario:
       look_at_distance_m: 0.005
       look_at_max_speed_mps: 0.005
       look_at_max_angular_speed_rad_s: 1.0
-    waypoint_tolerance_m: 0.003
+    waypoint_tolerance_m: 0.005
     target_advance_mode: tolerance
     wiping_control_type: hybrid_force_position
-    observer_roi_world: [0.0375, 0.000, 0.095]
+    observer_roi_world: [0.0275, 0.005, 0.105]
     surface_normal_world: [-1.0, 0.0, 0.0]
     target_contact_distance_m: -0.0025
     contact_tolerance_m: 0.002
@@ -51,18 +51,19 @@ scenario:
       engine_influence_distance_m: 0.010
       engine_avoidance_gain: 5.0
     tracking_control:
-      approach_samples: 5
+      approach_samples: 30
       tracking_mode: waypoint
-      max_steps_per_waypoint: 100
+      max_steps_per_waypoint: 400
       feedforward_speed_mps: 0.0
     wiping_path:
       surface_id: board_surface
       patch_id: center_patch
-      center_m: [0.0375, 0.0, 0.095]
+      center_m: [0.0375, 0.005, 0.105]
       width_m: 0.040
       height_m: 0.025
       line_count: 5
-      samples_per_line: 10
+      samples_per_line: 30
+      approach_reference: first_contact
       approach_offset_m: 0.005
       contact_offset_m: -0.0025
   runtime:

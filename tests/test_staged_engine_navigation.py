@@ -428,6 +428,52 @@ def test_observer_critical_avoidance_does_not_change_executor_command() -> None:
     assert avoidance_command.metadata["observer_collision_active"] is True
 
 
+def test_visual_servo_runs_in_interarm_avoidance_nullspace() -> None:
+    assembly = load_robot_assembly_config(
+        "configs/robots/assemblies/dual_spatial_mobile.yaml"
+    )
+    fixed_assembly = replace(
+        assembly,
+        base=replace(assembly.base, control_mode="fixed"),
+    )
+    state = _state(assembly, Pose6D.identity())
+    target = state.arms["executor"].tip_pose_world.position.copy()
+    controller = CoordinatedTrackingController(
+        fixed_assembly,
+        CoordinatedTrackingTarget(
+            executor_position_world=target,
+            observer_control_mode="visual_servo",
+            observer_roi_position_world=target,
+        ),
+        config=CoordinatedTrackingConfig(
+            observer_collision_priority=True,
+            inter_arm_influence_distance_m=0.030,
+            inter_arm_min_distance_m=0.025,
+            inter_arm_hard_stop_distance_m=0.021,
+            freeze_executor_inside_safe_distance=False,
+            stop_all_on_critical_distance=False,
+        ),
+        solver_config=WholeBodyControllerConfig(decouple_arm_singularity=True),
+    )
+
+    command = controller.compute_command(state)
+
+    assert command.metadata["observer_control_mode"] == "visual_servo"
+    assert command.metadata["observer_collision_active"] is True
+    assert command.metadata["observer_visual_servo_active"] is True
+    assert (
+        command.metadata["inter_arm_safety_mode"]
+        == "critical_avoidance"
+    )
+    assert (
+        command.metadata["observer_solver"]["hierarchical_task_levels"][:2]
+        == (
+            ("executor_observer_collision_avoidance",),
+            ("observer_visual_depth", "observer_visual_centering"),
+        )
+    )
+
+
 def test_executor_force_control_is_second_priority_after_position_tracking() -> None:
     assembly = load_robot_assembly_config(
         "configs/robots/assemblies/dual_spatial_mobile.yaml"

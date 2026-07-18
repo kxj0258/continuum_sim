@@ -8,8 +8,17 @@ from typing import Any
 
 import numpy as np
 
-from continuum_sim.config import load_yaml
-from continuum_sim.config_validation import resolve_path
+from continuum_sim.config import (
+    MUJOCO_CAMERA_FOLLOW_MODES,
+    MujocoViewerCameraConfig,
+    load_yaml,
+)
+from continuum_sim.config_validation import (
+    choice_value as _choice_value,
+    float_tuple as _float_tuple,
+    positive_float_value as _positive_float_value,
+    resolve_path,
+)
 from continuum_sim.control.contact_triggered_admittance import (
     ContactTriggeredAdmittanceConfig,
 )
@@ -86,6 +95,7 @@ class ScenarioBackendConfig:
     source_xml_path: Path | None = None
     generated_xml_path: Path | None = None
     retain_arm: str | None = None
+    mujoco_viewer_camera: MujocoViewerCameraConfig | None = None
 
     def __post_init__(self) -> None:
         if self.kinematics_mode not in PCC_KINEMATICS_MODES:
@@ -884,6 +894,9 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
                 _arm_mode_generated_xml_path(backend_values, arm_mode),
             ),
             retain_arm=_arm_mode_retain_arm(arm_mode),
+            mujoco_viewer_camera=_load_mujoco_viewer_camera_override(
+                backend_values
+            ),
         ),
         scene=ScenarioSceneConfig(
             engine_config_path=_optional_path(
@@ -1033,6 +1046,38 @@ def _kinematics_mode(value: object, name: str) -> PCCKinematicsMode:
     if mode not in PCC_KINEMATICS_MODES:
         raise ValueError(f"{name} must be one of {PCC_KINEMATICS_MODES}.")
     return mode  # type: ignore[return-value]
+
+
+def _load_mujoco_viewer_camera_override(
+    backend_values: dict[str, Any],
+) -> MujocoViewerCameraConfig | None:
+    viewer_values = backend_values.get("viewer")
+    if viewer_values is None:
+        return None
+    viewer = _mapping(viewer_values, "scenario.backend.viewer")
+    camera_values = viewer.get("camera")
+    if camera_values is None:
+        return None
+    camera = _mapping(camera_values, "scenario.backend.viewer.camera")
+    prefix = "scenario.backend.viewer.camera"
+    return MujocoViewerCameraConfig(
+        lookat=_float_tuple(
+            camera.get("lookat", (0.0, 0.0, 0.06)),
+            f"{prefix}.lookat",
+            length=3,
+        ),  # type: ignore[arg-type]
+        distance=_positive_float_value(
+            camera.get("distance", 0.25),
+            f"{prefix}.distance",
+        ),
+        azimuth=float(camera.get("azimuth", 135.0)),
+        elevation=float(camera.get("elevation", -25.0)),
+        follow=_choice_value(
+            camera.get("follow", "none"),
+            f"{prefix}.follow",
+            MUJOCO_CAMERA_FOLLOW_MODES,
+        ),
+    )
 
 
 def _waypoint_source(task_values: dict[str, Any]) -> str:

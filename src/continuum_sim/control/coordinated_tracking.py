@@ -39,6 +39,13 @@ from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
 
 
 EXECUTOR_ORIENTATION_TRACKING_MODES = ("disabled", "weighted", "nullspace")
+OBSERVER_CONTROL_MODES = (
+    "tracking",
+    "collision_avoidance",
+    "visual_servo",
+    "disabled",
+)
+OBSERVER_INTERARM_AVOIDANCE_MODES = ("collision_avoidance", "visual_servo")
 EXECUTOR_SCENE_AVOIDANCE_MODES = ("disabled", "nullspace_after_pose")
 OBSERVER_SCENE_AVOIDANCE_MODES = (
     "disabled",
@@ -155,11 +162,7 @@ class CoordinatedTrackingTarget:
             )
         if not 0.0 <= self.observer_roi_blend <= 1.0:
             raise ValueError("observer_roi_blend must be in [0, 1].")
-        if self.observer_control_mode not in (
-            "tracking",
-            "collision_avoidance",
-            "disabled",
-        ):
+        if self.observer_control_mode not in OBSERVER_CONTROL_MODES:
             raise ValueError("Unsupported observer_control_mode.")
 
 
@@ -363,6 +366,9 @@ class CoordinatedTrackingController:
         executor_state = state.arms[executor_name]
         observer_name = self._optional_arm_name_for_role("observer")
         observer_mode = self.target.observer_control_mode
+        observer_uses_interarm_avoidance = (
+            observer_mode in OBSERVER_INTERARM_AVOIDANCE_MODES
+        )
         collision_result = (
             None
             if observer_name is None
@@ -377,7 +383,7 @@ class CoordinatedTrackingController:
             if collision_result is None
             else collision_result.distance_m
         )
-        if collision_result is not None and observer_mode == "collision_avoidance":
+        if collision_result is not None and observer_uses_interarm_avoidance:
             activation_distance = self.config.inter_arm_influence_distance_m
             if self._observer_avoidance_active:
                 release_distance = (
@@ -391,7 +397,7 @@ class CoordinatedTrackingController:
             self._observer_avoidance_active = False
         critical_distance = (
             collision_result is not None
-            and observer_mode == "collision_avoidance"
+            and observer_uses_interarm_avoidance
             and inter_arm_distance <= self.config.inter_arm_hard_stop_distance_m
         )
         executor_error = (
@@ -471,7 +477,7 @@ class CoordinatedTrackingController:
         scene_clearance_by_arm: dict[str, _SceneClearanceData] = {}
         if observer_name is not None:
             if (
-                observer_mode == "collision_avoidance"
+                observer_uses_interarm_avoidance
                 and self._observer_avoidance_active
             ):
                 if collision_result is not None and collision_result.task is not None:
@@ -482,7 +488,7 @@ class CoordinatedTrackingController:
                         * collision_result.desired_speed_mps
                     )
                 observer_collision_active = True
-            elif observer_mode == "tracking":
+            if observer_mode == "tracking":
                 observer_state = state.arms[observer_name]
                 desired_observer = (
                     executor_state.tip_pose_world.position
@@ -524,7 +530,7 @@ class CoordinatedTrackingController:
                 ) = self._observer_visual_servo_tasks(
                     state,
                     observer_name,
-                    avoidance_tasks=(),
+                    avoidance_tasks=tuple(observer_avoidance_tasks),
                 )
                 observer_visual_servo_tasks.extend(visual_tasks)
                 observer_visual_servo_active = bool(visual_tasks)
@@ -940,7 +946,9 @@ class CoordinatedTrackingController:
         if camera_quat is None:
             camera_quat = observer_state.tip_pose_world.quat.copy()
         camera_rotation = quaternion_wxyz_to_rotation_matrix(camera_quat)
-        camera_forward_world = camera_rotation[:, 2]
+        camera_right_world = camera_rotation[:, 0]
+        camera_up_world = camera_rotation[:, 1]
+        camera_forward_world = -camera_rotation[:, 2]
         measured_depth = _metadata_float(state.metadata, "visual_servo_depth_m")
         geometric_depth = float(np.dot(roi - camera_position, camera_forward_world))
         depth = measured_depth if np.isfinite(measured_depth) else geometric_depth
@@ -979,28 +987,35 @@ class CoordinatedTrackingController:
             allow_nan=True,
         )
         target_visible = bool(state.metadata.get("visual_servo_target_visible", False))
-        if target_visible and normalized_error is not None and np.all(np.isfinite(normalized_error)):
-            local_rotation_error = np.array(
-                [-normalized_error[1], normalized_error[0], 0.0],
-                dtype=float,
+        if (
+            target_visible
+            and normalized_error is not None
+            and np.all(np.isfinite(normalized_error))
+        ):
+            desired_direction = (
+                camera_forward_world
+                + normalized_error[0] * camera_right_world
+                - normalized_error[1] * camera_up_world
             )
-            angular_velocity = (
-                self.config.observer_visual_servo_center_gain
-                * camera_rotation
-                @ local_rotation_error
-            )
-        else:
-            target_direction = roi - camera_position
-            if np.linalg.norm(target_direction) <= 1.0e-12:
+            desired_direction_norm = float(np.linalg.norm(desired_direction))
+            if desired_direction_norm <= 1.0e-12:
                 angular_velocity = np.zeros(3, dtype=float)
             else:
-                target_orientation = look_rotation_quaternion_wxyz(target_direction)
+                desired_direction /= desired_direction_norm
                 angular_velocity = (
                     self.config.observer_visual_servo_center_gain
-                    * quaternion_error_rotation_vector(
-                        target_orientation,
-                        camera_quat,
-                    )
+                    * np.cross(camera_forward_world, desired_direction)
+                )
+        else:
+            desired_direction = roi - camera_position
+            desired_direction_norm = float(np.linalg.norm(desired_direction))
+            if desired_direction_norm <= 1.0e-12:
+                angular_velocity = np.zeros(3, dtype=float)
+            else:
+                desired_direction /= desired_direction_norm
+                angular_velocity = (
+                    self.config.observer_visual_servo_center_gain
+                    * np.cross(camera_forward_world, desired_direction)
                 )
         angular_velocity = self._limit_observer_visual_angular_velocity(
             angular_velocity

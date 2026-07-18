@@ -62,6 +62,22 @@ def test_overlay_state_falls_back_to_generic_executor_target() -> None:
     assert overlay.base_trail == []
 
 
+def test_overlay_state_captures_generic_observer_roi() -> None:
+    overlay = _TrackingOverlayState()
+    command = RobotSystemCommand(
+        base_twist_world=np.zeros(6),
+        arms={"executor": ArmTendonRateCommand(tendon_rate_mps=np.zeros(3))},
+        metadata={
+            "executor_target_world": np.array([0.4, 0.5, 0.6]),
+            "visual_servo_roi_world": np.array([0.1, 0.2, 0.3]),
+        },
+    )
+
+    overlay.capture(_state(), command, max_points=10)
+
+    np.testing.assert_allclose(overlay.observer_roi_world, [0.1, 0.2, 0.3])
+
+
 def test_overlay_state_bounds_and_clears_histories() -> None:
     overlay = _TrackingOverlayState()
     command = RobotSystemCommand(
@@ -84,6 +100,7 @@ def test_overlay_state_bounds_and_clears_histories() -> None:
     assert overlay.target_trail == []
     assert overlay.target_trail_kinds == []
     assert overlay.base_trail == []
+    assert overlay.observer_roi_world is None
     assert overlay.navigation_metadata == {}
 
 

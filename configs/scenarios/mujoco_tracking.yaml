@@ -58,6 +58,8 @@ scenario:
     live_tendon_panel_stride: 5
     show_live_diagnostics_panel: true
     live_diagnostics_panel_stride: 5
+    show_observer_camera: true
+    observer_camera_stride: 1
     viewer: mujoco
     keep_viewer_open: false
   artifacts:

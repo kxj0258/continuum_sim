@@ -35,5 +35,5 @@ def test_inject_tip_camera_mounts_camera_on_tip_site_parent_body() -> None:
 
     assert camera is not None
     assert camera.get("pos") == "0 0 0.04"
-    assert camera.get("quat") == "1 0 0 0"
+    assert camera.get("quat") == "0 1 0 0"
     assert camera.get("fovy") == "60"

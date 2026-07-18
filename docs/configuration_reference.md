@@ -21,6 +21,23 @@ scenario:
     type: mujoco
 ```
 
+## scenario.backend.viewer.camera
+
+`scenario.backend.viewer.camera` can override the shared MuJoCo viewer/live-video
+camera for one scenario without changing `configs/mujoco_dual.yaml`.
+
+```yaml
+backend:
+  type: mujoco
+  viewer:
+    camera:
+      lookat: [0.0375, 0.005, 0.115]
+      distance: 0.28
+      azimuth: 30.0
+      elevation: -18.0
+      follow: none
+```
+
 - `arm_mode`：`dual` 或 `single`。`single` 只保留 executor 主臂，`dual` 同时保留 executor 和 observer。
 - `low_level_control_path`：共享低层控制参数，当前主任务统一使用 `configs/control/mujoco_tracking_low_level.yaml`。
 - `backend.type`：清理后只支持 `mujoco`。
@@ -64,7 +81,7 @@ scenario:
 wiping_path:
   surface_id: board_surface
   patch_id: center_patch
-  center_m: [0.0375, 0.005, 0.105]
+  center_m: [0.0375, 0.005, 0.115]
   line_count: 5
   samples_per_line: 30
   approach_reference: first_contact

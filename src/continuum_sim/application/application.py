@@ -402,19 +402,33 @@ class SimulationApplication:
                 history_points=config.hooks.live_diagnostics_panel_history_points,
             )
         observer_camera = _observer_camera_attachment_config(assembly)
+        observer_camera_video_paths = (
+            None
+            if observer_camera is None or observer_camera.camera is None
+            else _observer_camera_pending_video_paths(
+                config,
+                observer_camera.camera.name,
+            )
+        )
         if (
             config.backend.type == "mujoco"
-            and config.hooks.show_observer_camera
             and observer_camera is not None
             and observer_camera.camera is not None
+            and (
+                config.hooks.show_observer_camera
+                or bool(observer_camera_video_paths)
+            )
         ):
             hooks_by_name["observer_camera"] = MujocoObserverCameraFeedbackHook(
                 backend,
                 camera_name=observer_camera.camera.name,
                 intrinsics=observer_camera.camera.intrinsics,
                 fallback_target_world=observer_camera_target_world,
-                show_window=True,
+                show_window=config.hooks.show_observer_camera,
                 stride=config.hooks.observer_camera_stride,
+                video_output_paths=observer_camera_video_paths,
+                video_fps=config.artifacts.video_fps,
+                video_stride=config.artifacts.video_stride,
             )
         if (
             config.backend.type == "mujoco"
@@ -480,6 +494,14 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
             "and generated_xml_path."
         )
     mujoco_config = load_mujoco_config(backend.mujoco_config_path)
+    if backend.mujoco_viewer_camera is not None:
+        mujoco_config = replace(
+            mujoco_config,
+            viewer=replace(
+                mujoco_config.viewer,
+                camera=backend.mujoco_viewer_camera,
+            ),
+        )
     output_path = backend.generated_xml_path
     tree = ET.parse(backend.source_xml_path)
     root = tree.getroot()
@@ -824,6 +846,30 @@ def _live_mujoco_pending_video_paths(config) -> list[Path]:
     return [
         config.artifacts.output_root
         / f"_{config.name}_live_mujoco_pending.{suffix}"
+        for suffix in suffixes
+    ]
+
+
+def _observer_camera_pending_video_paths(config, camera_name: str) -> list[Path]:
+    if (
+        config.backend.type != "mujoco"
+        or not config.artifacts.enabled
+        or not _video_artifacts_enabled(config.artifacts)
+        or config.artifacts.video_mode != "live_mujoco"
+    ):
+        return []
+    suffixes: list[str] = []
+    if config.artifacts.save_gif:
+        suffixes.append("gif")
+    if config.artifacts.save_mp4:
+        suffixes.append("mp4")
+    safe_camera_name = "".join(
+        character if character.isalnum() or character in ("-", "_") else "_"
+        for character in camera_name
+    )
+    return [
+        config.artifacts.output_root
+        / f"_{config.name}_{safe_camera_name}_pending.{suffix}"
         for suffix in suffixes
     ]
 

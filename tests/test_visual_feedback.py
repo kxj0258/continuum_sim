@@ -18,7 +18,7 @@ def test_project_roi_to_camera_feedback_centers_forward_roi() -> None:
     )
 
     feedback = project_roi_to_camera_feedback(
-        np.array([0.0, 0.0, 0.5], dtype=float),
+        np.array([0.0, 0.0, -0.5], dtype=float),
         Pose6D.identity(),
         intrinsics,
         timestamp_s=1.25,
@@ -41,7 +41,7 @@ def test_project_roi_to_camera_feedback_reports_off_center_error() -> None:
     )
 
     feedback = project_roi_to_camera_feedback(
-        np.array([0.05, 0.0, 0.5], dtype=float),
+        np.array([0.05, 0.0, -0.5], dtype=float),
         Pose6D.identity(),
         intrinsics,
     )
@@ -62,7 +62,7 @@ def test_project_roi_to_camera_feedback_marks_behind_camera_invisible() -> None:
     )
 
     feedback = project_roi_to_camera_feedback(
-        np.array([0.0, 0.0, -0.5], dtype=float),
+        np.array([0.0, 0.0, 0.5], dtype=float),
         Pose6D.identity(),
         intrinsics,
     )

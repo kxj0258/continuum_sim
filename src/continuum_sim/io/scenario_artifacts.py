@@ -107,14 +107,18 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
         },
         "video": None,
         "videos": {},
+        "observer_videos": {},
         "video_status": "disabled" if not video_formats else "pending",
+        "observer_video_status": "disabled",
         "video_mode": settings.video_mode if video_formats else None,
         "video_frames": None,
+        "observer_video_frames": None,
         "model": None if scene_xml is None else str(scene_xml),
         "errors": errors,
     }
     _write_metadata(paths.metadata_json, metadata)
     video_paths: dict[str, str] = {}
+    observer_video_paths: dict[str, str] = {}
     if video_formats:
         replay = None
         if settings.video_mode == "live_mujoco":
@@ -125,6 +129,12 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
                     _collect_video_error_file(destination, errors)
                 else:
                     video_paths[suffix] = str(video_path)
+            observer_video_paths = _collect_observer_camera_videos(
+                application,
+                paths.videos_dir,
+                video_formats,
+                errors,
+            )
         else:
             for suffix in video_formats:
                 destination = paths.videos_dir / f"simulation.{suffix}"
@@ -153,8 +163,15 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
                     video_paths[suffix] = str(video_path)
     metadata["video"] = next(iter(video_paths.values()), None)
     metadata["videos"] = video_paths
+    metadata["observer_videos"] = observer_video_paths
     metadata["video_status"] = _video_status(video_formats, video_paths)
+    metadata["observer_video_status"] = _observer_video_status(
+        application,
+        video_formats,
+        observer_video_paths,
+    )
     metadata["video_frames"] = _video_frame_count(application)
+    metadata["observer_video_frames"] = _observer_video_frame_count(application)
     metadata["errors"] = errors
     _write_metadata(paths.metadata_json, metadata)
     return paths
@@ -186,6 +203,24 @@ def _video_frame_count(application) -> int | None:
     return int(getattr(recorder, "frame_count", 0))
 
 
+def _observer_video_frame_count(application) -> int | None:
+    recorder = application.hooks_by_name.get("observer_camera")
+    if recorder is None or not getattr(recorder, "output_paths", ()):
+        return None
+    return int(getattr(recorder, "frame_count", 0))
+
+
+def _observer_video_status(
+    application,
+    video_formats: tuple[str, ...],
+    observer_video_paths: dict[str, str],
+) -> str:
+    recorder = application.hooks_by_name.get("observer_camera")
+    if recorder is None or not getattr(recorder, "output_paths", ()):
+        return "disabled"
+    return _video_status(video_formats, observer_video_paths)
+
+
 def _collect_live_mujoco_video(application, destination: Path, errors: list[str]) -> Path | None:
     recorder = application.hooks_by_name.get("live_mujoco_video")
     if recorder is None:
@@ -206,6 +241,40 @@ def _collect_live_mujoco_video(application, destination: Path, errors: list[str]
     shutil.move(str(source_path), destination)
     _write_live_video_error(destination, recorder)
     return destination
+
+
+def _collect_observer_camera_videos(
+    application,
+    videos_dir: Path,
+    video_formats: tuple[str, ...],
+    errors: list[str],
+) -> dict[str, str]:
+    recorder = application.hooks_by_name.get("observer_camera")
+    if recorder is None or not getattr(recorder, "output_paths", ()):
+        return {}
+    for error in getattr(recorder, "errors", []):
+        _append_unique_error(errors, f"observer_video: {error}")
+    camera_name = str(getattr(recorder, "camera_name", "observer_camera"))
+    safe_camera_name = "".join(
+        character if character.isalnum() or character in ("-", "_") else "_"
+        for character in camera_name
+    )
+    paths: dict[str, str] = {}
+    for suffix in video_formats:
+        destination = videos_dir / f"{safe_camera_name}.{suffix}"
+        source_path = _live_video_source_for_destination(recorder, destination)
+        if source_path is None or not source_path.is_file():
+            if not getattr(recorder, "errors", []):
+                _append_unique_error(
+                    errors,
+                    "observer_video: observer camera recorder produced no "
+                    f"{destination.suffix} file",
+                )
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(source_path), destination)
+        paths[suffix] = str(destination)
+    return paths
 
 
 def _live_video_source_for_destination(

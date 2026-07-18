@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from continuum_sim.model.base_pose import Pose6D
+from continuum_sim.model.base_pose import Pose6D, quaternion_wxyz_multiply
 from continuum_sim.model.mount_frame import load_mobile_base_mount_config
 from continuum_sim.scenes.scene_config import (
     InspectionTargetConfig,
@@ -378,6 +378,10 @@ def inject_tip_camera(
     tip_body, tip_site = _find_site_parent_body_and_site(root, tip_site_name)
     if tip_body is None or tip_site is None:
         raise ValueError(f"MuJoCo model is missing tip site {tip_site_name!r}.")
+    camera_quat = quaternion_wxyz_multiply(
+        tip_to_camera.quat,
+        np.array([0.0, 1.0, 0.0, 0.0], dtype=float),
+    )
     mount_name = f"{camera_name}_mount"
     _remove_existing_named_child(tip_body, "body", mount_name)
     tip_site_pos = _parse_vec(tip_site.attrib.get("pos", "0 0 0"))
@@ -397,7 +401,7 @@ def inject_tip_camera(
         {
             "name": camera_name,
             "pos": _format_vec(tip_to_camera.position),
-            "quat": _format_vec(tip_to_camera.quat),
+            "quat": _format_vec(camera_quat),
             "fovy": _format_float(fovy_deg),
         },
     )

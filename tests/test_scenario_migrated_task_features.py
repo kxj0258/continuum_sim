@@ -109,6 +109,22 @@ def test_visual_servo_observer_config_loads_camera_window_hook() -> None:
     assert config.hooks.observer_camera_stride == 1
 
 
+def test_main_mujoco_scenarios_enable_observer_camera_window() -> None:
+    scenario_paths = (
+        "configs/scenarios/engine_navigation.yaml",
+        "configs/scenarios/mujoco_navigation.yaml",
+        "configs/scenarios/mujoco_tracking.yaml",
+        "configs/scenarios/mujoco_wiping.yaml",
+        "configs/scenarios/mujoco_point_servo.yaml",
+    )
+
+    for scenario_path in scenario_paths:
+        config = load_scenario_config(scenario_path)
+
+        assert config.hooks.show_observer_camera is True
+        assert config.hooks.observer_camera_stride == 1
+
+
 def test_navigation_scene_avoidance_config_loads_task_policy() -> None:
     config = load_scenario_config("configs/scenarios/dual_mujoco_navigation.yaml")
 

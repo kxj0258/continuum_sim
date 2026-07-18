@@ -283,6 +283,110 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
         assert arrays["arm_executor_tendon_guard_feasible"].tolist() == [True]
 
 
+def test_scenario_artifacts_collects_observer_camera_videos_separately(
+    tmp_path,
+) -> None:
+    scenario_path = tmp_path / "scenario.yaml"
+    assembly_path = tmp_path / "assembly.yaml"
+    scenario_path.write_text("schema_version: 1\n", encoding="utf-8")
+    assembly_path.write_text("schema_version: 1\n", encoding="utf-8")
+    pending_main_gif = tmp_path / "pending" / "main.gif"
+    pending_main_mp4 = tmp_path / "pending" / "main.mp4"
+    pending_observer_gif = tmp_path / "pending" / "observer_eye_camera.gif"
+    pending_observer_mp4 = tmp_path / "pending" / "observer_eye_camera.mp4"
+    for path in (
+        pending_main_gif,
+        pending_main_mp4,
+        pending_observer_gif,
+        pending_observer_mp4,
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(path.name.encode("ascii"))
+    config = ScenarioConfig(
+        path=scenario_path,
+        name="observer_camera_video",
+        assembly_config_path=assembly_path,
+        backend=ScenarioBackendConfig(type="mujoco"),
+        scene=ScenarioSceneConfig(),
+        task=ScenarioTaskConfig(
+            type="tracking",
+            waypoints_world=np.zeros((1, 3), dtype=float),
+            waypoint_tolerance_m=0.001,
+            observer_roi_world=None,
+            loop=False,
+            min_clearance_m=0.01,
+            terminate_on_clearance_violation=True,
+            surface_normal_world=np.array([0.0, 0.0, 1.0], dtype=float),
+            target_contact_distance_m=0.0,
+            contact_tolerance_m=0.002,
+        ),
+        runtime=ScenarioRuntimeConfig(
+            controller_dt_s=0.02,
+            n_substeps=1,
+            max_steps=1,
+        ),
+        hooks=ScenarioHookConfig(
+            recorder=True,
+            tendon_debug=False,
+            tendon_debug_stride=1,
+            viewer="none",
+            keep_viewer_open=False,
+        ),
+        artifacts=ScenarioArtifactConfig(
+            enabled=True,
+            output_root=tmp_path / "runs",
+            save_npz=False,
+            save_plots=False,
+            save_gif=True,
+            save_mp4=True,
+            save_model=False,
+            save_mujoco_pcc_diagnostics=False,
+            video_mode="live_mujoco",
+            video_fps=20,
+            video_stride=10,
+        ),
+    )
+    application = SimpleNamespace(
+        config=config,
+        hooks_by_name={
+            "live_mujoco_video": SimpleNamespace(
+                output_paths=(pending_main_gif, pending_main_mp4),
+                paths=[pending_main_gif, pending_main_mp4],
+                errors=[],
+                frame_count=2,
+            ),
+            "observer_camera": SimpleNamespace(
+                camera_name="observer_eye_camera",
+                output_paths=(pending_observer_gif, pending_observer_mp4),
+                paths=[pending_observer_gif, pending_observer_mp4],
+                errors=[],
+                frame_count=2,
+            ),
+        },
+        loop=SimpleNamespace(backend=SimpleNamespace(config=SimpleNamespace())),
+    )
+    result = SimulationLoopResult(
+        states=(_state(0.0, [0.0, 0.0, 0.10]),),
+        commands=(),
+        stopped_early=False,
+        metadata={"stop_reason": "max_steps"},
+    )
+
+    paths = scenario_artifacts.save_scenario_artifacts(application, result)
+
+    metadata = json.loads(paths.metadata_json.read_text(encoding="utf-8"))
+    assert metadata["videos"]["gif"].endswith("videos/simulation.gif")
+    assert metadata["videos"]["mp4"].endswith("videos/simulation.mp4")
+    assert metadata["observer_videos"]["gif"].endswith(
+        "videos/observer_eye_camera.gif"
+    )
+    assert metadata["observer_videos"]["mp4"].endswith(
+        "videos/observer_eye_camera.mp4"
+    )
+    assert metadata["video_frames"] == 2
+    assert metadata["observer_video_frames"] == 2
+
+
 def test_scenario_artifacts_save_separate_named_local_path_plots(tmp_path) -> None:
     target = np.array(
         [

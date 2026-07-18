@@ -105,7 +105,11 @@ def project_roi_to_camera_feedback(
     timestamp_s: float = 0.0,
     source: str = "engine_roi",
 ) -> VisualServoFeedback:
-    """Project one world-frame ROI point into a +Z-forward pinhole camera."""
+    """Project one world-frame ROI point into a MuJoCo/OpenGL camera.
+
+    MuJoCo rendered cameras look along local ``-Z``. The reported depth is
+    positive in front of the optical axis.
+    """
 
     target_world = _finite_vector(roi_world_m, 3, "roi_world_m")
     camera_to_world = camera_pose_world.as_matrix()
@@ -113,14 +117,14 @@ def project_roi_to_camera_feedback(
     target_camera = (world_to_camera @ np.append(target_world, 1.0))[:3]
     fx, fy = focal_lengths_px(intrinsics)
     cx, cy = principal_point_px(intrinsics)
-    depth = float(target_camera[2])
+    depth = float(-target_camera[2])
     if abs(depth) <= 1.0e-12:
         pixel = np.array([np.nan, np.nan], dtype=float)
     else:
         pixel = np.array(
             [
                 fx * target_camera[0] / depth + cx,
-                fy * target_camera[1] / depth + cy,
+                -fy * target_camera[1] / depth + cy,
             ],
             dtype=float,
         )
@@ -129,7 +133,7 @@ def project_roi_to_camera_feedback(
     normalized = np.array(
         [
             target_camera[0] / depth if abs(depth) > 1.0e-12 else np.nan,
-            target_camera[1] / depth if abs(depth) > 1.0e-12 else np.nan,
+            -target_camera[1] / depth if abs(depth) > 1.0e-12 else np.nan,
         ],
         dtype=float,
     )

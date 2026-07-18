@@ -60,6 +60,8 @@ scenario:
     tendon_debug_stride: 5
     show_live_tendon_panel: false
     show_live_diagnostics_panel: false
+    show_observer_camera: true
+    observer_camera_stride: 1
     viewer: none
     keep_viewer_open: false
   artifacts:

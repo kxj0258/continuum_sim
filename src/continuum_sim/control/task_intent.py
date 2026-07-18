@@ -11,6 +11,11 @@ import numpy as np
 CARTESIAN_CONTROL_MODES = ("position", "velocity")
 ORIENTATION_CONTROL_MODES = ("disabled", "quaternion")
 OBSERVER_CONTROL_MODES = ("tracking", "collision_avoidance", "disabled")
+CONTACT_FORCE_FEEDBACK_MODES = (
+    "proxy_distance",
+    "measured_contact_force",
+    "external",
+)
 
 
 @dataclass(frozen=True)
@@ -119,11 +124,16 @@ class ObserverTaskIntent:
 
 @dataclass(frozen=True)
 class ContactTaskIntent:
-    """Task-level contact objective retained for safety and diagnostics."""
+    """Generic task-level contact-force objective."""
 
     surface_normal_world: np.ndarray
     target_normal_force_n: float = 0.0
     target_contact_distance_m: float = 0.0
+    contact_distance_m: float | None = None
+    measured_normal_force_n: float | None = None
+    force_feedback_mode: str = "proxy_distance"
+    force_proxy_stiffness_n_m: float | None = None
+    max_normal_velocity_m_s: float | None = None
     force_control_enabled: bool = False
     force_control_velocity_mps: float = 0.0
     force_control_weight: float = 20.0
@@ -138,6 +148,29 @@ class ContactTaskIntent:
             raise ValueError("target_normal_force_n must be finite.")
         if not np.isfinite(self.target_contact_distance_m):
             raise ValueError("target_contact_distance_m must be finite.")
+        if self.force_feedback_mode not in CONTACT_FORCE_FEEDBACK_MODES:
+            raise ValueError(
+                "force_feedback_mode must be one of "
+                f"{CONTACT_FORCE_FEEDBACK_MODES}."
+            )
+        for name, value in (
+            ("contact_distance_m", self.contact_distance_m),
+            ("measured_normal_force_n", self.measured_normal_force_n),
+            ("force_proxy_stiffness_n_m", self.force_proxy_stiffness_n_m),
+            ("max_normal_velocity_m_s", self.max_normal_velocity_m_s),
+        ):
+            if value is not None and not np.isfinite(value):
+                raise ValueError(f"{name} must be finite when set.")
+        if (
+            self.force_proxy_stiffness_n_m is not None
+            and self.force_proxy_stiffness_n_m <= 0.0
+        ):
+            raise ValueError("force_proxy_stiffness_n_m must be positive when set.")
+        if (
+            self.max_normal_velocity_m_s is not None
+            and self.max_normal_velocity_m_s <= 0.0
+        ):
+            raise ValueError("max_normal_velocity_m_s must be positive when set.")
         if not np.isfinite(self.force_control_velocity_mps):
             raise ValueError("force_control_velocity_mps must be finite.")
         if (
@@ -145,6 +178,9 @@ class ContactTaskIntent:
             or self.force_control_weight <= 0.0
         ):
             raise ValueError("force_control_weight must be positive and finite.")
+
+
+ContactForceIntent = ContactTaskIntent
 
 
 @dataclass(frozen=True)

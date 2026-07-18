@@ -17,7 +17,7 @@ from continuum_sim.control.mobile_base_controller import (
 from continuum_sim.control.tendon_rate_control import (
     BendingRateServoConfig,
 )
-from continuum_sim.execution import MujocoTendonPositionExecutionAdapter
+from continuum_sim.execution import ActuationCompatibilityLayer
 from continuum_sim.kinematics.pcc import (
     DEFAULT_PCC_KINEMATICS_MODE,
     PCCKinematicsMode,
@@ -85,7 +85,7 @@ class MujocoSystemBackend:
             tendon_rate_servo_config,
             mujoco_config,
         )
-        self._tendon_execution = MujocoTendonPositionExecutionAdapter(
+        self._tendon_execution = ActuationCompatibilityLayer(
             assembly,
             self.layout,
             mujoco_config,
@@ -180,7 +180,7 @@ class MujocoSystemBackend:
             arm_name: target.copy()
             for arm_name, target in self._tendon_execution.last_tendon_targets.items()
         }
-        execution_step = self._tendon_execution.step(
+        execution_step = self._tendon_execution.project_and_track(
             command,
             dt=dt,
             actual_tendon_displacement_m=actual_tendon_displacement,

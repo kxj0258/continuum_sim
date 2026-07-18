@@ -6,14 +6,13 @@ from dataclasses import replace
 
 import numpy as np
 
+from continuum_sim.control.base_approach_stage import BaseApproachStage
 from continuum_sim.control.coordinated_tracking import CoordinatedTrackingConfig
-from continuum_sim.control.mobile_base_pose_control import MobileBasePoseController
 from continuum_sim.control.scenario_controllers import NavigationController
 from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
 from continuum_sim.model.base_pose import (
     Pose6D,
     quaternion_error_rotation_vector,
-    quaternion_wxyz_to_rotation_matrix,
 )
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
 from continuum_sim.scenes.engine_query import EngineSceneQueryProtocol
@@ -95,10 +94,6 @@ class StagedNavigationController:
         self._terminate_on_clearance_violation = bool(
             terminate_on_clearance_violation
         )
-        self._base_position_tolerance_m = float(base_position_tolerance_m)
-        self._base_orientation_tolerance_rad = float(
-            base_orientation_tolerance_rad
-        )
         self._base_approach_standoff_m = float(base_approach_standoff_m)
         self._base_approach_z_bias = float(base_approach_z_bias)
         self._intermediate_waypoints_per_waypoint = int(
@@ -115,9 +110,13 @@ class StagedNavigationController:
             raise ValueError(
                 "intermediate_waypoints_per_waypoint must be non-negative."
             )
-        self._pose_controller = MobileBasePoseController(
+        self._base_stage = BaseApproachStage(
             position_gain=base_position_gain,
             orientation_gain=base_orientation_gain,
+            position_tolerance_m=base_position_tolerance_m,
+            orientation_tolerance_rad=base_orientation_tolerance_rad,
+            standoff_m=base_approach_standoff_m,
+            z_bias=base_approach_z_bias,
         )
         self._tendon_counts = {
             arm.name: arm.spatial_arm.tendon_count
@@ -191,13 +190,11 @@ class StagedNavigationController:
             return
         target = self._base_approach_tip_target(self._active_index)
         target_base_quat = state.base.pose.quat
-        self._base_target = Pose6D(
-            position=self._base_position_for_tip_target(
-                state,
-                target,
-                target_base_quat,
-            ),
-            quat=target_base_quat,
+        self._base_target = self._base_stage.base_pose_for_tip_target(
+            state,
+            self._executor_name,
+            target,
+            target_base_quat,
         )
         self._base_target_index = self._active_index
 
@@ -208,21 +205,14 @@ class StagedNavigationController:
     ) -> RobotSystemCommand:
         if self._base_target is None:
             raise RuntimeError("Base target has not been initialized.")
-        twist, position_error, orientation_error = (
-            self._pose_controller.compute_twist(
-                state.base.pose,
-                self._base_target,
-                max_linear_speed=self.assembly.base.max_linear_speed_mps,
-                max_angular_speed=self.assembly.base.max_angular_speed_rad_s,
-            )
+        approach = self._base_stage.compute_to_pose(
+            state,
+            self._base_target,
+            max_linear_speed=self.assembly.base.max_linear_speed_mps,
+            max_angular_speed=self.assembly.base.max_angular_speed_rad_s,
+            ignore_orientation=True,
         )
-        twist = twist.copy()
-        twist[3:] = 0.0
-        orientation_error = 0.0
-        reached = (
-            position_error <= self._base_position_tolerance_m
-        )
-        if reached:
+        if approach.reached:
             self.phase = "tracking"
             self._tracking = self._make_tracker(self._active_index, state)
             return self._tracking_command(state, clearance)
@@ -231,7 +221,7 @@ class StagedNavigationController:
         approach_tip_target = self._base_approach_tip_target(self._active_index)
         approach_direction = self._base_approach_direction(self._active_index)
         return RobotSystemCommand(
-            base_twist_world=twist,
+            base_twist_world=approach.twist_world,
             arms=zero.arms,
             metadata={
                 "task_type": "navigation",
@@ -253,8 +243,8 @@ class StagedNavigationController:
                 "base_approach_tip_target_world": approach_tip_target.copy(),
                 "base_approach_direction_world": approach_direction.copy(),
                 "base_approach_standoff_m": self._base_approach_standoff_m,
-                "base_position_error_m": position_error,
-                "base_orientation_error_rad": orientation_error,
+                "base_position_error_m": approach.position_error_m,
+                "base_orientation_error_rad": approach.orientation_error_rad,
                 "tendon_reaction_isolated": True,
                 "min_clearance_m": clearance.distance_m,
                 **self._arm_clearance_metadata(state),
@@ -548,51 +538,15 @@ class StagedNavigationController:
         return direction / norm
 
     def _base_approach_direction(self, waypoint_index: int) -> np.ndarray:
-        target_direction = self._target_direction(waypoint_index)
-        if target_direction is None:
-            return np.zeros(3, dtype=float)
-        approach = np.array(
-            [
-                -target_direction[0],
-                -target_direction[1],
-                self._base_approach_z_bias,
-            ],
-            dtype=float,
+        return self._base_stage.approach_direction(
+            self._target_direction(waypoint_index)
         )
-        norm = np.linalg.norm(approach)
-        if not np.isfinite(norm) or norm <= 1.0e-12:
-            approach = -target_direction.copy()
-            norm = np.linalg.norm(approach)
-        if not np.isfinite(norm) or norm <= 1.0e-12:
-            return np.zeros(3, dtype=float)
-        return approach / norm
 
     def _base_approach_tip_target(self, waypoint_index: int) -> np.ndarray:
-        waypoint = self._waypoints[waypoint_index]
-        if self._base_approach_standoff_m <= 0.0:
-            return waypoint.copy()
-        approach_direction = self._base_approach_direction(waypoint_index)
-        if np.linalg.norm(approach_direction) <= 1.0e-12:
-            return waypoint.copy()
-        return waypoint + self._base_approach_standoff_m * approach_direction
-
-    def _base_position_for_tip_target(
-        self,
-        state: RobotSystemState,
-        target_tip_position: np.ndarray,
-        target_base_quat: np.ndarray,
-    ) -> np.ndarray:
-        current_base_rotation = quaternion_wxyz_to_rotation_matrix(
-            state.base.pose.quat
+        return self._base_stage.staged_tip_target(
+            self._waypoints[waypoint_index],
+            self._target_direction(waypoint_index),
         )
-        target_base_rotation = quaternion_wxyz_to_rotation_matrix(
-            target_base_quat
-        )
-        tip_position = state.arms[self._executor_name].tip_pose_world.position
-        tip_offset_base = current_base_rotation.T @ (
-            tip_position - state.base.pose.position
-        )
-        return target_tip_position - target_base_rotation @ tip_offset_base
 
 
 def _single_role_name(assembly: RobotAssemblyConfig, role: str) -> str:

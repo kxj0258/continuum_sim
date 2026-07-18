@@ -859,6 +859,7 @@ class WipingController:
         control_type: str = "contact_distance",
         normal_force_gain: float = 0.0,
         force_proxy_stiffness_n_m: float = 600.0,
+        force_feedback_mode: str = "proxy_distance",
         max_normal_velocity_m_s: float = 0.03,
         force_control_weight: float = 20.0,
         max_contact_force_n: float | None = None,
@@ -937,6 +938,7 @@ class WipingController:
         self._original_phases = self.phases
         self.normal_force_gain = float(normal_force_gain)
         self.force_proxy_stiffness_n_m = float(force_proxy_stiffness_n_m)
+        self.force_feedback_mode = str(force_feedback_mode)
         self.max_normal_velocity_m_s = float(max_normal_velocity_m_s)
         if (
             not np.isfinite(self.max_normal_velocity_m_s)
@@ -1058,6 +1060,13 @@ class WipingController:
             ),
             target_normal_force_n=target_force,
             target_contact_distance_m=self.target_contact_distance_m,
+            contact_distance_m=(distance if np.isfinite(distance) else None),
+            measured_normal_force_n=(
+                estimated_force if np.isfinite(estimated_force) else None
+            ),
+            force_feedback_mode=self.force_feedback_mode,
+            force_proxy_stiffness_n_m=self.force_proxy_stiffness_n_m,
+            max_normal_velocity_m_s=self.max_normal_velocity_m_s,
             force_control_enabled=force_control_enabled,
             force_control_velocity_mps=(
                 force_control_velocity if force_control_enabled else 0.0
@@ -1102,6 +1111,7 @@ class WipingController:
                 "force_error_n": force_error,
                 "normal_force_gain": self.normal_force_gain,
                 "force_proxy_stiffness_n_m": self.force_proxy_stiffness_n_m,
+                "force_feedback_mode": self.force_feedback_mode,
                 "max_normal_velocity_m_s": self.max_normal_velocity_m_s,
                 "force_control_velocity_mps": force_control_velocity,
                 "force_control_enabled": force_control_enabled,

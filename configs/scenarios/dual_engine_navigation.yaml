@@ -71,19 +71,10 @@ scenario:
         executor_position_gain: 1.5
         max_target_speed_mps: 0.015
         enforce_tendon_rate_limits: false
-      observer_control:
-        position_gain: 3.0
+      observer_control_overrides:
         executor_offset_world_m: [0.0, -0.04, 0.02]
         roi_blend: 0.25
-        inter_arm_influence_distance_m: 0.019
-        inter_arm_safe_distance_m: 0.010
-        inter_arm_critical_distance_m: 0.008
-        inter_arm_release_margin_m: 0.001
-        inter_arm_avoidance_gain: 5.0
         centerline_samples_per_segment: 6
-        observer_tracking_weight: 40.0
-        observer_collision_weight: 80.0
-        stop_all_on_critical_distance: false
       intermediate_local_paths:
         - name: one_third_circle
           at_fraction: 0.3333333333

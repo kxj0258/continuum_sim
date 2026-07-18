@@ -4,6 +4,10 @@ from continuum_sim.control.adaptive_impedance import (
     AdaptiveImpedanceConfig,
     compute_dynamic_wiping_motor_velocity_command_from_state,
 )
+from continuum_sim.control.base_approach_stage import (
+    BaseApproachResult,
+    BaseApproachStage,
+)
 from continuum_sim.control.cbf_qp_kinematics import (
     CBFQPConfig,
     cbf_lower_bound,
@@ -60,6 +64,7 @@ from continuum_sim.control.mobile_base_controller import (
     zero_mobile_base_command,
 )
 from continuum_sim.control.mobile_base_pose_control import MobileBasePoseController
+from continuum_sim.control.intent_resolver import IntentResolver
 from continuum_sim.control.navigation_controller import (
     centerline_point_motor_jacobian,
     compute_navigation_motor_velocity_command,
@@ -74,6 +79,10 @@ from continuum_sim.control.tendon_rate_control import (
     TendonRateIntegrator,
     TendonRateLimits,
     TendonRateStep,
+)
+from continuum_sim.control.priority_stack import (
+    PriorityLevelConfig,
+    PriorityStackConfig,
 )
 from continuum_sim.control.task_space_servo import (
     TaskSpaceReference,
@@ -91,6 +100,7 @@ from continuum_sim.control.staged_engine_navigation import (
 from continuum_sim.control.staged_navigation import StagedNavigationController
 from continuum_sim.control.task_intent import (
     CartesianTaskIntent,
+    ContactForceIntent,
     ContactTaskIntent,
     ObserverTaskIntent,
     SafetyTaskIntent,
@@ -108,9 +118,12 @@ from continuum_sim.control.whole_body_controller import (
 
 __all__ = [
     "AdaptiveImpedanceConfig",
+    "BaseApproachResult",
+    "BaseApproachStage",
     "CBFQPConfig",
     "CartesianTaskIntent",
     "ContactMeasurement",
+    "ContactForceIntent",
     "ContactTriggeredAdmittanceCommand",
     "ContactTriggeredAdmittanceConfig",
     "ContactTriggeredAdmittanceTracker",
@@ -129,11 +142,14 @@ __all__ = [
     "EngineCleaningController",
     "EngineCleaningControllerGains",
     "EngineCleaningFeedback",
+    "IntentResolver",
     "MobileBaseCommand",
     "MobileBasePoseController",
     "MobileBaseState",
     "ObserverCommandReference",
     "ObserverTaskIntent",
+    "PriorityLevelConfig",
+    "PriorityStackConfig",
     "SafetyTaskIntent",
     "StagedEngineNavigationController",
     "StagedNavigationController",

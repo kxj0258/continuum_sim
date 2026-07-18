@@ -11,6 +11,7 @@ from continuum_sim.control.whole_body_controller import (
     WholeBodyControllerConfig,
     WholeBodyTask,
 )
+from continuum_sim.control.priority_stack import PriorityStackConfig
 from continuum_sim.kinematics.whole_body import (
     analyze_tendon_mapping,
     assemble_whole_body_jacobian,
@@ -203,6 +204,9 @@ class CoordinatedTrackingConfig:
     engine_influence_distance_m: float = 0.025
     engine_avoidance_gain: float = 4.0
     enforce_backend_tendon_limits: bool = False
+    priority_stack: PriorityStackConfig = field(
+        default_factory=PriorityStackConfig
+    )
 
     def __post_init__(self) -> None:
         if self.executor_orientation_tracking_mode not in EXECUTOR_ORIENTATION_TRACKING_MODES:
@@ -425,6 +429,7 @@ class CoordinatedTrackingController:
         observer_look_at_error = np.full(3, np.nan, dtype=float)
         observer_look_at_velocity = np.zeros(3, dtype=float)
         observer_avoidance_tasks: list[WholeBodyTask] = []
+        observer_tracking_tasks: list[WholeBodyTask] = []
         observer_look_at_tasks: list[WholeBodyTask] = []
         executor_scene_tasks: list[WholeBodyTask] = []
         observer_scene_tasks: list[WholeBodyTask] = []
@@ -462,17 +467,17 @@ class CoordinatedTrackingController:
                     self.config.observer_position_gain
                     * observer_target_error
                 )
-                observer_tasks.append(
-                    WholeBodyTask(
-                        name="observer_tracking",
-                        jacobian=self._observer_only_jacobian(
-                            jacobians[observer_name],
-                            observer_name,
-                        ),
-                        target_velocity=observer_target_velocity,
-                        weight=self.solver.weight_for("observer_tracking"),
-                    )
+                observer_tracking_task = WholeBodyTask(
+                    name="observer_tracking",
+                    jacobian=self._observer_only_jacobian(
+                        jacobians[observer_name],
+                        observer_name,
+                    ),
+                    target_velocity=observer_target_velocity,
+                    weight=self.solver.weight_for("observer_tracking"),
                 )
+                observer_tasks.append(observer_tracking_task)
+                observer_tracking_tasks.append(observer_tracking_task)
                 observer_tracking_active = True
 
         if self.scene_query is not None:
@@ -520,78 +525,38 @@ class CoordinatedTrackingController:
                     observer_look_at_velocity = look_at_velocity
                     if not observer_collision_active and not observer_tracking_active:
                         observer_target_velocity = look_at_velocity.copy()
+        executor_position_tasks = list(executor_tasks)
+        executor_orientation_tasks: tuple[WholeBodyTask, ...] = ()
         if executor_orientation_task is not None:
             if self.config.executor_orientation_tracking_mode == "weighted":
-                executor_tasks.append(executor_orientation_task)
-                if executor_force_tasks or executor_scene_tasks:
-                    executor_result = self.solver.solve_priority_stack(
-                        (
-                            tuple(executor_tasks),
-                            tuple(executor_force_tasks),
-                            tuple(executor_scene_tasks),
-                        ),
-                        active_arm_names=(executor_name,),
-                        include_base=True,
-                    )
-                else:
-                    executor_result = self.solver.solve(
-                        executor_tasks,
-                        active_arm_names=(executor_name,),
-                        include_base=True,
-                    )
+                executor_position_tasks.append(executor_orientation_task)
             elif self.config.executor_orientation_tracking_mode == "nullspace":
-                executor_result = self.solver.solve_priority_stack(
-                    (
-                        tuple(executor_tasks),
-                        tuple(executor_force_tasks),
-                        (executor_orientation_task,),
-                        tuple(executor_scene_tasks),
-                    ),
-                    active_arm_names=(executor_name,),
-                    include_base=True,
-                )
-            else:
-                if executor_force_tasks or executor_scene_tasks:
-                    executor_result = self.solver.solve_priority_stack(
-                        (
-                            tuple(executor_tasks),
-                            tuple(executor_force_tasks),
-                            tuple(executor_scene_tasks),
-                        ),
-                        active_arm_names=(executor_name,),
-                        include_base=True,
-                    )
-                else:
-                    executor_result = self.solver.solve(
-                        executor_tasks,
-                        active_arm_names=(executor_name,),
-                        include_base=True,
-                    )
-        else:
-            if executor_force_tasks or executor_scene_tasks:
-                executor_result = self.solver.solve_priority_stack(
-                    (
-                        tuple(executor_tasks),
-                        tuple(executor_force_tasks),
-                        tuple(executor_scene_tasks),
-                    ),
-                    active_arm_names=(executor_name,),
-                    include_base=True,
-                )
-            else:
-                executor_result = self.solver.solve(
-                    executor_tasks,
-                    active_arm_names=(executor_name,),
-                    include_base=True,
-                )
+                executor_orientation_tasks = (executor_orientation_task,)
+        executor_result = self.solver.solve_priority_stack(
+            _priority_levels(
+                self.config.priority_stack.executor,
+                {
+                    "position_servo": tuple(executor_position_tasks),
+                    "normal_force_control": tuple(executor_force_tasks),
+                    "orientation_servo": executor_orientation_tasks,
+                    "scene_avoidance": tuple(executor_scene_tasks),
+                },
+            ),
+            active_arm_names=(executor_name,),
+            include_base=True,
+        )
         observer_result = (
             None
             if observer_name is None
             else self.solver.solve_priority_stack(
-                (
-                    tuple(observer_tasks),
-                    tuple(observer_look_at_tasks),
-                    tuple(observer_scene_tasks),
+                _priority_levels(
+                    self.config.priority_stack.observer,
+                    {
+                        "interarm_avoidance": tuple(observer_avoidance_tasks),
+                        "observer_tracking": tuple(observer_tracking_tasks),
+                        "look_at": tuple(observer_look_at_tasks),
+                        "scene_avoidance": tuple(observer_scene_tasks),
+                    },
                 ),
                 active_arm_names=(observer_name,),
                 include_base=False,
@@ -632,6 +597,7 @@ class CoordinatedTrackingController:
             ]
         self.last_diagnostics = {
             "whole_body_singularity": executor_result.singularity,
+            "priority_stack": self.config.priority_stack.as_metadata(),
             "observer_singularity": (
                 None if observer_result is None else observer_result.singularity
             ),
@@ -1309,3 +1275,18 @@ def _stack_task_jacobians(
     if not rows:
         return None
     return np.vstack(rows)
+
+
+def _priority_levels(
+    configured_levels,
+    tasks_by_group: dict[str, tuple[WholeBodyTask, ...]],
+) -> tuple[tuple[WholeBodyTask, ...], ...]:
+    levels: list[tuple[WholeBodyTask, ...]] = []
+    for level in configured_levels:
+        tasks: list[WholeBodyTask] = []
+        for group in level.tasks:
+            tasks.extend(tasks_by_group.get(group, ()))
+        levels.append(tuple(tasks))
+    if not levels:
+        return ((),)
+    return tuple(levels)

@@ -23,6 +23,17 @@ low_level_control:
     minimum_velocity_scale: 0.05
     decouple_arm_singularity: true
     enforce_velocity_limits: false
+    priority_stack:
+      executor:
+        - tasks: [position_servo]
+        - tasks: [normal_force_control]
+        - tasks: [orientation_servo]
+        - tasks: [scene_avoidance]
+      observer:
+        - tasks: [interarm_avoidance]
+        - tasks: [observer_tracking]
+        - tasks: [look_at]
+        - tasks: [scene_avoidance]
   execution:
     backend_adapter: mujoco_tendon_position
     target_policy: actual_anchored

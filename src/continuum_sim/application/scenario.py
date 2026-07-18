@@ -16,6 +16,8 @@ from continuum_sim.control.tendon_rate_control import (
     BendingRateServoConfig,
     TENDON_INNER_LOOP_MODES,
 )
+from continuum_sim.control.task_intent import CONTACT_FORCE_FEEDBACK_MODES
+from continuum_sim.control.priority_stack import PriorityStackConfig
 from continuum_sim.control.waypoint_scheduler import WAYPOINT_ADVANCE_MODES
 from continuum_sim.kinematics.pcc import (
     DEFAULT_PCC_KINEMATICS_MODE,
@@ -175,6 +177,7 @@ class ScenarioTrackingControlConfig:
     tendon_inner_loop: ScenarioTendonInnerLoopConfig = field(
         default_factory=ScenarioTendonInnerLoopConfig
     )
+    priority_stack: PriorityStackConfig = field(default_factory=PriorityStackConfig)
 
     def __post_init__(self) -> None:
         if self.kinematics_mode not in PCC_KINEMATICS_MODES:
@@ -499,6 +502,7 @@ class ScenarioTaskConfig:
     normal_force_gain: float = 0.0
     target_normal_force_n: float = 0.0
     force_proxy_stiffness_n_m: float = 600.0
+    force_feedback_mode: str = "proxy_distance"
     max_normal_velocity_m_s: float = 0.03
     force_control_weight: float = 20.0
     max_contact_force_n: float | None = None
@@ -778,6 +782,14 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     feedback_mode = str(task_values.get("feedback_mode", "mujoco_actual"))
     if feedback_mode not in MUJOCO_FEEDBACK_MODES:
         raise ValueError(f"scenario.task.feedback_mode must be one of {MUJOCO_FEEDBACK_MODES}.")
+    force_feedback_mode = str(
+        task_values.get("force_feedback_mode", "proxy_distance")
+    )
+    if force_feedback_mode not in CONTACT_FORCE_FEEDBACK_MODES:
+        raise ValueError(
+            "scenario.task.force_feedback_mode must be one of "
+            f"{CONTACT_FORCE_FEEDBACK_MODES}."
+        )
     tracking_control = _load_tracking_control_config(
         task_values,
         low_level_control_values,
@@ -888,6 +900,7 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             force_proxy_stiffness_n_m=float(
                 task_values.get("force_proxy_stiffness_n_m", 600.0)
             ),
+            force_feedback_mode=force_feedback_mode,
             max_normal_velocity_m_s=float(
                 task_values.get("max_normal_velocity_m_s", 0.03)
             ),
@@ -1036,6 +1049,20 @@ def _load_tracking_control_config(
     task_space = {**task_space_values, **task_space_override}
     tendon_command = {**tendon_command_values, **tendon_command_override}
     execution = {**execution_values, **execution_override}
+    priority_stack_values = {
+        **_mapping(
+            tendon_command_values.get("priority_stack", {}),
+            "low_level_control.tendon_command.priority_stack",
+        ),
+        **_mapping(
+            tendon_command_override.get("priority_stack", {}),
+            "scenario.task.tracking_control.tendon_command.priority_stack",
+        ),
+        **_mapping(
+            task_control_values.get("priority_stack", {}),
+            "scenario.task.tracking_control.priority_stack",
+        ),
+    }
     return ScenarioTrackingControlConfig(
         kinematics_mode=kinematics_mode,
         approach_samples=int(task_control_values.get("approach_samples", 0)),
@@ -1163,6 +1190,7 @@ def _load_tracking_control_config(
                 inner_loop_values.get("zero_rate_tolerance_mps", 1.0e-7)
             ),
         ),
+        priority_stack=PriorityStackConfig.from_mapping(priority_stack_values),
     )
 
 

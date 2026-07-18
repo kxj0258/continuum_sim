@@ -123,11 +123,29 @@ class TendonCommandController:
             )
         )
         command = self._controller.compute_command(state)
+        contact_metadata = (
+            {}
+            if contact is None
+            else {
+                "contact_force_feedback_mode": contact.force_feedback_mode,
+                "contact_distance_m": contact.contact_distance_m,
+                "contact_measured_normal_force_n": (
+                    contact.measured_normal_force_n
+                ),
+                "contact_force_proxy_stiffness_n_m": (
+                    contact.force_proxy_stiffness_n_m
+                ),
+                "contact_max_normal_velocity_m_s": (
+                    contact.max_normal_velocity_m_s
+                ),
+            }
+        )
         return RobotSystemCommand(
             base_twist_world=command.base_twist_world,
             arms=command.arms,
             metadata={
                 **command.metadata,
+                **contact_metadata,
                 "layer3_output": "tendon_rate_ref",
                 "tendon_command_controller": type(self).__name__,
             },

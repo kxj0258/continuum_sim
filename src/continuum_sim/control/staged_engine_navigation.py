@@ -6,9 +6,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from continuum_sim.control.mobile_base_pose_control import (
-    MobileBasePoseController,
-)
+from continuum_sim.control.base_approach_stage import BaseApproachStage
 from continuum_sim.control.coordinated_tracking import CoordinatedTrackingConfig
 from continuum_sim.control.scenario_controllers import WaypointTrackingController
 from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
@@ -69,9 +67,11 @@ class StagedEngineNavigationController:
         self.terminal_reason = ""
         self.insertion_index = 0
         self._phase_steps = 0
-        self._pose_controller = MobileBasePoseController(
+        self._base_stage = BaseApproachStage(
             position_gain=spec.base_position_gain,
             orientation_gain=spec.base_orientation_gain,
+            position_tolerance_m=spec.base_position_tolerance_m,
+            orientation_tolerance_rad=spec.base_orientation_tolerance_rad,
         )
         self._fixed_assembly = replace(
             assembly,
@@ -173,19 +173,13 @@ class StagedEngineNavigationController:
             if self.phase == "base_approach"
             else self.plan.insertion_base_poses[self.insertion_index]
         )
-        twist, position_error, orientation_error = (
-            self._pose_controller.compute_twist(
-                state.base.pose,
-                target,
-                max_linear_speed=None,
-                max_angular_speed=None,
-            )
+        approach = self._base_stage.compute_to_pose(
+            state,
+            target,
+            max_linear_speed=None,
+            max_angular_speed=None,
         )
-        reached = (
-            position_error <= self.spec.base_position_tolerance_m
-            and orientation_error <= self.spec.base_orientation_tolerance_rad
-        )
-        if reached:
+        if approach.reached:
             if self.phase == "base_approach":
                 self._set_phase("base_insertion")
                 self.insertion_index = 0
@@ -199,15 +193,15 @@ class StagedEngineNavigationController:
                 self.terminal_reason = "completed"
         command = RobotSystemCommand.zeros(self._tendon_counts)
         return RobotSystemCommand(
-            base_twist_world=twist,
+            base_twist_world=approach.twist_world,
             arms=command.arms,
             metadata=self._metadata(
                 state,
                 target_position=target.position,
                 active_target=target.position,
                 active_target_kind="base",
-                position_error=position_error,
-                orientation_error=orientation_error,
+                position_error=approach.position_error_m,
+                orientation_error=approach.orientation_error_rad,
                 clearance=clearance,
             ),
         )
@@ -285,25 +279,23 @@ class StagedEngineNavigationController:
         clearance: float,
     ) -> RobotSystemCommand:
         target = self.plan.insertion_base_poses[self.insertion_index]
-        twist, position_error, orientation_error = (
-            self._pose_controller.compute_twist(
-                state.base.pose,
-                target,
-                max_linear_speed=None,
-                max_angular_speed=None,
-            )
+        approach = self._base_stage.compute_to_pose(
+            state,
+            target,
+            max_linear_speed=None,
+            max_angular_speed=None,
         )
         command = RobotSystemCommand.zeros(self._tendon_counts)
         return RobotSystemCommand(
-            base_twist_world=twist,
+            base_twist_world=approach.twist_world,
             arms=command.arms,
             metadata=self._metadata(
                 state,
                 target_position=target.position,
                 active_target=target.position,
                 active_target_kind="base",
-                position_error=position_error,
-                orientation_error=orientation_error,
+                position_error=approach.position_error_m,
+                orientation_error=approach.orientation_error_rad,
                 clearance=clearance,
             ),
         )

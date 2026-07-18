@@ -10,17 +10,20 @@ dual-arm MuJoCo navigation and tracking scenarios.
 2. Executor position servo remains the primary task. During contact force
    control, its tracking Jacobian is projected onto the board tangent plane, so
    it owns path following while leaving the normal direction available.
-3. Hybrid force-position wiping adds a closed-loop `ContactTaskIntent` instead
-   of only moving the waypoint normal to the board. The low-level controller
-   turns this into an executor normal-velocity whole-body task.
+3. Hybrid force-position wiping adds a closed-loop generic `ContactForceIntent`
+   instead of only moving the waypoint normal to the board. The current feedback
+   mode is `proxy_distance`; the same intent can carry `measured_contact_force`
+   when measured normal force is available.
 4. `CoordinatedTrackingController` solves executor tangent position first, then
    the normal force-control task in the position task nullspace.
 5. The observer arm keeps the navigation-style priority order: inter-arm
    collision avoidance first, then scene/board avoidance in the remaining
    nullspace.
-6. `MujocoSystemBackend` still receives tendon-rate commands and converts them
-   to absolute MuJoCo tendon position targets through the
-   `mujoco_tendon_position` execution adapter.
+6. `IntentResolver` converts task intents into raw whole-body tendon-rate
+   references using the configured priority stack.
+7. `ActuationCompatibilityLayer` converts those raw tendon-rate references into
+   bending-compatible MuJoCo tendon position targets through the configured
+   tendon inner loop.
 
 ## Scenario parameters
 
@@ -41,6 +44,7 @@ The closed-loop force task is controlled by:
 
 - `target_normal_force_n`
 - `normal_force_gain`
+- `force_feedback_mode`
 - `force_proxy_stiffness_n_m`
 - `max_normal_velocity_m_s`
 - `force_control_weight`

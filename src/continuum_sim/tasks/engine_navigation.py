@@ -139,8 +139,8 @@ class EngineNavigationSpec:
             values.get("intermediate_local_paths", ())
         )
         local_tracking = _load_local_tracking(values.get("local_tracking", {}))
-        observer_control = _load_observer_control(
-            values.get("observer_control", {})
+        observer_control = _load_observer_control_overrides(
+            values.get("observer_control_overrides", {})
         )
         spec = cls(
             entry_region=str(_required(values, "entry_region")),
@@ -472,18 +472,18 @@ def _load_local_tracking(raw_value: object) -> EngineNavigationLocalTrackingSpec
     )
 
 
-def _load_observer_control(
+def _load_observer_control_overrides(
     raw_value: object,
 ) -> EngineNavigationObserverControlSpec:
     if not isinstance(raw_value, dict):
-        raise ValueError("engine_navigation.observer_control must be a mapping.")
+        raise ValueError("engine_navigation.observer_control_overrides must be a mapping.")
     offset = np.asarray(
         raw_value.get("executor_offset_world_m", (0.0, -0.04, 0.02)),
         dtype=float,
     )
     if offset.shape != (3,) or not np.all(np.isfinite(offset)):
         raise ValueError(
-            "engine_navigation.observer_control.executor_offset_world_m must "
+            "engine_navigation.observer_control_overrides.executor_offset_world_m must "
             "be a finite 3-vector."
         )
     stop_all = raw_value.get(
@@ -492,7 +492,7 @@ def _load_observer_control(
     )
     if not isinstance(stop_all, bool):
         raise ValueError(
-            "engine_navigation.observer_control."
+            "engine_navigation.observer_control_overrides."
             "stop_all_on_critical_distance must be boolean."
         )
     spec = EngineNavigationObserverControlSpec(
@@ -545,7 +545,7 @@ def _load_observer_control(
     for name, value in positive.items():
         if not np.isfinite(value) or value <= 0.0:
             raise ValueError(
-                f"engine_navigation.observer_control.{name} must be "
+                f"engine_navigation.observer_control_overrides.{name} must be "
                 "positive and finite."
             )
     if spec.inter_arm_max_avoidance_speed_mps is not None and (
@@ -553,7 +553,7 @@ def _load_observer_control(
         or spec.inter_arm_max_avoidance_speed_mps <= 0.0
     ):
         raise ValueError(
-            "engine_navigation.observer_control."
+            "engine_navigation.observer_control_overrides."
             "inter_arm_max_avoidance_speed_mps must be positive and finite "
             "when provided."
         )
@@ -562,16 +562,16 @@ def _load_observer_control(
         or spec.inter_arm_release_margin_m < 0.0
     ):
         raise ValueError(
-            "engine_navigation.observer_control.inter_arm_release_margin_m "
+            "engine_navigation.observer_control_overrides.inter_arm_release_margin_m "
             "must be finite and non-negative."
         )
     if not 0.0 <= spec.roi_blend <= 1.0:
         raise ValueError(
-            "engine_navigation.observer_control.roi_blend must be in [0, 1]."
+            "engine_navigation.observer_control_overrides.roi_blend must be in [0, 1]."
         )
     if spec.centerline_samples_per_segment <= 0:
         raise ValueError(
-            "engine_navigation.observer_control."
+            "engine_navigation.observer_control_overrides."
             "centerline_samples_per_segment must be positive."
         )
     if not (

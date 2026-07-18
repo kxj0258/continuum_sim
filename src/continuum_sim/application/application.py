@@ -84,8 +84,17 @@ from continuum_sim.scenes.scene_builder import (
     lock_mobile_base_freejoint,
 )
 from continuum_sim.tasks.engine_cleaning_path import build_engine_cleaning_plan
-from continuum_sim.tasks.engine_navigation import resolve_engine_navigation_plan
+from continuum_sim.tasks.engine_navigation import (
+    EngineNavigationObserverControlSpec,
+    EngineNavigationSpec,
+    resolve_engine_navigation_plan,
+)
 from continuum_sim.tasks.navigation_mission import resolve_navigation_waypoints
+from continuum_sim.tasks.task_plan import (
+    BaseApproachConstraint,
+    ClearanceConstraint,
+    TaskPlan,
+)
 from continuum_sim.tasks.trajectory_generation import (
     generate_trajectory_waypoints,
     prepend_tracking_approach,
@@ -147,8 +156,13 @@ class SimulationApplication:
                 raise ValueError(
                     "engine_navigation requires an engine scene and task specification."
                 )
-            plan = resolve_engine_navigation_plan(
+            engine_navigation_spec = _engine_navigation_with_unified_observer_control(
                 config.task.engine_navigation,
+                config.task.observer_control,
+                config.task.tracking_control,
+            )
+            plan = resolve_engine_navigation_plan(
+                engine_navigation_spec,
                 engine_scene,
                 assembly,
             )
@@ -168,7 +182,7 @@ class SimulationApplication:
             controller = StagedEngineNavigationController(
                 assembly,
                 plan,
-                config.task.engine_navigation,
+                engine_navigation_spec,
                 scene_query=scene_query,
                 waypoint_tolerance_m=config.task.waypoint_tolerance_m,
                 min_clearance_m=config.task.min_clearance_m,
@@ -213,7 +227,7 @@ class SimulationApplication:
                 "feedforward_speed_mps": tracking.feedforward_speed_mps,
                 "max_target_speed_mps": _tracking_target_speed_limit(tracking),
                 "waypoint_orientations_world_wxyz": (
-                    task_plan["waypoint_orientations_world_wxyz"]
+                    task_plan.waypoint_orientations_world_wxyz
                 ),
                 "orientation_tolerance_rad": (
                     config.task.orientation_tolerance_rad
@@ -236,7 +250,7 @@ class SimulationApplication:
             if tracking.stage_mobile_base:
                 controller = StagedNavigationController(
                     assembly,
-                    task_plan["waypoints_world"],
+                    task_plan.waypoints_world,
                     **navigation_kwargs,
                     base_position_gain=tracking.base_position_gain,
                     base_orientation_gain=tracking.base_orientation_gain,
@@ -258,29 +272,30 @@ class SimulationApplication:
             else:
                 controller = NavigationController(
                     assembly,
-                    task_plan["waypoints_world"],
+                    task_plan.waypoints_world,
                     **navigation_kwargs,
                 )
         elif config.task.type == "wiping":
             tracking = config.task.tracking_control
             controller = WipingController(
                 assembly,
-                task_plan["waypoints_world"],
+                task_plan.waypoints_world,
                 waypoint_tolerance_m=config.task.waypoint_tolerance_m,
                 scene_query=scene_query,
-                surface_normal_world=task_plan["surface_normal_world"],
-                surface_point_world=task_plan["surface_point_world"],
+                surface_normal_world=task_plan.surface_normal_world,
+                surface_point_world=task_plan.surface_point_world,
                 target_contact_distance_m=config.task.target_contact_distance_m,
                 contact_tolerance_m=config.task.contact_tolerance_m,
                 target_advance_mode=config.task.target_advance_mode,
                 controller_dt_s=config.runtime.controller_dt_s,
                 advance_time_s=config.task.advance_time_s,
                 advance_steps=config.task.advance_steps,
-                phases=task_plan["phases"],
-                target_force_n=task_plan["target_force_n"],
+                phases=task_plan.waypoint_phases,
+                target_force_n=task_plan.target_force_n,
                 control_type=config.task.wiping_control_type,
                 normal_force_gain=config.task.normal_force_gain,
                 force_proxy_stiffness_n_m=config.task.force_proxy_stiffness_n_m,
+                force_feedback_mode=config.task.force_feedback_mode,
                 max_normal_velocity_m_s=config.task.max_normal_velocity_m_s,
                 force_control_weight=config.task.force_control_weight,
                 max_contact_force_n=config.task.max_contact_force_n,
@@ -305,11 +320,11 @@ class SimulationApplication:
             tracking = config.task.tracking_control
             controller = EngineCleaningSystemController(
                 assembly,
-                task_plan["waypoints_world"],
-                task_plan["normals_world"],
-                task_plan["phases"],
-                task_plan["target_force_n"],
-                task_plan["standoff_distance_m"],
+                task_plan.waypoints_world,
+                task_plan.normals_world,
+                task_plan.waypoint_phases,
+                task_plan.target_force_n,
+                task_plan.standoff_distance_m,
                 scene_query=scene_query,
                 gains=(
                     config.task.engine_cleaning_control
@@ -342,15 +357,15 @@ class SimulationApplication:
                 )
                 controller = timed_controller_type(
                     assembly,
-                    task_plan["waypoints_world"],
+                    task_plan.waypoints_world,
                     trajectory_duration_s=float(tracking.trajectory_duration_s),
                     waypoint_tolerance_m=config.task.waypoint_tolerance_m,
                     observer_roi_world=config.task.observer_roi_world,
                     observer_control_mode=config.task.observer_control_mode,
                     loop=config.task.loop,
                     scene_query=scene_query,
-                    approach_mask=task_plan["approach_mask"],
-                    source_waypoint_index=task_plan["source_waypoint_index"],
+                    approach_mask=task_plan.approach_mask,
+                    source_waypoint_index=task_plan.source_waypoint_index,
                     executor_position_gain=tracking.executor_position_gain,
                     observer_position_gain=tracking.observer_position_gain,
                     max_target_speed_mps=_tracking_target_speed_limit(tracking),
@@ -384,10 +399,10 @@ class SimulationApplication:
                     )
                 controller = WaypointTrackingController(
                     assembly,
-                    task_plan["waypoints_world"],
+                    task_plan.waypoints_world,
                     waypoint_tolerance_m=config.task.waypoint_tolerance_m,
                     waypoint_orientations_world_wxyz=(
-                        task_plan["waypoint_orientations_world_wxyz"]
+                        task_plan.waypoint_orientations_world_wxyz
                     ),
                     orientation_tolerance_rad=(
                         config.task.orientation_tolerance_rad
@@ -401,8 +416,8 @@ class SimulationApplication:
                     advance_steps=config.task.advance_steps,
                     max_steps_per_waypoint=tracking.max_steps_per_waypoint,
                     scene_query=scene_query,
-                    approach_mask=task_plan["approach_mask"],
-                    source_waypoint_index=task_plan["source_waypoint_index"],
+                    approach_mask=task_plan.approach_mask,
+                    source_waypoint_index=task_plan.source_waypoint_index,
                     executor_position_gain=tracking.executor_position_gain,
                     observer_position_gain=tracking.observer_position_gain,
                     feedforward_speed_mps=tracking.feedforward_speed_mps,
@@ -673,6 +688,34 @@ def _build_wiping_force_strategy(config, assembly):
     raise ValueError(f"Unsupported wiping force strategy {strategy_type!r}.")
 
 
+def _engine_navigation_with_unified_observer_control(
+    spec: EngineNavigationSpec,
+    observer: ScenarioObserverControlConfig,
+    tracking: ScenarioTrackingControlConfig,
+) -> EngineNavigationSpec:
+    engine_observer = spec.observer_control
+    return replace(
+        spec,
+        observer_control=EngineNavigationObserverControlSpec(
+            position_gain=tracking.observer_position_gain,
+            executor_offset_world_m=engine_observer.executor_offset_world_m,
+            roi_blend=engine_observer.roi_blend,
+            inter_arm_influence_distance_m=observer.influence_distance_m,
+            inter_arm_safe_distance_m=observer.minimum_distance_m,
+            inter_arm_critical_distance_m=observer.critical_distance_m,
+            inter_arm_release_margin_m=observer.release_margin_m,
+            inter_arm_avoidance_gain=observer.avoidance_gain,
+            inter_arm_max_avoidance_speed_mps=observer.max_avoidance_speed_mps,
+            centerline_samples_per_segment=(
+                engine_observer.centerline_samples_per_segment
+            ),
+            observer_tracking_weight=tracking.observer_tracking_weight,
+            observer_collision_weight=tracking.executor_collision_avoidance_weight,
+            stop_all_on_critical_distance=False,
+        ),
+    )
+
+
 def _tracking_solver_config(
     tracking: ScenarioTrackingControlConfig,
 ) -> WholeBodyControllerConfig:
@@ -755,6 +798,7 @@ def _tracking_coordinated_config(
         ),
         engine_avoidance_gain=scene_avoidance.engine_avoidance_gain,
         enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
+        priority_stack=tracking.priority_stack,
     )
 
 
@@ -783,8 +827,10 @@ def _live_mujoco_pending_video_paths(config) -> list[Path]:
     ]
 
 
-def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
+def _resolve_task_plan(config, assembly, engine_scene, structured_scene) -> TaskPlan:
     task = config.task
+    normals = np.zeros((0, 3), dtype=float)
+    standoff_distance = np.zeros(0, dtype=float)
     if task.type in ("idle", "engine_navigation"):
         waypoints = task.waypoints_world
         phases: tuple[str, ...] = ()
@@ -846,12 +892,9 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
     else:
         approach_mask = np.zeros(waypoints.shape[0], dtype=bool)
         source_waypoint_index = np.arange(waypoints.shape[0], dtype=int)
-    if "normals" not in locals() or normals.shape[0] != waypoints.shape[0]:
+    if normals.shape[0] != waypoints.shape[0]:
         normals = np.tile(normal, (waypoints.shape[0], 1))
-    if (
-        "standoff_distance" not in locals()
-        or standoff_distance.shape != (waypoints.shape[0],)
-    ):
+    if standoff_distance.shape != (waypoints.shape[0],):
         standoff_distance = np.zeros(waypoints.shape[0], dtype=float)
     if phases and len(phases) != waypoints.shape[0]:
         raise ValueError("scenario.task.waypoint_phases must match waypoint count.")
@@ -868,18 +911,26 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene):
         waypoints,
         structured_scene,
     )
-    return {
-        "waypoints_world": waypoints,
-        "waypoint_orientations_world_wxyz": waypoint_orientations,
-        "phases": phases,
-        "target_force_n": target_force,
-        "surface_normal_world": normal,
-        "surface_point_world": surface_point,
-        "normals_world": normals,
-        "standoff_distance_m": standoff_distance,
-        "approach_mask": approach_mask,
-        "source_waypoint_index": source_waypoint_index,
-    }
+    return TaskPlan(
+        waypoints_world=waypoints,
+        waypoint_orientations_world_wxyz=waypoint_orientations,
+        waypoint_phases=phases,
+        target_force_n=target_force,
+        surface_normal_world=normal,
+        surface_point_world=surface_point,
+        normals_world=normals,
+        standoff_distance_m=standoff_distance,
+        approach_mask=approach_mask,
+        source_waypoint_index=source_waypoint_index,
+        clearance=ClearanceConstraint(
+            minimum_clearance_m=task.min_clearance_m,
+            terminate_on_violation=task.terminate_on_clearance_violation,
+        ),
+        base_approach=BaseApproachConstraint(
+            standoff_m=task.tracking_control.base_approach_standoff_m,
+            z_bias=task.tracking_control.base_approach_z_bias,
+        ),
+    )
 
 
 def _resolve_waypoint_orientations(task, waypoints, structured_scene) -> np.ndarray:

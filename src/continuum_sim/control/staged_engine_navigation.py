@@ -8,7 +8,10 @@ import numpy as np
 
 from continuum_sim.control.base_approach_stage import BaseApproachStage
 from continuum_sim.control.coordinated_tracking import CoordinatedTrackingConfig
-from continuum_sim.control.scenario_controllers import WaypointTrackingController
+from continuum_sim.control.scenario_controllers import (
+    OnlineReachabilityConfig,
+    WaypointTrackingController,
+)
 from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
 from continuum_sim.scenes.engine_query import EngineSceneQueryProtocol
@@ -52,6 +55,7 @@ class StagedEngineNavigationController:
         low_level_solver_config: WholeBodyControllerConfig = (
             WholeBodyControllerConfig()
         ),
+        online_reachability: OnlineReachabilityConfig | None = None,
     ) -> None:
         if assembly.base.control_mode == "fixed":
             raise ValueError("Staged engine navigation requires a mobile base.")
@@ -94,6 +98,7 @@ class StagedEngineNavigationController:
             raise ValueError("orientation_tolerance_rad must be non-negative.")
         self._low_level_coordinated_config = low_level_coordinated_config
         self._low_level_solver_config = low_level_solver_config
+        self._online_reachability = online_reachability
         self._local_paths = (
             plan.local_path_plans
             if plan.local_path_plans
@@ -435,6 +440,7 @@ class StagedEngineNavigationController:
                     observer.observer_collision_weight
                 ),
             ),
+            online_reachability=self._online_reachability,
         )
 
     def _waypoint_orientations(self, waypoint_count: int) -> np.ndarray | None:

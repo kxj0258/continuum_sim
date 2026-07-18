@@ -7,6 +7,17 @@ low_level_control:
     feedforward_speed_mps: 0.0
     max_speed_mps:
     enforce_speed_limit: false
+  online_reachability:
+    enabled: true
+    auto_advance_enabled: true
+    score_threshold: 0.5
+    window_steps: 25
+    min_steps_before_auto_advance: 50
+    low_score_patience_steps: 25
+    good_progress_mps: 0.001
+    good_tendon_speed_ratio: 0.75
+    good_alignment: 0.8
+    bad_model_residual_mps: 0.005
   tendon_command:
     solver: weighted_svd
     executor_tracking_weight: 100.0

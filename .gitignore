@@ -37,7 +37,7 @@ temp/
 tmp_pytest_verify/
 
 # Simulation outputs
-outputs/
+output/
 output/runs/
 output/acceptance/
 runs/

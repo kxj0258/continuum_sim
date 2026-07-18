@@ -134,6 +134,55 @@ class ScenarioTendonInnerLoopConfig:
 
 
 @dataclass(frozen=True)
+class ScenarioOnlineReachabilityConfig:
+    """Online waypoint reachability scoring and auto-advance configuration."""
+
+    enabled: bool = True
+    auto_advance_enabled: bool = True
+    score_threshold: float = 0.3
+    window_steps: int = 25
+    min_steps_before_auto_advance: int = 50
+    low_score_patience_steps: int = 25
+    good_progress_mps: float = 0.001
+    good_tendon_speed_ratio: float = 0.75
+    good_alignment: float = 0.8
+    bad_model_residual_mps: float = 0.005
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.score_threshold <= 1.0:
+            raise ValueError(
+                "tracking_control.online_reachability.score_threshold "
+                "must be in [0, 1]."
+            )
+        if self.window_steps <= 1:
+            raise ValueError(
+                "tracking_control.online_reachability.window_steps must be greater than 1."
+            )
+        if self.min_steps_before_auto_advance < 0:
+            raise ValueError(
+                "tracking_control.online_reachability.min_steps_before_auto_advance "
+                "must be non-negative."
+            )
+        if self.low_score_patience_steps <= 0:
+            raise ValueError(
+                "tracking_control.online_reachability.low_score_patience_steps "
+                "must be positive."
+            )
+        positive = {
+            "good_progress_mps": self.good_progress_mps,
+            "good_tendon_speed_ratio": self.good_tendon_speed_ratio,
+            "good_alignment": self.good_alignment,
+            "bad_model_residual_mps": self.bad_model_residual_mps,
+        }
+        for name, value in positive.items():
+            if not np.isfinite(value) or value <= 0.0:
+                raise ValueError(
+                    f"tracking_control.online_reachability.{name} must be "
+                    "positive and finite."
+                )
+
+
+@dataclass(frozen=True)
 class ScenarioTrackingControlConfig:
     """Scenario-native trajectory-tracking controller parameters."""
 
@@ -176,6 +225,9 @@ class ScenarioTrackingControlConfig:
     enforce_backend_tendon_limits: bool = False
     tendon_inner_loop: ScenarioTendonInnerLoopConfig = field(
         default_factory=ScenarioTendonInnerLoopConfig
+    )
+    online_reachability: ScenarioOnlineReachabilityConfig = field(
+        default_factory=ScenarioOnlineReachabilityConfig
     )
     priority_stack: PriorityStackConfig = field(default_factory=PriorityStackConfig)
 
@@ -1033,6 +1085,18 @@ def _load_tracking_control_config(
         task_control_values.get("tendon_inner_loop", {}),
         "scenario.task.tracking_control.tendon_inner_loop",
     )
+    low_level_online_reachability = _mapping(
+        low_level_control_values.get("online_reachability", {}),
+        "low_level_control.online_reachability",
+    )
+    task_online_reachability = _mapping(
+        task_control_values.get("online_reachability", {}),
+        "scenario.task.tracking_control.online_reachability",
+    )
+    online_reachability_values = {
+        **low_level_online_reachability,
+        **task_online_reachability,
+    }
     inner_loop_values = {**low_level_inner_loop, **task_inner_loop}
     task_space_override = _mapping(
         task_control_values.get("task_space_servo", {}),
@@ -1188,6 +1252,37 @@ def _load_tracking_control_config(
             ),
             zero_rate_tolerance_mps=float(
                 inner_loop_values.get("zero_rate_tolerance_mps", 1.0e-7)
+            ),
+        ),
+        online_reachability=ScenarioOnlineReachabilityConfig(
+            enabled=bool(online_reachability_values.get("enabled", True)),
+            auto_advance_enabled=bool(
+                online_reachability_values.get("auto_advance_enabled", True)
+            ),
+            score_threshold=float(
+                online_reachability_values.get("score_threshold", 0.3)
+            ),
+            window_steps=int(online_reachability_values.get("window_steps", 25)),
+            min_steps_before_auto_advance=int(
+                online_reachability_values.get(
+                    "min_steps_before_auto_advance",
+                    50,
+                )
+            ),
+            low_score_patience_steps=int(
+                online_reachability_values.get("low_score_patience_steps", 25)
+            ),
+            good_progress_mps=float(
+                online_reachability_values.get("good_progress_mps", 0.001)
+            ),
+            good_tendon_speed_ratio=float(
+                online_reachability_values.get("good_tendon_speed_ratio", 0.75)
+            ),
+            good_alignment=float(
+                online_reachability_values.get("good_alignment", 0.8)
+            ),
+            bad_model_residual_mps=float(
+                online_reachability_values.get("bad_model_residual_mps", 0.005)
             ),
         ),
         priority_stack=PriorityStackConfig.from_mapping(priority_stack_values),

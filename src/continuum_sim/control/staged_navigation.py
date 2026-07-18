@@ -8,7 +8,10 @@ import numpy as np
 
 from continuum_sim.control.base_approach_stage import BaseApproachStage
 from continuum_sim.control.coordinated_tracking import CoordinatedTrackingConfig
-from continuum_sim.control.scenario_controllers import NavigationController
+from continuum_sim.control.scenario_controllers import (
+    NavigationController,
+    OnlineReachabilityConfig,
+)
 from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
 from continuum_sim.model.base_pose import (
     Pose6D,
@@ -51,6 +54,7 @@ class StagedNavigationController:
         control_type: str = "whole_body",
         cbf_gain: float = 4.0,
         cbf_influence_distance_m: float | None = None,
+        online_reachability: OnlineReachabilityConfig | None = None,
         base_position_gain: float = 1.5,
         base_orientation_gain: float = 2.0,
         base_position_tolerance_m: float = 0.005,
@@ -150,6 +154,7 @@ class StagedNavigationController:
             "control_type": control_type,
             "cbf_gain": cbf_gain,
             "cbf_influence_distance_m": cbf_influence_distance_m,
+            "online_reachability": online_reachability,
         }
         self._tracking: NavigationController | None = None
 

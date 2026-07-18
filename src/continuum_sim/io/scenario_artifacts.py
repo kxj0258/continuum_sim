@@ -538,6 +538,24 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
             getattr(recorder, "tracking_approach", ()),
             dtype=bool,
         )
+        for key, dtype in (
+            ("online_reachability_score", float),
+            ("online_reachability_execution_score", float),
+            ("online_reachability_combined_score", float),
+            ("online_reachability_progress_component", float),
+            ("online_reachability_alignment_component", float),
+            ("online_reachability_tendon_component", float),
+            ("online_reachability_model_component", float),
+            ("online_reachability_progress_rate_mps", float),
+            ("online_reachability_target_alignment", float),
+            ("online_reachability_tendon_speed_ratio", float),
+            ("online_reachability_model_residual_mps", float),
+            ("online_reachability_low_score_steps", int),
+            ("online_reachability_auto_advance_requested", bool),
+        ):
+            values = getattr(recorder, key, ())
+            if len(values) == target_count:
+                arrays[key] = np.asarray(values, dtype=dtype)
         arrays["waypoint_index"] = np.asarray(recorder.waypoint_index, dtype=int)
         arrays["min_clearance_m"] = np.asarray(recorder.min_clearance_m)
         arrays["executor_clearance_m"] = np.asarray(

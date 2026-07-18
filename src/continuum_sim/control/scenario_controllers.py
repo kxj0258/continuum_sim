@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -65,6 +65,224 @@ from continuum_sim.system.types import (
 from continuum_sim.tasks.engine_surface_path import CleaningWaypoint
 
 
+@dataclass(frozen=True)
+class OnlineReachabilityConfig:
+    """Online waypoint reachability scoring and optional auto-advance."""
+
+    enabled: bool = True
+    auto_advance_enabled: bool = True
+    score_threshold: float = 0.3
+    window_steps: int = 25
+    min_steps_before_auto_advance: int = 50
+    low_score_patience_steps: int = 25
+    good_progress_mps: float = 0.001
+    good_tendon_speed_ratio: float = 0.75
+    good_alignment: float = 0.8
+    bad_model_residual_mps: float = 0.005
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.score_threshold <= 1.0:
+            raise ValueError("online_reachability.score_threshold must be in [0, 1].")
+        if self.window_steps <= 1:
+            raise ValueError("online_reachability.window_steps must be greater than 1.")
+        if self.min_steps_before_auto_advance < 0:
+            raise ValueError(
+                "online_reachability.min_steps_before_auto_advance must be non-negative."
+            )
+        if self.low_score_patience_steps <= 0:
+            raise ValueError(
+                "online_reachability.low_score_patience_steps must be positive."
+            )
+        positive = {
+            "good_progress_mps": self.good_progress_mps,
+            "good_tendon_speed_ratio": self.good_tendon_speed_ratio,
+            "good_alignment": self.good_alignment,
+            "bad_model_residual_mps": self.bad_model_residual_mps,
+        }
+        for name, value in positive.items():
+            if not np.isfinite(value) or value <= 0.0:
+                raise ValueError(
+                    f"online_reachability.{name} must be positive and finite."
+                )
+
+
+@dataclass
+class _ReachabilitySample:
+    time_s: float
+    error_m: float
+    tip_position_world: np.ndarray
+
+
+class _OnlineReachabilityEvaluator:
+    """Score whether the active waypoint is currently making useful progress."""
+
+    def __init__(self, config: OnlineReachabilityConfig) -> None:
+        self.config = config
+        self._active_index: int | None = None
+        self._samples: list[_ReachabilitySample] = []
+        self._steps_on_waypoint = 0
+        self._low_score_steps = 0
+
+    def update(
+        self,
+        *,
+        active_index: int,
+        state: RobotSystemState,
+        executor_name: str,
+        target_position_world: np.ndarray,
+        error_m: float,
+        tolerance_m: float,
+        previous_tendon_rate_ref_mps: np.ndarray | None,
+        previous_model_residual_mps: float,
+    ) -> dict[str, object]:
+        if self._active_index != active_index:
+            self._active_index = active_index
+            self._samples.clear()
+            self._steps_on_waypoint = 0
+            self._low_score_steps = 0
+
+        self._steps_on_waypoint += 1
+        executor = state.arms[executor_name]
+        self._samples.append(
+            _ReachabilitySample(
+                time_s=float(state.time_s),
+                error_m=float(error_m),
+                tip_position_world=executor.tip_pose_world.position.copy(),
+            )
+        )
+        if len(self._samples) > self.config.window_steps:
+            del self._samples[: len(self._samples) - self.config.window_steps]
+
+        metadata = self._empty_metadata()
+        metadata["online_reachability_enabled"] = bool(self.config.enabled)
+        metadata["online_reachability_steps_on_waypoint"] = int(
+            self._steps_on_waypoint
+        )
+        metadata["online_reachability_window_steps"] = int(self.config.window_steps)
+        metadata["online_reachability_score_threshold"] = float(
+            self.config.score_threshold
+        )
+        metadata["online_reachability_min_steps_before_auto_advance"] = int(
+            self.config.min_steps_before_auto_advance
+        )
+        metadata["online_reachability_low_score_patience_steps"] = int(
+            self.config.low_score_patience_steps
+        )
+        metadata["online_reachability_auto_advance_enabled"] = bool(
+            self.config.auto_advance_enabled
+        )
+        if not self.config.enabled:
+            return metadata
+
+        if len(self._samples) < 2:
+            metadata["online_reachability_low_score_steps"] = int(
+                self._low_score_steps
+            )
+            return metadata
+
+        oldest = self._samples[0]
+        newest = self._samples[-1]
+        elapsed = max(newest.time_s - oldest.time_s, np.finfo(float).eps)
+        progress_rate_mps = (oldest.error_m - newest.error_m) / elapsed
+        progress_component = _unit_interval(
+            progress_rate_mps / self.config.good_progress_mps
+        )
+
+        actual_tip_velocity_world = (
+            newest.tip_position_world - oldest.tip_position_world
+        ) / elapsed
+        target_delta = (
+            np.asarray(target_position_world, dtype=float) - newest.tip_position_world
+        )
+        alignment = _direction_alignment(actual_tip_velocity_world, target_delta)
+        alignment_component = (
+            1.0
+            if not np.isfinite(alignment)
+            else _unit_interval(
+                (alignment + 0.2) / (self.config.good_alignment + 0.2)
+            )
+        )
+
+        tendon_speed_ratio = _speed_ratio(
+            executor.tendon_velocity_mps,
+            previous_tendon_rate_ref_mps,
+        )
+        tendon_component = (
+            1.0
+            if not np.isfinite(tendon_speed_ratio)
+            else _unit_interval(
+                tendon_speed_ratio / self.config.good_tendon_speed_ratio
+            )
+        )
+
+        model_residual_mps = float(previous_model_residual_mps)
+        model_component = (
+            1.0
+            if not np.isfinite(model_residual_mps)
+            else _unit_interval(
+                1.0 - model_residual_mps / self.config.bad_model_residual_mps
+            )
+        )
+
+        reachability_components = (
+            progress_component,
+            alignment_component,
+            model_component,
+        )
+        reachability_score = float(
+            np.prod(np.asarray(reachability_components, dtype=float))
+        )
+        execution_score = float(tendon_component)
+        combined_score = float(reachability_score * execution_score)
+        low_score = bool(
+            self._steps_on_waypoint >= self.config.min_steps_before_auto_advance
+            and error_m > tolerance_m
+            and reachability_score < self.config.score_threshold
+        )
+        self._low_score_steps = self._low_score_steps + 1 if low_score else 0
+        auto_advance_requested = bool(
+            self.config.auto_advance_enabled
+            and low_score
+            and self._low_score_steps >= self.config.low_score_patience_steps
+        )
+
+        metadata.update(
+            {
+                "online_reachability_score": reachability_score,
+                "online_reachability_execution_score": execution_score,
+                "online_reachability_combined_score": combined_score,
+                "online_reachability_progress_component": progress_component,
+                "online_reachability_alignment_component": alignment_component,
+                "online_reachability_tendon_component": tendon_component,
+                "online_reachability_model_component": model_component,
+                "online_reachability_progress_rate_mps": float(progress_rate_mps),
+                "online_reachability_target_alignment": float(alignment),
+                "online_reachability_tendon_speed_ratio": float(tendon_speed_ratio),
+                "online_reachability_model_residual_mps": model_residual_mps,
+                "online_reachability_low_score_steps": int(self._low_score_steps),
+                "online_reachability_auto_advance_requested": auto_advance_requested,
+            }
+        )
+        return metadata
+
+    def _empty_metadata(self) -> dict[str, object]:
+        return {
+            "online_reachability_score": np.nan,
+            "online_reachability_execution_score": np.nan,
+            "online_reachability_combined_score": np.nan,
+            "online_reachability_progress_component": np.nan,
+            "online_reachability_alignment_component": np.nan,
+            "online_reachability_tendon_component": np.nan,
+            "online_reachability_model_component": np.nan,
+            "online_reachability_progress_rate_mps": np.nan,
+            "online_reachability_target_alignment": np.nan,
+            "online_reachability_tendon_speed_ratio": np.nan,
+            "online_reachability_model_residual_mps": np.nan,
+            "online_reachability_low_score_steps": int(self._low_score_steps),
+            "online_reachability_auto_advance_requested": False,
+        }
+
+
 class ZeroSystemController:
     """Hold the base and all direct tendon targets at their current values."""
 
@@ -111,6 +329,7 @@ class WaypointTrackingController:
         observer_executor_offset_world: np.ndarray | None = None,
         observer_roi_blend: float = 0.25,
         advance_enabled: bool = True,
+        online_reachability: OnlineReachabilityConfig | None = None,
     ) -> None:
         waypoints = np.asarray(waypoints_world, dtype=float)
         if waypoints.ndim != 2 or waypoints.shape[1] != 3 or waypoints.shape[0] == 0:
@@ -185,6 +404,14 @@ class WaypointTrackingController:
         self._executor_name = _single_role_name(assembly, "executor")
         self.advance_enabled = bool(advance_enabled)
         self.executor_velocity_override_world: np.ndarray | None = None
+        self.online_reachability = (
+            OnlineReachabilityConfig()
+            if online_reachability is None
+            else online_reachability
+        )
+        self._reachability = _OnlineReachabilityEvaluator(self.online_reachability)
+        self._previous_executor_tendon_rate_ref_mps: np.ndarray | None = None
+        self._previous_model_residual_mps = float("nan")
         low_level_config = (
             CoordinatedTrackingConfig(
                 kinematics_mode=solver_config.kinematics_mode,
@@ -243,10 +470,29 @@ class WaypointTrackingController:
             )
         )
         scheduler_paused = not (advance and self.advance_enabled)
-        if not scheduler_paused:
-            self.scheduler.update(
-                error_norm_m=achieved_error if pose_reached else float("inf")
+        reachability_metadata = self._reachability.update(
+            active_index=achieved_index,
+            state=state,
+            executor_name=self._executor_name,
+            target_position_world=self.waypoints_world[achieved_index],
+            error_m=achieved_error,
+            tolerance_m=self.waypoint_tolerance_m,
+            previous_tendon_rate_ref_mps=self._previous_executor_tendon_rate_ref_mps,
+            previous_model_residual_mps=self._previous_model_residual_mps,
+        )
+        auto_advance_requested = bool(
+            reachability_metadata.get(
+                "online_reachability_auto_advance_requested",
+                False,
             )
+        )
+        if not scheduler_paused:
+            if auto_advance_requested and not pose_reached:
+                self.scheduler.advance(reason="online_reachability_low")
+            else:
+                self.scheduler.update(
+                    error_norm_m=achieved_error if pose_reached else float("inf")
+                )
         waypoint_advanced = self.done or self.active_index != achieved_index
         waypoint_advance_reason = (
             self.scheduler.last_advance_reason if waypoint_advanced else ""
@@ -259,6 +505,14 @@ class WaypointTrackingController:
             )
         command = self._controller.compute_command(state, step)
         controller_metadata = command.metadata
+        self._previous_executor_tendon_rate_ref_mps = (
+            command.arms[self._executor_name].tendon_rate_mps.copy()
+            if self._executor_name in command.arms
+            else None
+        )
+        self._previous_model_residual_mps = _model_residual_from_metadata(
+            controller_metadata
+        )
         if self.done:
             command = RobotSystemCommand.zeros(
                 {
@@ -276,6 +530,7 @@ class WaypointTrackingController:
             arms=command.arms,
             metadata={
                 **controller_metadata,
+                **reachability_metadata,
                 "task_type": "tracking",
                 "waypoint_index": self.active_index,
                 "source_waypoint_index": int(
@@ -652,6 +907,7 @@ class NavigationController:
         control_type: str = "whole_body",
         cbf_gain: float = 4.0,
         cbf_influence_distance_m: float | None = None,
+        online_reachability: OnlineReachabilityConfig | None = None,
     ) -> None:
         if scene_query is None:
             raise ValueError("NavigationController requires a scene query.")
@@ -676,6 +932,7 @@ class NavigationController:
             solver_config=solver_config,
             enforce_backend_tendon_limits=enforce_backend_tendon_limits,
             coordinated_config=coordinated_config,
+            online_reachability=online_reachability,
         )
         self.scene_query = scene_query
         self.min_clearance_m = min_clearance_m
@@ -877,6 +1134,7 @@ class WipingController:
         coordinated_config: CoordinatedTrackingConfig | None = None,
         dynamics_config: PCCDynamicsConfig | None = None,
         admittance_config: ContactTriggeredAdmittanceConfig | None = None,
+        online_reachability: OnlineReachabilityConfig | None = None,
     ) -> None:
         self.control_type = control_type
         self._tracking_mode = str(tracking_mode)
@@ -924,6 +1182,7 @@ class WipingController:
             "enforce_backend_tendon_limits": enforce_backend_tendon_limits,
             "coordinated_config": coordinated_config,
             "trajectory_duration_s": trajectory_duration_s,
+            "online_reachability": online_reachability,
         }
         self._tracking = self._make_tracking_controller(self._original_waypoints_world)
         force = (
@@ -1199,6 +1458,7 @@ class WipingController:
                 kwargs["enforce_backend_tendon_limits"]
             ),
             coordinated_config=kwargs["coordinated_config"],
+            online_reachability=kwargs["online_reachability"],
         )
 
     def _ensure_runtime_approach(self, state: RobotSystemState) -> None:
@@ -1460,6 +1720,65 @@ class EngineCleaningSystemController:
                 "engine_cleaning_estimated_force_n": force,
             },
         )
+
+
+def _unit_interval(value: float) -> float:
+    if not np.isfinite(value):
+        return float("nan")
+    return float(np.clip(value, 0.0, 1.0))
+
+
+def _direction_alignment(velocity: np.ndarray, target_delta: np.ndarray) -> float:
+    velocity_norm = float(np.linalg.norm(velocity))
+    target_norm = float(np.linalg.norm(target_delta))
+    if velocity_norm <= 1.0e-12 or target_norm <= 1.0e-12:
+        return float("nan")
+    return float(
+        np.clip(
+            np.dot(velocity, target_delta) / (velocity_norm * target_norm),
+            -1.0,
+            1.0,
+        )
+    )
+
+
+def _speed_ratio(actual: np.ndarray, reference: np.ndarray | None) -> float:
+    if reference is None:
+        return float("nan")
+    actual_norm = float(np.linalg.norm(actual))
+    reference_norm = float(np.linalg.norm(reference))
+    if reference_norm <= 1.0e-12:
+        return float("nan")
+    return actual_norm / reference_norm
+
+
+def _model_residual_from_metadata(metadata: dict[str, object]) -> float:
+    for key in (
+        "pcc_command_mujoco_velocity_residual_norm_mps",
+        "pcc_mujoco_model_velocity_residual_norm_mps",
+        "residual_norm",
+    ):
+        value = metadata.get(key)
+        if value is not None:
+            scalar = _finite_scalar_norm(value)
+            if np.isfinite(scalar):
+                return scalar
+    solver = metadata.get("whole_body_solver")
+    if isinstance(solver, dict):
+        for key in ("residual_norm", "target_projection_residual_norm"):
+            value = solver.get(key)
+            if value is not None:
+                scalar = _finite_scalar_norm(value)
+                if np.isfinite(scalar):
+                    return scalar
+    return float("nan")
+
+
+def _finite_scalar_norm(value: object) -> float:
+    array = np.asarray(value, dtype=float)
+    if array.size == 0 or not np.all(np.isfinite(array)):
+        return float("nan")
+    return float(np.linalg.norm(array))
 
 
 def _single_role_name(assembly: RobotAssemblyConfig, role: str) -> str:

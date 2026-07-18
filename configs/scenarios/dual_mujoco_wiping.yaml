@@ -51,7 +51,7 @@ scenario:
       engine_influence_distance_m: 0.010
       engine_avoidance_gain: 5.0
     tracking_control:
-      approach_samples: 20
+      approach_samples: 5
       tracking_mode: waypoint
       max_steps_per_waypoint: 100
       feedforward_speed_mps: 0.0

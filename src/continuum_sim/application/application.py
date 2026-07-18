@@ -21,6 +21,7 @@ from continuum_sim.config import load_mujoco_config
 from continuum_sim.control.scenario_controllers import (
     EngineCleaningSystemController,
     NavigationController,
+    OnlineReachabilityConfig,
     TimedTrajectoryTrackingController,
     WaypointTrackingController,
     WipingController,
@@ -205,6 +206,7 @@ class SimulationApplication:
                     )
                 ),
                 low_level_solver_config=_tracking_solver_config(tracking),
+                online_reachability=_online_reachability_config(tracking),
             )
         elif config.task.type == "navigation":
             tracking = config.task.tracking_control
@@ -246,6 +248,7 @@ class SimulationApplication:
                 "cbf_influence_distance_m": (
                     config.task.navigation_cbf_influence_distance_m
                 ),
+                "online_reachability": _online_reachability_config(tracking),
             }
             if tracking.stage_mobile_base:
                 controller = StagedNavigationController(
@@ -315,6 +318,7 @@ class SimulationApplication:
                     config.task.observer_control,
                     config.task.scene_avoidance,
                 ),
+                online_reachability=_online_reachability_config(tracking),
             )
         elif config.task.type == "engine_cleaning":
             tracking = config.task.tracking_control
@@ -429,6 +433,7 @@ class SimulationApplication:
                         config.task.observer_control,
                         config.task.scene_avoidance,
                     ),
+                    online_reachability=_online_reachability_config(tracking),
                 )
         hooks: list[object] = []
         hooks_by_name: dict[str, object] = {}
@@ -799,6 +804,24 @@ def _tracking_coordinated_config(
         engine_avoidance_gain=scene_avoidance.engine_avoidance_gain,
         enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
         priority_stack=tracking.priority_stack,
+    )
+
+
+def _online_reachability_config(
+    tracking: ScenarioTrackingControlConfig,
+) -> OnlineReachabilityConfig:
+    config = tracking.online_reachability
+    return OnlineReachabilityConfig(
+        enabled=config.enabled,
+        auto_advance_enabled=config.auto_advance_enabled,
+        score_threshold=config.score_threshold,
+        window_steps=config.window_steps,
+        min_steps_before_auto_advance=config.min_steps_before_auto_advance,
+        low_score_patience_steps=config.low_score_patience_steps,
+        good_progress_mps=config.good_progress_mps,
+        good_tendon_speed_ratio=config.good_tendon_speed_ratio,
+        good_alignment=config.good_alignment,
+        bad_model_residual_mps=config.bad_model_residual_mps,
     )
 
 

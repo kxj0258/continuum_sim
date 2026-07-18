@@ -62,7 +62,7 @@ scenario:
       entry_region: entry_port
       insertion_path: nozzle_axis_entry
       pre_entry_standoff_m: 0.050
-      insertion_waypoint_spacing_m: 0.020
+      insertion_waypoint_spacing_m: 0.10
       base_position_tolerance_m: 0.005
       base_orientation_tolerance_rad: 0.035
       base_position_gain: 1.5

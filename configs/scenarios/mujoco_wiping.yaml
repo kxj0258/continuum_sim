@@ -97,7 +97,7 @@ scenario:
       width_m: 0.040
       height_m: 0.025
       line_count: 5
-      samples_per_line: 10
+      samples_per_line: 5
       approach_reference: first_contact
       approach_offset_m: 0.005
       contact_offset_m: -0.0025

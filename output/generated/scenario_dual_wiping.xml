@@ -497,7 +497,7 @@
                                   <site name="observer_segment_3_link_4_hole_06_out" pos="-0.00433013 0.0025 0.0065" size="0.0006" rgba="0.1 0.4 1 1" />
                                   <site name="observer_segment_3_link_4_hole_10_out" pos="0 -0.005 0.0065" size="0.0006" rgba="0.1 0.4 1 1" />
                                   <body name="observer_eye_camera_mount" pos="0 0 0.01" quat="1 0 0 0">
-                                    <camera name="observer_eye_camera" pos="0 0 0.04" quat="1 0 0 0" fovy="60" />
+                                    <camera name="observer_eye_camera" pos="0 0 0.04" quat="0 1 0 0" fovy="60" />
                                   </body>
                                 </body>
                               </body>

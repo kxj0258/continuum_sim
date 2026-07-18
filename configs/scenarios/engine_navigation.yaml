@@ -1,0 +1,123 @@
+schema_version: 1
+scenario:
+  name: engine_navigation
+  arm_mode: dual
+  low_level_control_path: ../control/mujoco_tracking_low_level.yaml
+  backend:
+    type: mujoco
+    kinematics_mode: discrete_hinge
+    mujoco_config_path: ../mujoco_dual.yaml
+    source_xml_path: ../../assets/mujoco/dual_three_segment_arm_tendon_with_visuals_mobile_base.xml
+    generated_xml_path: ../../output/generated/scenario_dual_engine_navigation.xml
+  scene:
+    engine_config_path: ../scenes/engine_cleaning.yaml
+  task:
+    type: engine_navigation
+    observer_control_mode: collision_avoidance
+    observer_control:
+      minimum_distance_m: 0.010
+      influence_distance_m: 0.019
+      critical_distance_m: 0.008
+      release_margin_m: 0.001
+      avoidance_gain: 5.0
+      collision_pair_count: 3
+      collision_pair_index_separation: 1
+      look_at_executor_tip: false
+      look_at_gain: 1.0
+      look_at_weight: 1.0
+      look_at_distance_m: 0.005
+      look_at_max_speed_mps: 0.005
+      look_at_max_angular_speed_rad_s: 1.0
+    waypoint_tolerance_m: 0.003
+    pose_servo:
+      enabled: false
+      orientation_source: insertion_direction
+      orientation_tolerance_rad: 3.2
+      roll_reference_world: [0.0, 0.0, 1.0]
+    min_clearance_m: 0.005
+    terminate_on_clearance_violation: false
+    scene_avoidance:
+      enabled: false
+      executor_mode: nullspace_after_pose
+      observer_mode: nullspace_after_interarm_lookat
+      engine_min_clearance_m: 0.003
+      engine_influence_distance_m: 0.010
+      engine_avoidance_gain: 5.0
+    tracking_control:
+      task_space_servo:
+        orientation_gain: 2.0
+        max_angular_speed_rad_s: 1.0
+        max_speed_mps: 0.015
+        enforce_speed_limit: true
+      tendon_command:
+        executor_orientation_tracking_mode: nullspace
+        executor_orientation_tracking_weight: 20.0
+    engine_navigation:
+      entry_region: entry_port
+      insertion_path: nozzle_axis_entry
+      pre_entry_standoff_m: 0.050
+      insertion_waypoint_spacing_m: 0.020
+      base_position_tolerance_m: 0.005
+      base_orientation_tolerance_rad: 0.035
+      base_position_gain: 1.5
+      base_orientation_gain: 2.0
+      phase_timeout_steps: 5000
+      local_tracking:
+        advance_mode: tolerance
+        waypoint_tolerance_m: 0.005
+        rejoin_tolerance_m: 0.005
+        max_steps_per_waypoint: 500
+        transition_samples: 20
+        executor_position_gain: 1.5
+        max_target_speed_mps: 0.015
+        enforce_tendon_rate_limits: false
+      observer_control_overrides:
+        executor_offset_world_m: [0.0, -0.04, 0.02]
+        roi_blend: 0.25
+        centerline_samples_per_segment: 6
+      intermediate_local_paths:
+        - name: one_third_circle
+          at_fraction: 0.3333333333
+          type: transverse_circle
+          radius_m: 0.035
+          samples: 60
+          axial_retraction_m: 0.025
+        - name: two_thirds_ellipse
+          at_fraction: 0.6666666667
+          type: ellipse
+          radius_m: 0.035
+          shape:
+            radius_x_m: 0.035
+            radius_y_m: 0.020
+          samples: 60
+          axial_retraction_m: 0.025
+      local_path:
+        name: endpoint_square
+        type: transverse_square
+        radius_m: 0.030
+        samples: 60
+        axial_retraction_m: 0.025
+  runtime:
+    controller_dt_s: 0.02
+    n_substeps: 20
+    max_steps: 20000
+  hooks:
+    recorder: true
+    tendon_debug: true
+    tendon_debug_stride: 5
+    show_live_tendon_panel: false
+    live_tendon_panel_stride: 5
+    show_live_diagnostics_panel: true
+    live_diagnostics_panel_stride: 5
+    viewer: mujoco
+    keep_viewer_open: false
+  artifacts:
+    mujoco_pcc_diagnostics_stride: 10
+    enabled: true
+    save_npz: true
+    save_plots: true
+    save_gif: true
+    save_mp4: true
+    video_mode: live_mujoco
+    video_fps: 10
+    video_stride: 10

@@ -32,6 +32,7 @@ from continuum_sim.tasks.wiping_path import WipingPathSpec
 
 
 BACKEND_TYPES = ("analytic", "mujoco")
+ARM_MODES = ("dual", "single")
 TASK_TYPES = (
     "idle",
     "tracking",
@@ -617,6 +618,7 @@ class ScenarioArtifactConfig:
 class ScenarioConfig:
     path: Path
     name: str
+    arm_mode: str
     assembly_config_path: Path
     backend: ScenarioBackendConfig
     scene: ScenarioSceneConfig
@@ -633,6 +635,8 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     config_path = Path(path).resolve()
     raw = load_yaml(config_path)
     values = _mapping(raw.get("scenario"), "scenario")
+    backend_values = _mapping(values.get("backend"), "scenario.backend")
+    arm_mode = _scenario_arm_mode(values, backend_values)
     low_level_control_path = _optional_path(
         config_path,
         values.get("low_level_control_path"),
@@ -640,7 +644,6 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     low_level_control_values = _load_low_level_control_values(
         low_level_control_path
     )
-    backend_values = _mapping(values.get("backend"), "scenario.backend")
     backend_type = str(backend_values.get("type", "analytic"))
     if backend_type not in BACKEND_TYPES:
         raise ValueError(f"scenario.backend.type must be one of {BACKEND_TYPES}.")
@@ -861,9 +864,12 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     return ScenarioConfig(
         path=config_path,
         name=str(values.get("name", config_path.stem)),
-        assembly_config_path=resolve_path(
+        arm_mode=arm_mode,
+        assembly_config_path=_arm_mode_assembly_config_path(
             config_path,
-            _required(values, "assembly_config_path", "scenario"),
+            values,
+            task_values,
+            arm_mode,
         ),
         low_level_control_path=low_level_control_path,
         backend=ScenarioBackendConfig(
@@ -879,13 +885,9 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             ),
             generated_xml_path=_optional_path(
                 config_path,
-                backend_values.get("generated_xml_path"),
+                _arm_mode_generated_xml_path(backend_values, arm_mode),
             ),
-            retain_arm=(
-                None
-                if backend_values.get("retain_arm") is None
-                else str(backend_values["retain_arm"])
-            ),
+            retain_arm=_arm_mode_retain_arm(arm_mode),
         ),
         scene=ScenarioSceneConfig(
             engine_config_path=_optional_path(
@@ -1052,6 +1054,86 @@ def _waypoint_source(task_values: dict[str, Any]) -> str:
     if len(sources) > 1:
         raise ValueError(f"scenario.task defines multiple waypoint sources: {sources}.")
     return sources[0]
+
+
+def _scenario_arm_mode(
+    values: dict[str, Any],
+    backend_values: dict[str, Any],
+) -> str:
+    explicit = values.get("arm_mode", values.get("robot_variant"))
+    if explicit is not None:
+        arm_mode = str(explicit)
+        if arm_mode not in ARM_MODES:
+            raise ValueError(f"scenario.arm_mode must be one of {ARM_MODES}.")
+        return arm_mode
+    assembly_hint = str(values.get("assembly_config_path", "")).replace("\\", "/").lower()
+    retain_hint = backend_values.get("retain_arm")
+    if retain_hint is not None and str(retain_hint) == "executor":
+        return "single"
+    if "single_spatial" in assembly_hint or "/single_" in assembly_hint:
+        return "single"
+    return "dual"
+
+
+def _arm_mode_assembly_config_path(
+    config_path: Path,
+    values: dict[str, Any],
+    task_values: dict[str, Any],
+    arm_mode: str,
+) -> Path:
+    raw = values.get("assembly_config_path")
+    if raw is None:
+        raw = _default_assembly_config_path(task_values, arm_mode)
+    return resolve_path(config_path, _replace_arm_mode_token(str(raw), arm_mode))
+
+
+def _default_assembly_config_path(
+    task_values: dict[str, Any],
+    arm_mode: str,
+) -> str:
+    tracking_values = _mapping(
+        task_values.get("tracking_control", {}),
+        "scenario.task.tracking_control",
+    )
+    task_type = str(task_values.get("type", "idle"))
+    mobile = task_type in ("navigation", "engine_cleaning", "engine_navigation") or bool(
+        tracking_values.get("stage_mobile_base", False)
+    )
+    prefix = "dual" if arm_mode == "dual" else "single"
+    suffix = "_mobile" if mobile else ""
+    return f"../robots/assemblies/{prefix}_spatial{suffix}.yaml"
+
+
+def _arm_mode_generated_xml_path(
+    backend_values: dict[str, Any],
+    arm_mode: str,
+) -> object | None:
+    raw = backend_values.get("generated_xml_path")
+    if raw is None:
+        return None
+    return _replace_arm_mode_token(str(raw), arm_mode)
+
+
+def _arm_mode_retain_arm(
+    arm_mode: str,
+) -> str | None:
+    return "executor" if arm_mode == "single" else None
+
+
+def _replace_arm_mode_token(value: str, arm_mode: str) -> str:
+    if arm_mode == "single":
+        return (
+            value.replace("dual_spatial_mobile.yaml", "single_spatial_mobile.yaml")
+            .replace("dual_spatial.yaml", "single_spatial.yaml")
+            .replace("scenario_dual_", "scenario_single_")
+            .replace("dual_", "single_")
+        )
+    return (
+        value.replace("single_spatial_mobile.yaml", "dual_spatial_mobile.yaml")
+        .replace("single_spatial.yaml", "dual_spatial.yaml")
+        .replace("scenario_single_", "scenario_dual_")
+        .replace("single_", "dual_")
+    )
 
 
 def _load_tracking_control_config(

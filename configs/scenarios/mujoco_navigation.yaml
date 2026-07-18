@@ -1,0 +1,95 @@
+schema_version: 1
+scenario:
+  name: mujoco_navigation
+  arm_mode: dual
+  low_level_control_path: ../control/mujoco_tracking_low_level.yaml
+  backend:
+    type: mujoco
+    kinematics_mode: discrete_hinge
+    mujoco_config_path: ../mujoco_dual.yaml
+    source_xml_path: ../../assets/mujoco/dual_three_segment_arm_tendon_with_visuals_mobile_base.xml
+    generated_xml_path: ../../output/generated/scenario_dual_navigation.xml
+  scene:
+    structured_config_path: ../scenes/rocket_nozzle_entry.yaml
+  task:
+    type: navigation
+    observer_control_mode: collision_avoidance
+    observer_control:
+      minimum_distance_m: 0.010
+      influence_distance_m: 0.019
+      critical_distance_m: 0.008
+      release_margin_m: 0.001
+      avoidance_gain: 5.0
+      collision_pair_count: 3
+      collision_pair_index_separation: 1
+      look_at_executor_tip: false
+      look_at_gain: 1.0
+      look_at_weight: 1.0
+      look_at_distance_m: 0.005
+      look_at_max_speed_mps: 0.005
+      look_at_max_angular_speed_rad_s: 1.0
+    waypoint_tolerance_m: 0.003
+    pose_servo:
+      enabled: false
+      orientation_source: none
+      waypoint_directions_world:
+        - [1.0, 1.0, 0.5]
+        - [1.0, -1.0, 0.5]
+        - [-1.0, -1.0, 0.5]
+      orientation_tolerance_rad: 3.2
+      roll_reference_world: [0.0, 0.0, 1.0]
+    min_clearance_m: 0.005
+    terminate_on_clearance_violation: false
+    scene_avoidance:
+      enabled: true
+      executor_mode: nullspace_after_pose
+      observer_mode: nullspace_after_interarm_lookat
+      engine_min_clearance_m: 0.003
+      engine_influence_distance_m: 0.010
+      engine_avoidance_gain: 5.0
+    observer_roi_world: [0.025, -0.022, 0.095]
+    tracking_control:
+      approach_samples: 5
+      stage_mobile_base: true
+      base_position_gain: 1.5
+      base_orientation_gain: 2.0
+      base_position_tolerance_m: 0.005
+      base_orientation_tolerance_rad: 0.035
+      base_approach_standoff_m: 0.010
+      base_approach_z_bias: 1.0
+      tracking_mode: waypoint
+      max_steps_per_waypoint: 100
+      intermediate_waypoints_per_waypoint: 3
+      feedforward_speed_mps: 0.0
+      task_space_servo:
+        orientation_gain: 2.0
+        max_angular_speed_rad_s: 1.0
+      tendon_command:
+        executor_orientation_tracking_mode: disabled
+        executor_orientation_tracking_weight: 20.0
+    waypoints_world:
+      - [0.036, 0.035, 0.085]
+      - [0.025, -0.022, 0.095]
+      - [-0.0348142212, -0.0201, 0.110]
+  runtime:
+    controller_dt_s: 0.02
+    n_substeps: 20
+    max_steps: 2000
+  hooks:
+    recorder: true
+    tendon_debug: true
+    tendon_debug_stride: 5
+    show_live_tendon_panel: false
+    live_tendon_panel_stride: 5
+    viewer: mujoco
+    keep_viewer_open: false
+  artifacts:
+    mujoco_pcc_diagnostics_stride: 10
+    enabled: true
+    save_npz: true
+    save_plots: true
+    save_gif: true
+    save_mp4: true
+    video_mode: live_mujoco
+    video_fps: 10
+    video_stride: 10

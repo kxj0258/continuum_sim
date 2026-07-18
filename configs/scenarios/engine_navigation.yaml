@@ -73,7 +73,7 @@ scenario:
         waypoint_tolerance_m: 0.005
         rejoin_tolerance_m: 0.005
         max_steps_per_waypoint: 500
-        transition_samples: 20
+        transition_samples: 5
         executor_position_gain: 1.5
         max_target_speed_mps: 0.015
         enforce_tendon_rate_limits: false
@@ -86,7 +86,7 @@ scenario:
           at_fraction: 0.3333333333
           type: transverse_circle
           radius_m: 0.035
-          samples: 60
+          samples: 20
           axial_retraction_m: 0.025
         - name: two_thirds_ellipse
           at_fraction: 0.6666666667
@@ -95,17 +95,17 @@ scenario:
           shape:
             radius_x_m: 0.035
             radius_y_m: 0.020
-          samples: 60
+          samples: 20
           axial_retraction_m: 0.025
       local_path:
         name: endpoint_square
         type: transverse_square
         radius_m: 0.030
-        samples: 60
+        samples: 20
         axial_retraction_m: 0.025
   runtime:
     controller_dt_s: 0.02
-    n_substeps: 20
+    n_substeps: 10
     max_steps: 20000
   hooks:
     recorder: true

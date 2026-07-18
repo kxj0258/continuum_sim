@@ -512,6 +512,18 @@ def _metadata_vector_or_nan(
     return vector.copy()
 
 
+def _finite_metadata_float(
+    metadata: dict[str, Any],
+    key: str,
+    *,
+    fallback_key: str | None = None,
+) -> float:
+    value = float(metadata.get(key, np.nan))
+    if np.isfinite(value) or fallback_key is None:
+        return value
+    return float(metadata.get(fallback_key, np.nan))
+
+
 def _executor_arm(state: RobotSystemState):
     return next((arm for arm in state.arms.values() if arm.role == "executor"), None)
 
@@ -1299,19 +1311,25 @@ class LiveWipingForcePanelHook:
         self._axes = None
         self._time: list[float] = []
         self._target_force: list[float] = []
-        self._estimated_force: list[float] = []
+        self._current_force: list[float] = []
+        self._force_error: list[float] = []
         self._contact_distance: list[float] = []
 
     def on_reset(self, state: RobotSystemState) -> None:
         import matplotlib.pyplot as plt
 
         self._plt = plt
-        self._figure, self._axes = plt.subplots()
+        self._figure, self._axes = plt.subplots(2, 1, figsize=(9.5, 6.8), sharex=True)
+        manager = getattr(self._figure.canvas, "manager", None)
+        if manager is not None:
+            manager.set_window_title("continuum_sim wiping contact force")
         self._time.clear()
         self._target_force.clear()
-        self._estimated_force.clear()
+        self._current_force.clear()
+        self._force_error.clear()
         self._contact_distance.clear()
         plt.ion()
+        plt.show(block=False)
 
     def on_step(
         self,
@@ -1323,9 +1341,14 @@ class LiveWipingForcePanelHook:
             return
         self._time.append(float(state.time_s))
         self._target_force.append(float(command.metadata.get("target_normal_force_n", np.nan)))
-        self._estimated_force.append(
-            float(command.metadata.get("estimated_normal_force_n", np.nan))
+        self._current_force.append(
+            _finite_metadata_float(
+                command.metadata,
+                "measured_normal_force_n",
+                fallback_key="estimated_normal_force_n",
+            )
         )
+        self._force_error.append(float(command.metadata.get("force_error_n", np.nan)))
         self._contact_distance.append(float(command.metadata.get("contact_distance_m", np.nan)))
         self._trim()
         self._draw()
@@ -1352,18 +1375,42 @@ class LiveWipingForcePanelHook:
         excess = len(self._time) - self.history_points
         del self._time[:excess]
         del self._target_force[:excess]
-        del self._estimated_force[:excess]
+        del self._current_force[:excess]
+        del self._force_error[:excess]
         del self._contact_distance[:excess]
 
     def _draw(self) -> None:
         if self._axes is None or self._figure is None:
             return
-        self._axes.clear()
-        self._axes.plot(self._time, self._target_force, label="target force [N]")
-        self._axes.plot(self._time, self._estimated_force, label="estimated force [N]")
-        self._axes.plot(self._time, self._contact_distance, label="contact distance [m]")
-        self._axes.set_xlabel("time [s]")
-        self._axes.legend(loc="upper right")
+        force_axis, contact_axis = self._axes
+        for axis in self._axes:
+            axis.clear()
+            axis.grid(True, alpha=0.25)
+        time_s = np.asarray(self._time, dtype=float)
+        target_force = np.asarray(self._target_force, dtype=float)
+        current_force = np.asarray(self._current_force, dtype=float)
+        force_error = np.asarray(self._force_error, dtype=float)
+        contact_distance_mm = 1000.0 * np.asarray(self._contact_distance, dtype=float)
+        penetration_mm = 1000.0 * np.maximum(
+            0.0,
+            -np.asarray(self._contact_distance, dtype=float),
+        )
+
+        force_axis.plot(time_s, target_force, "--", label="target force [N]")
+        force_axis.plot(time_s, current_force, label="current contact force [N]")
+        force_axis.plot(time_s, force_error, label="force error [N]")
+        force_axis.set_ylabel("force [N]")
+        force_axis.set_title("Wiping contact force")
+        force_axis.legend(loc="upper right", fontsize=8)
+
+        contact_axis.plot(time_s, contact_distance_mm, label="contact distance [mm]")
+        contact_axis.plot(time_s, penetration_mm, label="penetration proxy [mm]")
+        contact_axis.axhline(0.0, color="0.35", linestyle="--", linewidth=0.9)
+        contact_axis.set_xlabel("time [s]")
+        contact_axis.set_ylabel("distance [mm]")
+        contact_axis.set_title("Contact distance / penetration proxy")
+        contact_axis.legend(loc="upper right", fontsize=8)
+        self._figure.tight_layout()
         self._figure.canvas.draw_idle()
         self._figure.canvas.flush_events()
 

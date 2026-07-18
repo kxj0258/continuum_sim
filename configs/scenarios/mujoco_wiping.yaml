@@ -13,7 +13,7 @@ scenario:
       camera:
         lookat: [0.0375, 0.005, 0.115]
         distance: 0.28
-        azimuth: 30.0
+        azimuth: 300.0
         elevation: -18.0
         follow: none
   scene:
@@ -86,9 +86,9 @@ scenario:
       engine_influence_distance_m: 0.010
       engine_avoidance_gain: 5.0
     tracking_control:
-      approach_samples: 30
+      approach_samples: 10
       tracking_mode: waypoint
-      max_steps_per_waypoint: 400
+      max_steps_per_waypoint: 500
       feedforward_speed_mps: 0.0
     wiping_path:
       surface_id: board_surface
@@ -97,13 +97,13 @@ scenario:
       width_m: 0.040
       height_m: 0.025
       line_count: 5
-      samples_per_line: 30
+      samples_per_line: 10
       approach_reference: first_contact
       approach_offset_m: 0.005
       contact_offset_m: -0.0025
   runtime:
     controller_dt_s: 0.02
-    n_substeps: 20
+    n_substeps: 10
     max_steps: 10000
   hooks:
     recorder: true
@@ -111,6 +111,9 @@ scenario:
     tendon_debug_stride: 5
     show_live_tendon_panel: true
     live_tendon_panel_stride: 5
+    show_live_force_panel: true
+    live_force_panel_stride: 5
+    live_force_panel_history_points: 600
     show_observer_camera: true
     observer_camera_stride: 1
     viewer: mujoco

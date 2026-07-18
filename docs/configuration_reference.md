@@ -33,10 +33,26 @@ backend:
     camera:
       lookat: [0.0375, 0.005, 0.115]
       distance: 0.28
-      azimuth: 30.0
+      azimuth: 300.0
       elevation: -18.0
       follow: none
 ```
+
+## Wiping Force Monitor
+
+`mujoco_wiping.yaml` can show a live force/contact monitor during the run:
+
+```yaml
+hooks:
+  show_live_force_panel: true
+  live_force_panel_stride: 5
+  live_force_panel_history_points: 600
+```
+
+When `artifacts.save_plots: true`, the final run directory also includes
+`plots/wiping_force_contact.png`, which combines target force, current contact
+force, force error, contact distance, and penetration proxy. Current contact
+force uses measured normal force when available, otherwise estimated normal force.
 
 - `arm_mode`：`dual` 或 `single`。`single` 只保留 executor 主臂，`dual` 同时保留 executor 和 observer。
 - `low_level_control_path`：共享低层控制参数，当前主任务统一使用 `configs/control/mujoco_tracking_low_level.yaml`。

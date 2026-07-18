@@ -1660,6 +1660,9 @@ def _save_plots(arrays: dict[str, np.ndarray], output_dir: Path) -> list[Path]:
         fig.savefig(path, dpi=160, bbox_inches="tight")
         plt.close(fig)
         saved.append(path)
+    force_contact_plot = _save_wiping_force_contact_plot(arrays, output_dir, plt)
+    if force_contact_plot is not None:
+        saved.append(force_contact_plot)
     condition = arrays.get("whole_body_condition_number")
     if condition is not None:
         fig, axis = plt.subplots(figsize=(8, 4.5))
@@ -1678,6 +1681,78 @@ def _save_plots(arrays: dict[str, np.ndarray], output_dir: Path) -> list[Path]:
     saved.extend(_save_mujoco_pcc_diagnostic_plots(arrays, output_dir, plt))
     saved.extend(_save_dual_arm_control_plots(arrays, output_dir, plt))
     return saved
+
+
+def _save_wiping_force_contact_plot(
+    arrays: dict[str, np.ndarray],
+    output_dir: Path,
+    plt,
+) -> Path | None:
+    target_force = arrays.get("target_force_n")
+    estimated_force = arrays.get("estimated_force_n")
+    measured_force = arrays.get("measured_force_n")
+    force_error = arrays.get("force_error_n")
+    contact_distance = arrays.get("contact_distance_m")
+    if (
+        target_force is None
+        or estimated_force is None
+        or force_error is None
+        or contact_distance is None
+    ):
+        return None
+    count = min(
+        len(target_force),
+        len(estimated_force),
+        len(force_error),
+        len(contact_distance),
+    )
+    if measured_force is not None:
+        count = min(count, len(measured_force))
+    if count <= 0:
+        return None
+    target_force = np.asarray(target_force[:count], dtype=float)
+    estimated_force = np.asarray(estimated_force[:count], dtype=float)
+    if measured_force is None:
+        current_force = estimated_force
+    else:
+        measured_force = np.asarray(measured_force[:count], dtype=float)
+        current_force = np.where(np.isfinite(measured_force), measured_force, estimated_force)
+    force_error = np.asarray(force_error[:count], dtype=float)
+    contact_distance = np.asarray(contact_distance[:count], dtype=float)
+    if not np.any(
+        np.isfinite(target_force)
+        | np.isfinite(current_force)
+        | np.isfinite(force_error)
+        | np.isfinite(contact_distance)
+    ):
+        return None
+
+    x = np.arange(count, dtype=int)
+    fig, axes = plt.subplots(2, 1, figsize=(9.5, 6.8), sharex=True)
+    for axis in axes:
+        axis.grid(True, alpha=0.25)
+    axes[0].plot(x, target_force, "--", label="target force [N]")
+    axes[0].plot(x, current_force, label="current contact force [N]")
+    axes[0].plot(x, force_error, label="force error [N]")
+    axes[0].set(ylabel="force [N]", title="Wiping contact force")
+    axes[0].legend(loc="upper right", fontsize=8)
+
+    contact_distance_mm = 1000.0 * contact_distance
+    penetration_mm = 1000.0 * np.maximum(0.0, -contact_distance)
+    axes[1].plot(x, contact_distance_mm, label="contact distance [mm]")
+    axes[1].plot(x, penetration_mm, label="penetration proxy [mm]")
+    axes[1].axhline(0.0, color="0.35", linestyle="--", linewidth=0.9)
+    axes[1].set(
+        xlabel="control step",
+        ylabel="distance [mm]",
+        title="Contact distance / penetration proxy",
+    )
+    axes[1].legend(loc="upper right", fontsize=8)
+
+    path = output_dir / "wiping_force_contact.png"
+    fig.savefig(path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    return path
 
 
 def _save_four_layer_control_plots(

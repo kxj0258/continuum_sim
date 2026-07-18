@@ -81,10 +81,11 @@ class SimulationLoop:
 
     def run(self) -> SimulationLoopResult:
         initial = self.backend.reset_system()
-        states = [initial]
         commands: list[RobotSystemCommand] = []
         for hook in self.hooks:
             hook.on_reset(initial)
+        initial = self._enrich_state(initial)
+        states = [initial]
         stopped_early = False
         stop_reason = "max_steps"
         for step_index in range(self.config.max_steps):
@@ -108,9 +109,10 @@ class SimulationLoop:
                 n_substeps=self.config.n_substeps,
             )
             commands.append(command)
-            states.append(next_state)
             for hook in self.hooks:
                 hook.on_step(next_state, command, step_index)
+            next_state = self._enrich_state(next_state)
+            states.append(next_state)
         for hook in self.hooks:
             hook.on_finish(states[-1])
         return SimulationLoopResult(
@@ -119,6 +121,14 @@ class SimulationLoop:
             stopped_early=stopped_early,
             metadata={"stop_reason": stop_reason},
         )
+
+    def _enrich_state(self, state: RobotSystemState) -> RobotSystemState:
+        enriched = state
+        for hook in self.hooks:
+            enrich = getattr(hook, "enrich_state", None)
+            if enrich is not None:
+                enriched = enrich(enriched)
+        return enriched
 
 
 def _hook_stop_reason(hook: object) -> str:

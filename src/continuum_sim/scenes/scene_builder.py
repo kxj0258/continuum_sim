@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
+from continuum_sim.model.base_pose import Pose6D
 from continuum_sim.model.mount_frame import load_mobile_base_mount_config
 from continuum_sim.scenes.scene_config import (
     InspectionTargetConfig,
@@ -362,6 +363,44 @@ def inject_tool_contact_pad(
     _indent(root)
     tree.write(output_path, encoding="utf-8", xml_declaration=False)
     return output_path
+
+
+def inject_tip_camera(
+    root: ET.Element,
+    *,
+    tip_site_name: str,
+    camera_name: str,
+    tip_to_camera: Pose6D,
+    fovy_deg: float,
+) -> None:
+    """Insert a MuJoCo camera mounted to the body that owns a tip site."""
+
+    tip_body, tip_site = _find_site_parent_body_and_site(root, tip_site_name)
+    if tip_body is None or tip_site is None:
+        raise ValueError(f"MuJoCo model is missing tip site {tip_site_name!r}.")
+    mount_name = f"{camera_name}_mount"
+    _remove_existing_named_child(tip_body, "body", mount_name)
+    tip_site_pos = _parse_vec(tip_site.attrib.get("pos", "0 0 0"))
+    tip_site_quat = tip_site.attrib.get("quat", "1 0 0 0")
+    mount_body = ET.SubElement(
+        tip_body,
+        "body",
+        {
+            "name": mount_name,
+            "pos": _format_vec(tip_site_pos),
+            "quat": tip_site_quat,
+        },
+    )
+    ET.SubElement(
+        mount_body,
+        "camera",
+        {
+            "name": camera_name,
+            "pos": _format_vec(tip_to_camera.position),
+            "quat": _format_vec(tip_to_camera.quat),
+            "fovy": _format_float(fovy_deg),
+        },
+    )
 
 
 def _rebase_asset_file_paths(

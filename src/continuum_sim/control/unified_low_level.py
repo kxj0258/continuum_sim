@@ -69,6 +69,21 @@ class UnifiedLowLevelController:
             observer_look_at_max_speed_mps=(
                 coordinated_config.observer_look_at_max_speed_mps
             ),
+            observer_visual_servo_center_gain=(
+                coordinated_config.observer_visual_servo_center_gain
+            ),
+            observer_visual_servo_depth_gain=(
+                coordinated_config.observer_visual_servo_depth_gain
+            ),
+            observer_visual_servo_depth_target_m=(
+                coordinated_config.observer_visual_servo_depth_target_m
+            ),
+            observer_visual_servo_max_speed_mps=(
+                coordinated_config.observer_visual_servo_max_speed_mps
+            ),
+            observer_visual_servo_max_angular_speed_rad_s=(
+                coordinated_config.observer_visual_servo_max_angular_speed_rad_s
+            ),
             observer_collision_priority=coordinated_config.observer_collision_priority,
             freeze_executor_inside_safe_distance=(
                 coordinated_config.freeze_executor_inside_safe_distance

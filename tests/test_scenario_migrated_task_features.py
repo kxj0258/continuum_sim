@@ -100,6 +100,15 @@ def test_tracking_control_config_loads_scenario_overrides() -> None:
     assert config.task.tracking_control.kinematics_mode == "discrete_hinge"
 
 
+def test_visual_servo_observer_config_loads_camera_window_hook() -> None:
+    config = load_scenario_config("configs/scenarios/engine_navigation.yaml")
+
+    assert config.task.observer_control_mode == "visual_servo"
+    assert config.task.observer_control.visual_servo_depth_target_m == 0.08
+    assert config.hooks.show_observer_camera is True
+    assert config.hooks.observer_camera_stride == 1
+
+
 def test_navigation_scene_avoidance_config_loads_task_policy() -> None:
     config = load_scenario_config("configs/scenarios/dual_mujoco_navigation.yaml")
 

@@ -31,7 +31,12 @@ class ObserverCommandReference:
     roi_blend: float = 0.25
 
     def __post_init__(self) -> None:
-        if self.control_mode not in ("tracking", "collision_avoidance", "disabled"):
+        if self.control_mode not in (
+            "tracking",
+            "collision_avoidance",
+            "visual_servo",
+            "disabled",
+        ):
             raise ValueError("Unsupported observer control_mode.")
         object.__setattr__(
             self,

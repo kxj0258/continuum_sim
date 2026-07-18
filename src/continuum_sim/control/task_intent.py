@@ -10,7 +10,12 @@ import numpy as np
 
 CARTESIAN_CONTROL_MODES = ("position", "velocity")
 ORIENTATION_CONTROL_MODES = ("disabled", "quaternion")
-OBSERVER_CONTROL_MODES = ("tracking", "collision_avoidance", "disabled")
+OBSERVER_CONTROL_MODES = (
+    "tracking",
+    "collision_avoidance",
+    "visual_servo",
+    "disabled",
+)
 CONTACT_FORCE_FEEDBACK_MODES = (
     "proxy_distance",
     "measured_contact_force",

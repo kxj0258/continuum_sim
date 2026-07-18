@@ -14,6 +14,7 @@ KNOWN_PRIORITY_TASKS = frozenset(
         "scene_avoidance",
         "interarm_avoidance",
         "observer_tracking",
+        "visual_servo",
         "look_at",
     }
 )
@@ -50,6 +51,7 @@ class PriorityStackConfig:
     observer: tuple[PriorityLevelConfig, ...] = field(
         default_factory=lambda: (
             PriorityLevelConfig(("interarm_avoidance",)),
+            PriorityLevelConfig(("visual_servo",)),
             PriorityLevelConfig(("observer_tracking",)),
             PriorityLevelConfig(("look_at",)),
             PriorityLevelConfig(("scene_avoidance",)),

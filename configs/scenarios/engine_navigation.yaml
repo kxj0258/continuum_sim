@@ -13,7 +13,7 @@ scenario:
     engine_config_path: ../scenes/engine_scene.yaml
   task:
     type: engine_navigation
-    observer_control_mode: collision_avoidance
+    observer_control_mode: visual_servo
     observer_control:
       minimum_distance_m: 0.010
       influence_distance_m: 0.019
@@ -28,6 +28,12 @@ scenario:
       look_at_distance_m: 0.005
       look_at_max_speed_mps: 0.005
       look_at_max_angular_speed_rad_s: 1.0
+      visual_servo:
+        center_gain: 1.0
+        depth_gain: 1.0
+        depth_target_m: 0.08
+        max_speed_mps: 0.010
+        max_angular_speed_rad_s: 1.0
     waypoint_tolerance_m: 0.003
     pose_servo:
       enabled: false
@@ -109,6 +115,8 @@ scenario:
     live_tendon_panel_stride: 5
     show_live_diagnostics_panel: true
     live_diagnostics_panel_stride: 5
+    show_observer_camera: true
+    observer_camera_stride: 1
     viewer: mujoco
     keep_viewer_open: false
   artifacts:

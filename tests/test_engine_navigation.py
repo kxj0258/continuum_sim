@@ -22,7 +22,7 @@ ENGINE_SCENE = PROJECT_ROOT / "configs" / "scenes" / "engine_cleaning.yaml"
 MOBILE_ASSEMBLY = (
     PROJECT_ROOT / "configs" / "robots" / "assemblies" / "dual_spatial_mobile.yaml"
 )
-SCENARIO = PROJECT_ROOT / "configs" / "scenarios" / "dual_engine_navigation.yaml"
+SCENARIO = PROJECT_ROOT / "configs" / "scenarios" / "engine_navigation.yaml"
 
 
 def test_engine_navigation_scenario_loads_named_engine_plan() -> None:

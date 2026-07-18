@@ -682,6 +682,8 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
             ("observer_collision_active", bool),
             ("observer_tracking_active", bool),
             ("observer_look_at_active", bool),
+            ("observer_visual_servo_active", bool),
+            ("visual_servo_target_visible", bool),
             ("executor_scene_collision_active", bool),
             ("observer_scene_collision_active", bool),
             ("executor_clearance_m", float),
@@ -705,6 +707,8 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
             ("observer_residual_norm", float),
             ("executor_feedforward_gain", float),
             ("executor_orientation_error_rad", float),
+            ("observer_visual_servo_depth_error_m", float),
+            ("visual_servo_depth_m", float),
             ("task_space_orientation_error_norm_rad", float),
             ("task_space_angular_speed_limited", bool),
         ):
@@ -723,6 +727,8 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
             "observer_target_velocity_world",
             "observer_look_at_error_world",
             "observer_look_at_velocity_world",
+            "observer_visual_servo_angular_velocity_world",
+            "observer_visual_servo_position_velocity_world",
             "executor_orientation_error_world",
             "executor_target_angular_velocity_world",
             "task_space_orientation_error_world",
@@ -730,10 +736,23 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
             "task_space_angular_velocity_world",
             "inter_arm_closest_observer_point_world",
             "inter_arm_closest_executor_point_world",
+            "visual_servo_roi_world",
+            "visual_servo_camera_position_world",
         ):
             arrays[key] = np.asarray(
                 [
                     metadata.get(key, np.full(3, np.nan, dtype=float))
+                    for metadata in command_metadata
+                ],
+                dtype=float,
+            )
+        for key in (
+            "observer_visual_servo_pixel_error_px",
+            "visual_servo_normalized_error",
+        ):
+            arrays[key] = np.asarray(
+                [
+                    metadata.get(key, np.full(2, np.nan, dtype=float))
                     for metadata in command_metadata
                 ],
                 dtype=float,

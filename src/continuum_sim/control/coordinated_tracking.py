@@ -32,6 +32,7 @@ from continuum_sim.model.robot_assembly import RobotAssemblyConfig
 from continuum_sim.model.base_pose import (
     look_rotation_quaternion_wxyz,
     quaternion_error_rotation_vector,
+    quaternion_wxyz_to_rotation_matrix,
 )
 from continuum_sim.scenes.engine_query import EngineSceneQueryProtocol
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
@@ -193,6 +194,11 @@ class CoordinatedTrackingConfig:
     observer_look_at_weight: float = 10.0
     observer_look_at_distance_m: float = 0.010
     observer_look_at_max_speed_mps: float | None = 0.005
+    observer_visual_servo_center_gain: float = 1.0
+    observer_visual_servo_depth_gain: float = 1.0
+    observer_visual_servo_depth_target_m: float = 0.08
+    observer_visual_servo_max_speed_mps: float | None = 0.010
+    observer_visual_servo_max_angular_speed_rad_s: float | None = 1.0
     observer_collision_priority: bool = False
     freeze_executor_inside_safe_distance: bool = False
     stop_all_on_critical_distance: bool = False
@@ -236,6 +242,15 @@ class CoordinatedTrackingConfig:
             "observer_look_at_gain": self.observer_look_at_gain,
             "observer_look_at_weight": self.observer_look_at_weight,
             "observer_look_at_distance_m": self.observer_look_at_distance_m,
+            "observer_visual_servo_center_gain": (
+                self.observer_visual_servo_center_gain
+            ),
+            "observer_visual_servo_depth_gain": (
+                self.observer_visual_servo_depth_gain
+            ),
+            "observer_visual_servo_depth_target_m": (
+                self.observer_visual_servo_depth_target_m
+            ),
             "executor_orientation_tracking_weight": (
                 self.executor_orientation_tracking_weight
             ),
@@ -249,6 +264,20 @@ class CoordinatedTrackingConfig:
         ):
             raise ValueError(
                 "observer_look_at_max_speed_mps must be positive and finite."
+            )
+        if self.observer_visual_servo_max_speed_mps is not None and (
+            not np.isfinite(self.observer_visual_servo_max_speed_mps)
+            or self.observer_visual_servo_max_speed_mps <= 0.0
+        ):
+            raise ValueError(
+                "observer_visual_servo_max_speed_mps must be positive and finite."
+            )
+        if self.observer_visual_servo_max_angular_speed_rad_s is not None and (
+            not np.isfinite(self.observer_visual_servo_max_angular_speed_rad_s)
+            or self.observer_visual_servo_max_angular_speed_rad_s <= 0.0
+        ):
+            raise ValueError(
+                "observer_visual_servo_max_angular_speed_rad_s must be positive and finite."
             )
         if not np.isfinite(self.executor_orientation_gain) or self.executor_orientation_gain < 0.0:
             raise ValueError("executor_orientation_gain must be non-negative and finite.")
@@ -426,11 +455,17 @@ class CoordinatedTrackingController:
         observer_target_velocity = np.zeros(3, dtype=float)
         observer_target_error = np.full(3, np.nan, dtype=float)
         observer_look_at_active = False
+        observer_visual_servo_active = False
         observer_look_at_error = np.full(3, np.nan, dtype=float)
         observer_look_at_velocity = np.zeros(3, dtype=float)
+        observer_visual_servo_pixel_error = np.full(2, np.nan, dtype=float)
+        observer_visual_servo_angular_velocity = np.zeros(3, dtype=float)
+        observer_visual_servo_depth_error = float("nan")
+        observer_visual_servo_position_velocity = np.zeros(3, dtype=float)
         observer_avoidance_tasks: list[WholeBodyTask] = []
         observer_tracking_tasks: list[WholeBodyTask] = []
         observer_look_at_tasks: list[WholeBodyTask] = []
+        observer_visual_servo_tasks: list[WholeBodyTask] = []
         executor_scene_tasks: list[WholeBodyTask] = []
         observer_scene_tasks: list[WholeBodyTask] = []
         scene_clearance_by_arm: dict[str, _SceneClearanceData] = {}
@@ -479,6 +514,26 @@ class CoordinatedTrackingController:
                 observer_tasks.append(observer_tracking_task)
                 observer_tracking_tasks.append(observer_tracking_task)
                 observer_tracking_active = True
+            elif observer_mode == "visual_servo":
+                (
+                    visual_tasks,
+                    visual_pixel_error,
+                    visual_angular_velocity,
+                    visual_depth_error,
+                    visual_position_velocity,
+                ) = self._observer_visual_servo_tasks(
+                    state,
+                    observer_name,
+                    avoidance_tasks=(),
+                )
+                observer_visual_servo_tasks.extend(visual_tasks)
+                observer_visual_servo_active = bool(visual_tasks)
+                observer_visual_servo_pixel_error = visual_pixel_error
+                observer_visual_servo_angular_velocity = visual_angular_velocity
+                observer_visual_servo_depth_error = visual_depth_error
+                observer_visual_servo_position_velocity = visual_position_velocity
+                if observer_visual_servo_active:
+                    observer_target_velocity = visual_position_velocity.copy()
 
         if self.scene_query is not None:
             for arm in self.assembly.enabled_arms:
@@ -554,6 +609,7 @@ class CoordinatedTrackingController:
                     {
                         "interarm_avoidance": tuple(observer_avoidance_tasks),
                         "observer_tracking": tuple(observer_tracking_tasks),
+                        "visual_servo": tuple(observer_visual_servo_tasks),
                         "look_at": tuple(observer_look_at_tasks),
                         "scene_avoidance": tuple(observer_scene_tasks),
                     },
@@ -578,6 +634,8 @@ class CoordinatedTrackingController:
             safety_mode = "avoidance"
         elif observer_tracking_active:
             safety_mode = "tracking"
+        elif observer_visual_servo_active:
+            safety_mode = "visual_servo"
         elif observer_look_at_active:
             safety_mode = "look_at"
         else:
@@ -595,6 +653,22 @@ class CoordinatedTrackingController:
             arm_singularities[observer_name] = observer_result.arm_singularities[
                 observer_name
             ]
+        visual_servo_normalized_error = _metadata_vector(
+            state.metadata,
+            "visual_servo_normalized_error",
+            2,
+            allow_nan=True,
+        )
+        visual_servo_roi_world = _metadata_vector(
+            state.metadata,
+            "visual_servo_roi_world",
+            3,
+        )
+        visual_servo_camera_position_world = _metadata_vector(
+            state.metadata,
+            "visual_servo_camera_position_world",
+            3,
+        )
         self.last_diagnostics = {
             "whole_body_singularity": executor_result.singularity,
             "priority_stack": self.config.priority_stack.as_metadata(),
@@ -609,6 +683,41 @@ class CoordinatedTrackingController:
             "observer_collision_active": observer_collision_active,
             "observer_tracking_active": observer_tracking_active,
             "observer_look_at_active": observer_look_at_active,
+            "observer_visual_servo_active": observer_visual_servo_active,
+            "observer_visual_servo_pixel_error_px": (
+                observer_visual_servo_pixel_error
+            ),
+            "observer_visual_servo_angular_velocity_world": (
+                observer_visual_servo_angular_velocity
+            ),
+            "observer_visual_servo_depth_error_m": (
+                observer_visual_servo_depth_error
+            ),
+            "observer_visual_servo_position_velocity_world": (
+                observer_visual_servo_position_velocity
+            ),
+            "visual_servo_target_visible": bool(
+                state.metadata.get("visual_servo_target_visible", False)
+            ),
+            "visual_servo_depth_m": _metadata_float(
+                state.metadata,
+                "visual_servo_depth_m",
+            ),
+            "visual_servo_normalized_error": (
+                visual_servo_normalized_error
+                if visual_servo_normalized_error is not None
+                else np.full(2, np.nan, dtype=float)
+            ),
+            "visual_servo_roi_world": (
+                visual_servo_roi_world
+                if visual_servo_roi_world is not None
+                else np.full(3, np.nan, dtype=float)
+            ),
+            "visual_servo_camera_position_world": (
+                visual_servo_camera_position_world
+                if visual_servo_camera_position_world is not None
+                else np.full(3, np.nan, dtype=float)
+            ),
             "observer_look_at_nullspace_tasks": tuple(
                 task.name for task in observer_avoidance_tasks
             ),
@@ -780,6 +889,150 @@ class CoordinatedTrackingController:
         if limit is not None and norm > limit:
             velocity = velocity * (limit / norm)
         return velocity
+
+    def _limit_observer_visual_linear_velocity(self, velocity: np.ndarray) -> np.ndarray:
+        velocity = np.asarray(velocity, dtype=float).copy()
+        limit = self.config.observer_visual_servo_max_speed_mps
+        norm = float(np.linalg.norm(velocity))
+        if limit is not None and norm > limit:
+            velocity = velocity * (limit / norm)
+        return velocity
+
+    def _limit_observer_visual_angular_velocity(self, velocity: np.ndarray) -> np.ndarray:
+        velocity = np.asarray(velocity, dtype=float).copy()
+        limit = self.config.observer_visual_servo_max_angular_speed_rad_s
+        norm = float(np.linalg.norm(velocity))
+        if limit is not None and norm > limit:
+            velocity = velocity * (limit / norm)
+        return velocity
+
+    def _observer_visual_servo_tasks(
+        self,
+        state: RobotSystemState,
+        observer_name: str,
+        *,
+        avoidance_tasks: tuple[WholeBodyTask, ...],
+    ) -> tuple[list[WholeBodyTask], np.ndarray, np.ndarray, float, np.ndarray]:
+        roi = _metadata_vector(state.metadata, "visual_servo_roi_world", 3)
+        if roi is None and self.target.observer_roi_position_world is not None:
+            roi = self.target.observer_roi_position_world.copy()
+        if roi is None:
+            return (
+                [],
+                np.full(2, np.nan, dtype=float),
+                np.zeros(3, dtype=float),
+                float("nan"),
+                np.zeros(3, dtype=float),
+            )
+        observer_state = state.arms[observer_name]
+        camera_position = _metadata_vector(
+            state.metadata,
+            "visual_servo_camera_position_world",
+            3,
+        )
+        if camera_position is None:
+            camera_position = observer_state.tip_pose_world.position.copy()
+        camera_quat = _metadata_vector(
+            state.metadata,
+            "visual_servo_camera_quat_world_wxyz",
+            4,
+        )
+        if camera_quat is None:
+            camera_quat = observer_state.tip_pose_world.quat.copy()
+        camera_rotation = quaternion_wxyz_to_rotation_matrix(camera_quat)
+        camera_forward_world = camera_rotation[:, 2]
+        measured_depth = _metadata_float(state.metadata, "visual_servo_depth_m")
+        geometric_depth = float(np.dot(roi - camera_position, camera_forward_world))
+        depth = measured_depth if np.isfinite(measured_depth) else geometric_depth
+        depth_error = depth - self.config.observer_visual_servo_depth_target_m
+        position_velocity = self._limit_observer_visual_linear_velocity(
+            self.config.observer_visual_servo_depth_gain
+            * depth_error
+            * camera_forward_world
+        )
+        tasks: list[WholeBodyTask] = []
+        if np.linalg.norm(position_velocity) > 1.0e-12:
+            tasks.append(
+                WholeBodyTask(
+                    name="observer_visual_depth",
+                    jacobian=self._observer_only_jacobian(
+                        self._arm_system_jacobian(state, observer_name),
+                        observer_name,
+                    ),
+                    target_velocity=position_velocity,
+                    weight=self.solver.weight_for("observer_tracking"),
+                )
+            )
+
+        pixel_error = _metadata_vector(
+            state.metadata,
+            "visual_servo_pixel_error_px",
+            2,
+            allow_nan=True,
+        )
+        if pixel_error is None:
+            pixel_error = np.full(2, np.nan, dtype=float)
+        normalized_error = _metadata_vector(
+            state.metadata,
+            "visual_servo_normalized_error",
+            2,
+            allow_nan=True,
+        )
+        target_visible = bool(state.metadata.get("visual_servo_target_visible", False))
+        if target_visible and normalized_error is not None and np.all(np.isfinite(normalized_error)):
+            local_rotation_error = np.array(
+                [-normalized_error[1], normalized_error[0], 0.0],
+                dtype=float,
+            )
+            angular_velocity = (
+                self.config.observer_visual_servo_center_gain
+                * camera_rotation
+                @ local_rotation_error
+            )
+        else:
+            target_direction = roi - camera_position
+            if np.linalg.norm(target_direction) <= 1.0e-12:
+                angular_velocity = np.zeros(3, dtype=float)
+            else:
+                target_orientation = look_rotation_quaternion_wxyz(target_direction)
+                angular_velocity = (
+                    self.config.observer_visual_servo_center_gain
+                    * quaternion_error_rotation_vector(
+                        target_orientation,
+                        camera_quat,
+                    )
+                )
+        angular_velocity = self._limit_observer_visual_angular_velocity(
+            angular_velocity
+        )
+        if np.linalg.norm(angular_velocity) > 1.0e-12:
+            jacobian = self._observer_only_jacobian(
+                self._arm_orientation_system_jacobian(state, observer_name),
+                observer_name,
+            )
+            avoidance_jacobian = _stack_task_jacobians(avoidance_tasks)
+            if avoidance_jacobian is not None:
+                jacobian = self._project_observer_task_to_avoidance_nullspace(
+                    jacobian,
+                    avoidance_jacobian,
+                    observer_name,
+                )
+            if np.linalg.norm(jacobian) > self.solver.config.singularity.rank_tolerance:
+                tasks.append(
+                    WholeBodyTask(
+                        name="observer_visual_centering",
+                        jacobian=jacobian,
+                        target_velocity=angular_velocity,
+                        weight=self.config.observer_look_at_weight,
+                    )
+                )
+        return (
+            tasks,
+            pixel_error,
+            angular_velocity,
+            float(depth_error),
+            position_velocity,
+        )
 
     def _observer_look_at_task(
         self,
@@ -1275,6 +1528,37 @@ def _stack_task_jacobians(
     if not rows:
         return None
     return np.vstack(rows)
+
+
+def _metadata_vector(
+    metadata: dict[str, object],
+    key: str,
+    size: int,
+    *,
+    allow_nan: bool = False,
+) -> np.ndarray | None:
+    value = metadata.get(key)
+    if value is None:
+        return None
+    try:
+        result = np.asarray(value, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if result.shape != (size,):
+        return None
+    if allow_nan:
+        return None if np.any(np.isinf(result)) else result.copy()
+    return result.copy() if np.all(np.isfinite(result)) else None
+
+
+def _metadata_float(metadata: dict[str, object], key: str) -> float:
+    value = metadata.get(key)
+    if value is None:
+        return float("nan")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float("nan")
 
 
 def _priority_levels(

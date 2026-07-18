@@ -47,6 +47,7 @@ from continuum_sim.runtime.hooks import (
     LiveDiagnosticsPanelHook,
     LiveWipingForcePanelHook,
     MatplotlibSystemViewerHook,
+    MujocoObserverCameraFeedbackHook,
     MujocoLiveVideoRecorderHook,
     MujocoViewerHook,
     MujocoReplayRecorderHook,
@@ -73,8 +74,10 @@ from continuum_sim.scenes.scene_config import (
 from continuum_sim.scenes.structured_query import StructuredSceneQuery
 from continuum_sim.scenes.scene_builder import (
     inject_structured_scene,
+    inject_tip_camera,
     lock_mobile_base_freejoint,
 )
+from continuum_sim.tools.attachments import load_attachment_config
 from continuum_sim.tasks.engine_navigation import (
     EngineNavigationObserverControlSpec,
     EngineNavigationSpec,
@@ -134,6 +137,11 @@ class SimulationApplication:
         else:
             scene_query = None
         task_plan = _resolve_task_plan(config, assembly, engine_scene, structured_scene)
+        observer_camera_target_world = (
+            None
+            if config.task.observer_roi_world is None
+            else config.task.observer_roi_world.copy()
+        )
         if config.task.type == "idle":
             controller = ZeroSystemController(assembly)
         elif config.task.type == "engine_navigation":
@@ -151,6 +159,7 @@ class SimulationApplication:
                 engine_scene,
                 assembly,
             )
+            observer_camera_target_world = plan.observer_roi_world.copy()
             tracking = config.task.tracking_control
             executor_orientation_world_wxyz = (
                 look_rotation_quaternion_wxyz(
@@ -392,6 +401,21 @@ class SimulationApplication:
                 stride=config.hooks.live_diagnostics_panel_stride,
                 history_points=config.hooks.live_diagnostics_panel_history_points,
             )
+        observer_camera = _observer_camera_attachment_config(assembly)
+        if (
+            config.backend.type == "mujoco"
+            and config.hooks.show_observer_camera
+            and observer_camera is not None
+            and observer_camera.camera is not None
+        ):
+            hooks_by_name["observer_camera"] = MujocoObserverCameraFeedbackHook(
+                backend,
+                camera_name=observer_camera.camera.name,
+                intrinsics=observer_camera.camera.intrinsics,
+                fallback_target_world=observer_camera_target_world,
+                show_window=True,
+                stride=config.hooks.observer_camera_stride,
+            )
         if (
             config.backend.type == "mujoco"
             and config.artifacts.enabled
@@ -481,6 +505,15 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
     )
     if visual_structured_scene is not None:
         inject_structured_scene(root, visual_structured_scene)
+    observer_camera = _observer_camera_attachment_config(assembly)
+    if observer_camera is not None and observer_camera.camera is not None:
+        inject_tip_camera(
+            root,
+            tip_site_name="observer_tip",
+            camera_name=observer_camera.camera.name,
+            tip_to_camera=observer_camera.camera.tip_to_camera,
+            fovy_deg=observer_camera.camera.intrinsics.fovy_deg,
+        )
     if assembly.base.control_mode == "fixed":
         lock_mobile_base_freejoint(root)
     _apply_mujoco_offscreen_rendering_config(root, mujoco_config)
@@ -511,6 +544,27 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
         tendon_rate_servo_config=tendon_rate_servo_config,
         kinematics_mode=config.backend.kinematics_mode,
     )
+
+
+def _observer_camera_attachment_config(assembly):
+    observer_arms = [arm for arm in assembly.enabled_arms if arm.role == "observer"]
+    if len(observer_arms) != 1 or observer_arms[0].attachment is None:
+        return None
+    path = _attachment_config_path(assembly.path, observer_arms[0].attachment)
+    if path is None:
+        return None
+    config = load_attachment_config(path)
+    if config.type != "camera_airgun":
+        return None
+    return config
+
+
+def _attachment_config_path(assembly_path: Path, attachment_name: str) -> Path | None:
+    for parent in (assembly_path.parent, *assembly_path.parents):
+        candidate = parent / "tools" / f"{attachment_name}.yaml"
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _structured_scene_for_mujoco_visuals(config, structured_scene):
@@ -707,6 +761,13 @@ def _tracking_coordinated_config(
             observer.look_at_max_angular_speed_rad_s
             if observer.look_at_max_angular_speed_rad_s is not None
             else observer.look_at_max_speed_mps
+        ),
+        observer_visual_servo_center_gain=observer.visual_servo_center_gain,
+        observer_visual_servo_depth_gain=observer.visual_servo_depth_gain,
+        observer_visual_servo_depth_target_m=observer.visual_servo_depth_target_m,
+        observer_visual_servo_max_speed_mps=observer.visual_servo_max_speed_mps,
+        observer_visual_servo_max_angular_speed_rad_s=(
+            observer.visual_servo_max_angular_speed_rad_s
         ),
         observer_collision_priority=True,
         freeze_executor_inside_safe_distance=False,

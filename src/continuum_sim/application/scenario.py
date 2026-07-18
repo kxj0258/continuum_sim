@@ -56,7 +56,12 @@ WIPING_FORCE_STRATEGY_TYPES = (
     "contact_triggered_admittance",
 )
 TRACKING_MODES = ("waypoint", "time")
-OBSERVER_CONTROL_MODES = ("tracking", "collision_avoidance", "disabled")
+OBSERVER_CONTROL_MODES = (
+    "tracking",
+    "collision_avoidance",
+    "visual_servo",
+    "disabled",
+)
 SINGULARITY_STRATEGIES = ("damping_scale", "svd_projection")
 EXECUTOR_ORIENTATION_TRACKING_MODES = ("disabled", "weighted", "nullspace")
 EXECUTOR_SCENE_AVOIDANCE_MODES = ("disabled", "nullspace_after_pose")
@@ -363,6 +368,11 @@ class ScenarioObserverControlConfig:
     look_at_distance_m: float = 0.010
     look_at_max_speed_mps: float | None = 0.005
     look_at_max_angular_speed_rad_s: float | None = None
+    visual_servo_center_gain: float = 1.0
+    visual_servo_depth_gain: float = 1.0
+    visual_servo_depth_target_m: float = 0.08
+    visual_servo_max_speed_mps: float | None = 0.010
+    visual_servo_max_angular_speed_rad_s: float | None = 1.0
 
     def __post_init__(self) -> None:
         non_negative = {
@@ -394,6 +404,9 @@ class ScenarioObserverControlConfig:
             "look_at_gain": self.look_at_gain,
             "look_at_weight": self.look_at_weight,
             "look_at_distance_m": self.look_at_distance_m,
+            "visual_servo_center_gain": self.visual_servo_center_gain,
+            "visual_servo_depth_gain": self.visual_servo_depth_gain,
+            "visual_servo_depth_target_m": self.visual_servo_depth_target_m,
         }
         for name, value in positive.items():
             if not np.isfinite(value) or value <= 0.0:
@@ -418,6 +431,20 @@ class ScenarioObserverControlConfig:
         ):
             raise ValueError(
                 "observer_control.look_at_max_angular_speed_rad_s must be positive and finite."
+            )
+        if self.visual_servo_max_speed_mps is not None and (
+            not np.isfinite(self.visual_servo_max_speed_mps)
+            or self.visual_servo_max_speed_mps <= 0.0
+        ):
+            raise ValueError(
+                "observer_control.visual_servo.max_speed_mps must be positive and finite."
+            )
+        if self.visual_servo_max_angular_speed_rad_s is not None and (
+            not np.isfinite(self.visual_servo_max_angular_speed_rad_s)
+            or self.visual_servo_max_angular_speed_rad_s <= 0.0
+        ):
+            raise ValueError(
+                "observer_control.visual_servo.max_angular_speed_rad_s must be positive and finite."
             )
 
 
@@ -568,6 +595,8 @@ class ScenarioHookConfig:
     show_live_diagnostics_panel: bool = True
     live_diagnostics_panel_stride: int = 5
     live_diagnostics_panel_history_points: int = 300
+    show_observer_camera: bool = False
+    observer_camera_stride: int = 1
 
 
 @dataclass(frozen=True)
@@ -960,6 +989,12 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             live_diagnostics_panel_history_points=int(
                 hook_values.get("live_diagnostics_panel_history_points", 300)
             ),
+            show_observer_camera=bool(
+                hook_values.get("show_observer_camera", False)
+            ),
+            observer_camera_stride=int(
+                hook_values.get("observer_camera_stride", 1)
+            ),
         ),
         artifacts=ScenarioArtifactConfig(
             enabled=bool(artifact_values.get("enabled", task_type != "idle")),
@@ -1335,6 +1370,10 @@ def _load_observer_control_config(
         task_values.get("observer_control", {}),
         "scenario.task.observer_control",
     )
+    visual_servo = _mapping(
+        values.get("visual_servo", {}),
+        "scenario.task.observer_control.visual_servo",
+    )
     return ScenarioObserverControlConfig(
         minimum_distance_m=float(values.get("minimum_distance_m", 0.010)),
         influence_distance_m=float(values.get("influence_distance_m", 0.050)),
@@ -1357,6 +1396,17 @@ def _load_observer_control_config(
         ),
         look_at_max_angular_speed_rad_s=_optional_float(
             values.get("look_at_max_angular_speed_rad_s")
+        ),
+        visual_servo_center_gain=float(visual_servo.get("center_gain", 1.0)),
+        visual_servo_depth_gain=float(visual_servo.get("depth_gain", 1.0)),
+        visual_servo_depth_target_m=float(
+            visual_servo.get("depth_target_m", 0.08)
+        ),
+        visual_servo_max_speed_mps=_optional_float(
+            visual_servo.get("max_speed_mps", 0.010)
+        ),
+        visual_servo_max_angular_speed_rad_s=_optional_float(
+            visual_servo.get("max_angular_speed_rad_s", 1.0)
         ),
     )
 

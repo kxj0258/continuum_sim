@@ -1,4 +1,4 @@
-"""Independent engine scene loader for future dual-arm cleaning tasks."""
+"""Independent engine scene loader for engine navigation tasks."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ from continuum_sim.scenes.primitive_collision import (
 )
 
 
-ENGINE_SCENE_TYPES = ("engine_cleaning",)
+ENGINE_SCENE_TYPES = ("engine_scene",)
 ENGINE_REGION_TYPES = (
     "circular_port",
     "roi_sphere",
@@ -73,7 +73,7 @@ class ResolvedEngineAssetPaths:
 
 @dataclass(frozen=True)
 class EngineRegionConfig:
-    """Named logical region used by future engine cleaning tasks."""
+    """Named logical region used by engine navigation tasks."""
 
     name: str
     type: str

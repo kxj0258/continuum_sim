@@ -22,10 +22,7 @@ from continuum_sim.model.robot_params import PCC_VALUES_PER_SEGMENT, ThreeSegmen
 
 @dataclass(frozen=True)
 class PCCDynamicsConfig:
-    """Engineering estimates for reduced PCC dynamics.
-
-    ``bending_stiffness`` stores continuum flexural rigidity ``EI`` in N m^2.
-    """
+    """Engineering estimates for reduced PCC dynamics."""
 
     segment_masses_kg: np.ndarray
     bending_stiffness: np.ndarray
@@ -77,9 +74,15 @@ def load_pcc_dynamics_config(
             params,
             "axial_stiffness",
         ),
-        damping=_q_vector(dynamics.get("damping", [0.02] * params.q_size), params, "damping"),
+        damping=_q_vector(
+            dynamics.get("damping", [0.02] * params.q_size),
+            params,
+            "damping",
+        ),
         mass_regularization=float(dynamics.get("mass_regularization", 1.0e-6)),
-        centerline_samples_per_segment=int(dynamics.get("centerline_samples_per_segment", 7)),
+        centerline_samples_per_segment=int(
+            dynamics.get("centerline_samples_per_segment", 7)
+        ),
     )
 
 
@@ -88,7 +91,6 @@ def mass_matrix(
     params: ThreeSegmentRobotParams,
     config: PCCDynamicsConfig,
     *,
-    step: float = 1.0e-5,
     kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
 ) -> np.ndarray:
     """Approximate generalized mass from centerline point Jacobians."""
@@ -106,20 +108,22 @@ def mass_matrix(
     point_mass = float(np.sum(config.segment_masses_kg)) / point_count
     matrix = np.zeros((params.q_size, params.q_size), dtype=float)
     for point_index in range(point_count):
-        jacobian = _centerline_point_jacobian(
+        jacobian = analytic_centerline_point_jacobian(
             q_array,
             point_index,
             params,
-            config.centerline_samples_per_segment,
-            step,
-            kinematics_mode,
+            samples_per_segment=config.centerline_samples_per_segment,
+            kinematics_mode=kinematics_mode,
         )
         matrix += point_mass * (jacobian.T @ jacobian)
     matrix += config.mass_regularization * np.eye(params.q_size, dtype=float)
     return matrix
 
 
-def stiffness_matrix(params: ThreeSegmentRobotParams, config: PCCDynamicsConfig) -> np.ndarray:
+def stiffness_matrix(
+    params: ThreeSegmentRobotParams,
+    config: PCCDynamicsConfig,
+) -> np.ndarray:
     """Return diagonal stiffness in PCC curvature/axial-strain coordinates."""
 
     diagonal = np.zeros(params.q_size, dtype=float)
@@ -137,7 +141,10 @@ def stiffness_matrix(params: ThreeSegmentRobotParams, config: PCCDynamicsConfig)
     return np.diag(diagonal)
 
 
-def damping_matrix(params: ThreeSegmentRobotParams, config: PCCDynamicsConfig) -> np.ndarray:
+def damping_matrix(
+    params: ThreeSegmentRobotParams,
+    config: PCCDynamicsConfig,
+) -> np.ndarray:
     """Return diagonal generalized damping."""
 
     return np.diag(_q_vector(config.damping, params, "damping"))
@@ -178,39 +185,25 @@ def step_dynamics(
     q = _q_vector(state.q, params, "state.q")
     qdot = _q_vector(state.qdot, params, "state.qdot")
     tau = _q_vector(applied_generalized_force, params, "applied_generalized_force")
-    M = mass_matrix(q, params, config, kinematics_mode=kinematics_mode)
-    D = damping_matrix(params, config)
-    K = stiffness_matrix(params, config)
-    qddot = np.linalg.solve(M, tau - D @ qdot - K @ q)
+    mass = mass_matrix(q, params, config, kinematics_mode=kinematics_mode)
+    damping = damping_matrix(params, config)
+    stiffness = stiffness_matrix(params, config)
+    qddot = np.linalg.solve(mass, tau - damping @ qdot - stiffness @ q)
     next_qdot = qdot + qddot * dt
     next_q = q + next_qdot * dt
     return PCCDynamicsState(q=next_q, qdot=next_qdot), {
         "qddot": qddot,
-        "mass_matrix": M,
-        "damping_matrix": D,
-        "stiffness_matrix": K,
+        "mass_matrix": mass,
+        "damping_matrix": damping,
+        "stiffness_matrix": stiffness,
     }
 
 
-def _centerline_point_jacobian(
-    q: np.ndarray,
-    point_index: int,
+def _segment_vector(
+    values: object,
     params: ThreeSegmentRobotParams,
-    samples_per_segment: int,
-    step: float,
-    kinematics_mode: PCCKinematicsMode,
+    name: str,
 ) -> np.ndarray:
-    del step
-    return analytic_centerline_point_jacobian(
-        q,
-        point_index,
-        params,
-        samples_per_segment=samples_per_segment,
-        kinematics_mode=kinematics_mode,
-    )
-
-
-def _segment_vector(values: object, params: ThreeSegmentRobotParams, name: str) -> np.ndarray:
     array = np.asarray(values, dtype=float)
     if array.shape != (params.segment_count,):
         raise ValueError(f"{name} must have shape ({params.segment_count},), got {array.shape}.")
@@ -219,7 +212,11 @@ def _segment_vector(values: object, params: ThreeSegmentRobotParams, name: str) 
     return array
 
 
-def _q_vector(values: object, params: ThreeSegmentRobotParams, name: str) -> np.ndarray:
+def _q_vector(
+    values: object,
+    params: ThreeSegmentRobotParams,
+    name: str,
+) -> np.ndarray:
     array = np.asarray(values, dtype=float)
     if array.shape != (params.q_size,):
         raise ValueError(f"{name} must have shape ({params.q_size},), got {array.shape}.")

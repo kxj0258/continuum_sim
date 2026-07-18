@@ -15,11 +15,9 @@ from continuum_sim.application.scenario import (
     ScenarioTrackingControlConfig,
     load_scenario_config,
 )
-from continuum_sim.backends.analytic_system_backend import AnalyticSystemBackend
 from continuum_sim.backends.mujoco_system_backend import MujocoSystemBackend
 from continuum_sim.config import load_mujoco_config
 from continuum_sim.control.scenario_controllers import (
-    EngineCleaningSystemController,
     NavigationController,
     OnlineReachabilityConfig,
     TimedTrajectoryTrackingController,
@@ -27,26 +25,19 @@ from continuum_sim.control.scenario_controllers import (
     WipingController,
     ZeroSystemController,
 )
-from continuum_sim.control.contact_triggered_admittance import (
-    ContactTriggeredAdmittanceConfig,
-)
 from continuum_sim.control.tendon_rate_control import BendingRateServoConfig
 from continuum_sim.control.wiping_force_strategies import (
-    ContactDistanceStrategy,
     ContactTriggeredAdmittanceStrategy,
+    ContactDistanceStrategy,
     DynamicAdaptiveImpedanceStrategy,
     KinematicHybridForceStrategy,
 )
 from continuum_sim.control.staged_engine_navigation import (
     StagedEngineNavigationController,
 )
-from continuum_sim.control.staged_engine_tracking import (
-    StagedEngineTrackingController,
-)
 from continuum_sim.control.staged_navigation import StagedNavigationController
 from continuum_sim.control.coordinated_tracking import CoordinatedTrackingConfig
 from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
-from continuum_sim.dynamics import load_pcc_dynamics_config
 from continuum_sim.kinematics.whole_body import SingularityConfig
 from continuum_sim.model.base_pose import look_rotation_quaternion_wxyz
 from continuum_sim.model.robot_assembly import load_robot_assembly_config
@@ -84,7 +75,6 @@ from continuum_sim.scenes.scene_builder import (
     inject_structured_scene,
     lock_mobile_base_freejoint,
 )
-from continuum_sim.tasks.engine_cleaning_path import build_engine_cleaning_plan
 from continuum_sim.tasks.engine_navigation import (
     EngineNavigationObserverControlSpec,
     EngineNavigationSpec,
@@ -131,18 +121,12 @@ class SimulationApplication:
         )
         if engine_scene is not None and structured_scene is not None:
             raise ValueError("A scenario cannot select engine and structured scenes together.")
-        if config.backend.type == "analytic":
-            backend = AnalyticSystemBackend(
-                assembly,
-                kinematics_mode=config.backend.kinematics_mode,
-            )
-        else:
-            backend = _build_mujoco_backend(
-                config,
-                assembly,
-                engine_scene,
-                structured_scene,
-            )
+        backend = _build_mujoco_backend(
+            config,
+            assembly,
+            engine_scene,
+            structured_scene,
+        )
         if engine_scene is not None:
             scene_query = EnginePrimitiveSceneQuery(engine_scene)
         elif structured_scene is not None:
@@ -320,46 +304,15 @@ class SimulationApplication:
                 ),
                 online_reachability=_online_reachability_config(tracking),
             )
-        elif config.task.type == "engine_cleaning":
-            tracking = config.task.tracking_control
-            controller = EngineCleaningSystemController(
-                assembly,
-                task_plan.waypoints_world,
-                task_plan.normals_world,
-                task_plan.waypoint_phases,
-                task_plan.target_force_n,
-                task_plan.standoff_distance_m,
-                scene_query=scene_query,
-                gains=(
-                    config.task.engine_cleaning_control
-                    if config.task.engine_cleaning_control is not None
-                    else _default_engine_cleaning_gains(config)
-                ),
-                controller_dt_s=config.runtime.controller_dt_s,
-                observer_roi_world=config.task.observer_roi_world,
-                observer_control_mode=config.task.observer_control_mode,
-                executor_position_gain=tracking.executor_position_gain,
-                observer_position_gain=tracking.observer_position_gain,
-                max_target_speed_mps=_tracking_target_speed_limit(tracking),
-                solver_config=_tracking_solver_config(tracking),
-                enforce_backend_tendon_limits=(
-                    tracking.enforce_backend_tendon_limits
-                ),
-                coordinated_config=_tracking_coordinated_config(
-                    tracking,
-                    config.task.observer_control,
-                    config.task.scene_avoidance,
-                ),
-            )
         else:
             tracking = config.task.tracking_control
-            if tracking.tracking_mode == "time":
-                timed_controller_type = (
-                    StagedEngineTrackingController
-                    if tracking.stage_mobile_base
-                    else TimedTrajectoryTrackingController
+            if tracking.stage_mobile_base:
+                raise ValueError(
+                    "tracking_control.stage_mobile_base is only supported by "
+                    "navigation tasks in the cleaned mainline."
                 )
-                controller = timed_controller_type(
+            if tracking.tracking_mode == "time":
+                controller = TimedTrajectoryTrackingController(
                     assembly,
                     task_plan.waypoints_world,
                     trajectory_duration_s=float(tracking.trajectory_duration_s),
@@ -380,27 +333,8 @@ class SimulationApplication:
                         config.task.observer_control,
                         config.task.scene_avoidance,
                     ),
-                    **(
-                        {
-                            "base_position_gain": tracking.base_position_gain,
-                            "base_orientation_gain": tracking.base_orientation_gain,
-                            "base_position_tolerance_m": (
-                                tracking.base_position_tolerance_m
-                            ),
-                            "base_orientation_tolerance_rad": (
-                                tracking.base_orientation_tolerance_rad
-                            ),
-                        }
-                        if tracking.stage_mobile_base
-                        else {}
-                    ),
                 )
             else:
-                if tracking.stage_mobile_base:
-                    raise ValueError(
-                        "tracking_control.stage_mobile_base requires "
-                        "tracking_mode='time'."
-                    )
                 controller = WaypointTrackingController(
                     assembly,
                     task_plan.waypoints_world,
@@ -657,29 +591,12 @@ def _build_wiping_force_strategy(config, assembly):
     if strategy_type == "kinematic_hybrid":
         return KinematicHybridForceStrategy()
     if strategy_type == "contact_triggered_admittance":
-        admittance = config.task.admittance
-        return ContactTriggeredAdmittanceStrategy(
-            ContactTriggeredAdmittanceConfig(
-                target_normal_force_n=admittance.target_normal_force_n,
-                contact_force_threshold_n=admittance.contact_force_threshold_n,
-                tangent_tolerance_m=admittance.tangent_tolerance_m,
-                force_tolerance_n=admittance.force_tolerance_n,
-                stable_steps_required=admittance.stable_steps_required,
-                max_steps_per_target=admittance.max_steps_per_target,
-                position_gain=admittance.position_gain,
-                kp_force=admittance.kp_force,
-                ki_force=admittance.ki_force,
-                admittance_mass=admittance.admittance_mass,
-                admittance_damping=admittance.admittance_damping,
-                admittance_stiffness=admittance.admittance_stiffness,
-                admittance_clip_m=admittance.admittance_clip_m,
-                force_deadband_n=admittance.force_deadband_n,
-                force_filter_alpha=admittance.force_filter_alpha,
-                max_tangent_velocity_m_s=admittance.max_tangent_velocity_m_s,
-                max_normal_velocity_m_s=admittance.max_normal_velocity_m_s,
-                enforce_velocity_limits=admittance.enforce_velocity_limits,
+        if config.task.contact_admittance is None:
+            raise ValueError(
+                "contact_triggered_admittance requires "
+                "scenario.task.contact_admittance."
             )
-        )
+        return ContactTriggeredAdmittanceStrategy(config.task.contact_admittance)
     if strategy_type == "dynamic_adaptive_impedance":
         return DynamicAdaptiveImpedanceStrategy(
             assembly,
@@ -883,17 +800,6 @@ def _resolve_task_plan(config, assembly, engine_scene, structured_scene) -> Task
         target_force = task.target_force_n
         normal = plan.surface_normal_world
         surface_point = plan.surface_point_world
-    elif task.engine_cleaning is not None:
-        if engine_scene is None:
-            raise ValueError("scenario.task.engine_cleaning requires scenario.scene.engine_config_path.")
-        plan = build_engine_cleaning_plan(task.engine_cleaning, engine_scene)
-        waypoints = plan.waypoints_world
-        normals = plan.normals_world
-        phases = plan.phases
-        target_force = plan.target_force_n
-        normal = plan.normals_world[0]
-        standoff_distance = plan.standoff_distance_m
-        surface_point = None
     else:
         waypoints = task.waypoints_world
         phases = task.waypoint_phases
@@ -1020,31 +926,3 @@ def _resolve_waypoint_orientations(task, waypoints, structured_scene) -> np.ndar
     return np.asarray(orientations, dtype=float)
 
 
-def _load_task_dynamics_config(config, assembly):
-    if config.task.dynamics_config_path is None:
-        return None
-    executor_names = [arm.name for arm in assembly.enabled_arms if arm.role == "executor"]
-    if len(executor_names) != 1:
-        raise ValueError("Task dynamics requires exactly one executor arm.")
-    params = assembly.arms[executor_names[0]].spatial_arm.params
-    return load_pcc_dynamics_config(config.task.dynamics_config_path, params)
-
-
-def _default_engine_cleaning_gains(config) -> EngineCleaningControllerGains:
-    return EngineCleaningControllerGains(
-        tangential_position_gain=8.0,
-        normal_position_gain=3.0,
-        normal_force_gain=max(config.task.normal_force_gain, 0.001),
-        approach_position_gain=5.0,
-        retreat_position_gain=5.0,
-        max_tcp_speed_mps=0.03,
-        max_normal_speed_mps=0.01,
-        waypoint_tolerance_m=config.task.waypoint_tolerance_m,
-        max_contact_force_n=(
-            5.0
-            if config.task.max_contact_force_n is None
-            else config.task.max_contact_force_n
-        ),
-        force_deadband_n=0.05,
-        min_clearance_m=config.task.min_clearance_m,
-    )

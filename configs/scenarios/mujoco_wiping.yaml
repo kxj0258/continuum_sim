@@ -31,6 +31,34 @@ scenario:
     waypoint_tolerance_m: 0.005
     target_advance_mode: tolerance
     wiping_control_type: hybrid_force_position
+    force_strategy:
+      type: kinematic_hybrid
+    # 可选方案一：动态自适应阻抗预测
+    # wiping_control_type: dynamic_adaptive_impedance
+    # force_strategy:
+    #   type: dynamic_adaptive_impedance
+    # dynamics_config_path: ../dynamics/pcc_reduced.yaml
+    # 可选方案二：接触触发导纳
+    # wiping_control_type: contact_triggered_admittance
+    # force_strategy:
+    #   type: contact_triggered_admittance
+    # contact_admittance:
+    #   target_normal_force_n: 1.5
+    #   contact_force_threshold_n: 0.1
+    #   tangent_tolerance_m: 0.001
+    #   force_tolerance_n: 0.08
+    #   stable_steps_required: 1
+    #   max_steps_per_target: 100
+    #   position_gain: 10.0
+    #   kp_force: 0.5
+    #   ki_force: 0.012
+    #   admittance_mass: 1.0
+    #   admittance_damping: 20.0
+    #   admittance_stiffness: 5.0
+    #   admittance_clip_m: 0.012
+    #   force_deadband_n: 0.03
+    #   force_filter_alpha: 0.1
+    #   enforce_velocity_limits: false
     observer_roi_world: [0.0275, 0.005, 0.105]
     surface_normal_world: [-1.0, 0.0, 0.0]
     target_contact_distance_m: -0.0025

@@ -1,6 +1,6 @@
 schema_version: 1
-name: engine_cleaning
-scene_type: engine_cleaning
+name: engine_scene
+scene_type: engine_scene
 
 metadata:
   coordinate_convention: mesh_frame_as_world
@@ -57,16 +57,6 @@ regions:
     visualization:
       rgba: [0.10, 0.60, 1.0, 0.60]
     description: Measured outer nozzle arc center and initial arm entry point.
-  cleaning_patch:
-    type: surface_patch
-    frame: world
-    position_m: [0.114155, 0.530382, 0.010]
-    normal: [0.0, -1.0, 0.0]
-    extents_m: [0.030, 0.020, 0.001]
-    visualization:
-      rgba: [1.0, 0.70, 0.10, 0.55]
-    description: Small scenario-native raster cleaning patch for engine cleaning path runs.
-
 exploration_start:
   frame: engine
   point_m: [0.442, 1.58169, 1.74693]

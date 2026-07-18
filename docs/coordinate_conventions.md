@@ -1,110 +1,69 @@
-# Coordinate and Command Conventions
+# 坐标和命令约定
 
-## Bending coordinates and tendon compatibility
+## 世界坐标
 
-For segment `i`, the normal control coordinate order is `[kx_i, ky_i]`, in
-inverse metres. A three-segment arm therefore uses:
+主线 MuJoCo 场景使用右手世界坐标系，长度单位为米。位姿中的四元数统一采用：
 
 ```text
-[kx_1, ky_1, kx_2, ky_2, kx_3, ky_3]
+[w, x, y, z]
 ```
 
-The existing PCC order remains `[kx_i, ky_i, eps_i]`, but normal control inserts
-`eps_i = 0`. `C_b` maps bending coordinates to tendon displacement in metres;
-its time derivative maps bending rates to tendon rates in metres per second.
-
-Positive/negative curvature directions are arm-local. Mount-pose rotation then
-expresses Cartesian Jacobians in the MuJoCo world frame. The tendon mapping
-itself is not rebuilt in world coordinates: tendon routing belongs to the arm
-local frame.
-
-A tendon vector is compatible when its residual
-`r = delta_l - C_b pinv(C_b) delta_l` is within the configured numerical
-tolerance. Normal commands must satisfy this condition. Measured state may have
-a nonzero residual, which is reported before projection.
-
-This document is normative for the composable spatial-arm system.
-
-## Frames and transforms
-
-`T_A_B` maps a point represented in frame `B` into frame `A`.
+常见变换链为：
 
 ```text
 T_W_tip = T_W_base * T_base_mount * T_mount_tip
 ```
 
-- `W`: MuJoCo world frame.
-- `base`: prescribed 6D mobile-base frame.
-- `mount`: fixed arm mount frame.
-- `tip`: continuum-arm tip or attachment frame.
+- `W`：MuJoCo 世界坐标。
+- `base`：移动基座坐标。
+- `mount`：机械臂安装坐标。
+- `tip`：连续体机械臂末端或工具坐标。
 
-Positions use metres. Rotation matrices are right-handed. Quaternions always
-use `[w, x, y, z]`.
+## 移动基座命令
 
-## Base twist
-
-The only accepted base command is a world-frame spatial twist:
+移动基座命令为世界坐标下的空间速度：
 
 ```text
 V_W_base = [vx, vy, vz, wx, wy, wz]
 ```
 
-Linear velocity uses metres per second. Angular velocity uses radians per
-second. Body-frame twist commands are intentionally unsupported.
+线速度单位为 m/s，角速度单位为 rad/s。
 
-The initial implementation integrates this twist into a prescribed pose. It is
-not a dynamic force/torque actuator model.
+## 肌腱命令
 
-Assembly base limits include `calibrated: false` until measured engine/base
-workspace, linear-speed, and angular-speed values replace the placeholders.
-
-## Spatial-arm command
-
-Each arm command is the arm-local tendon-length change rate:
+每条臂的底层命令是臂局部肌腱长度变化率：
 
 ```text
-delta_l_dot = [dl1/dt, ..., dl9/dt]  # metres per second
+delta_l_dot = [dl1/dt, ..., dl9/dt]
 ```
 
-There is no motor/spool/gear stage in the spatial MuJoCo control path.
+单位为 m/s。MuJoCo position actuator 最终接收的是肌腱位置 target，
+该 target 由 tendon inner loop 根据命令速度、实际肌腱状态和限幅约束生成。
+
+## 弯曲坐标和相容性
+
+每段的控制弯曲坐标为：
 
 ```text
-rate_limited = clip(delta_l_dot, rate_limits)
-delta_l_next = clip(delta_l + dt * rate_limited, displacement_limits)
-ctrl = neutral_tendon_length + delta_l_next
+[kx_i, ky_i]
 ```
 
-## Jacobians
-
-Controller Jacobians produce world-frame task velocities:
+三段臂对应：
 
 ```text
-tip_linear_velocity_W = J_system * system_velocity
+[kx_1, ky_1, kx_2, ky_2, kx_3, ky_3]
 ```
 
-For direct tendon control:
+PCC 内部仍可使用 `[kx_i, ky_i, eps_i]`，但主线控制中轴向伸长项通常置零。
+肌腱位移必须尽量落在弯曲模型可解释的相容子空间内。相容残差越大，说明实际肌腱状态
+越难由当前弯曲坐标解释。
 
-```text
-J_tip_tendon = J_tip_shape * pinv(C_tendon_shape)
+## 擦拭任务法向
+
+`mujoco_wiping.yaml` 中黑板法向为：
+
+```yaml
+surface_normal_world: [-1.0, 0.0, 0.0]
 ```
 
-The base point contribution is:
-
-```text
-v_point = v_base + omega_base x (p_point - p_base)
-```
-
-Euler-angle subtraction is not a pose error. Controllers must use rotation
-matrices, quaternions, or an SE(3) error. Euler angles are allowed only in YAML
-input and MuJoCo freejoint boundary conversion.
-
-## System layouts
-
-```text
-single = [base_twist(6), executor_tendon_rate(9)]                  # 15D
-dual   = [base_twist(6), executor_tendon_rate(9),
-          observer_tendon_rate(9)]                                # 24D
-```
-
-`ControlLayout` owns flat slices. Controllers, tasks, and scenes address arms
-by name and must not concatenate hard-coded vectors.
+`contact_offset_m` 沿该法向定义接触轨迹偏移，`approach_offset_m` 沿该法向定义板外侧预接触点。

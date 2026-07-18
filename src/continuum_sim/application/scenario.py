@@ -10,8 +10,9 @@ import numpy as np
 
 from continuum_sim.config import load_yaml
 from continuum_sim.config_validation import resolve_path
-from continuum_sim.control.contact_triggered_admittance import ContactTriggeredAdmittanceConfig
-from continuum_sim.control.engine_cleaning_types import EngineCleaningControllerGains
+from continuum_sim.control.contact_triggered_admittance import (
+    ContactTriggeredAdmittanceConfig,
+)
 from continuum_sim.control.tendon_rate_control import (
     BendingRateServoConfig,
     TENDON_INNER_LOOP_MODES,
@@ -24,21 +25,19 @@ from continuum_sim.kinematics.pcc import (
     PCC_KINEMATICS_MODES,
     PCCKinematicsMode,
 )
-from continuum_sim.tasks.engine_cleaning_path import EngineCleaningPathSpec
 from continuum_sim.tasks.engine_navigation import EngineNavigationSpec
 from continuum_sim.tasks.navigation_mission import NavigationMissionSpec
 from continuum_sim.tasks.trajectory_generation import TrajectorySpec
 from continuum_sim.tasks.wiping_path import WipingPathSpec
 
 
-BACKEND_TYPES = ("analytic", "mujoco")
+BACKEND_TYPES = ("mujoco",)
 ARM_MODES = ("dual", "single")
 TASK_TYPES = (
     "idle",
     "tracking",
     "navigation",
     "wiping",
-    "engine_cleaning",
     "engine_navigation",
 )
 WIPING_CONTROL_TYPES = (
@@ -478,28 +477,6 @@ class ScenarioForceStrategyConfig:
 
 
 @dataclass(frozen=True)
-class ScenarioAdmittanceConfig:
-    target_normal_force_n: float = 0.0
-    contact_force_threshold_n: float = 0.1
-    tangent_tolerance_m: float = 1.0e-3
-    force_tolerance_n: float = 0.08
-    stable_steps_required: int = 1
-    max_steps_per_target: int = 100
-    position_gain: float = 10.0
-    kp_force: float = 0.5
-    ki_force: float = 0.012
-    admittance_mass: float = 1.0
-    admittance_damping: float = 20.0
-    admittance_stiffness: float = 5.0
-    admittance_clip_m: float = 0.012
-    force_deadband_n: float = 0.03
-    force_filter_alpha: float = 0.1
-    max_tangent_velocity_m_s: float = 0.012
-    max_normal_velocity_m_s: float = 0.010
-    enforce_velocity_limits: bool = False
-
-
-@dataclass(frozen=True)
 class ScenarioTaskConfig:
     type: str
     waypoints_world: np.ndarray = field(
@@ -544,7 +521,6 @@ class ScenarioTaskConfig:
     trajectory: TrajectorySpec | None = None
     mission: NavigationMissionSpec | None = None
     wiping_path: WipingPathSpec | None = None
-    engine_cleaning: EngineCleaningPathSpec | None = None
     waypoint_phases: tuple[str, ...] = ()
     target_force_n: np.ndarray = field(
         default_factory=lambda: np.zeros(0, dtype=float)
@@ -563,12 +539,8 @@ class ScenarioTaskConfig:
     force_strategy: ScenarioForceStrategyConfig = field(
         default_factory=ScenarioForceStrategyConfig
     )
-    admittance: ScenarioAdmittanceConfig = field(
-        default_factory=ScenarioAdmittanceConfig
-    )
-    engine_navigation: EngineNavigationSpec | None = None
     contact_admittance: ContactTriggeredAdmittanceConfig | None = None
-    engine_cleaning_control: EngineCleaningControllerGains | None = None
+    engine_navigation: EngineNavigationSpec | None = None
     tracking_control: ScenarioTrackingControlConfig = field(
         default_factory=ScenarioTrackingControlConfig
     )
@@ -675,13 +647,6 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
         if task_values.get("wiping_path") is None
         else WipingPathSpec.from_mapping(
             _mapping(task_values["wiping_path"], "scenario.task.wiping_path")
-        )
-    )
-    engine_cleaning = (
-        None
-        if task_values.get("engine_cleaning") is None
-        else EngineCleaningPathSpec.from_mapping(
-            _mapping(task_values["engine_cleaning"], "scenario.task.engine_cleaning")
         )
     )
     engine_navigation = (
@@ -853,11 +818,13 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     observer_control = _load_observer_control_config(task_values)
     scene_avoidance = _load_scene_avoidance_config(task_values)
     contact_admittance = _load_contact_admittance_config(task_values)
-    if wiping_control_type == "contact_triggered_admittance" and contact_admittance is None:
+    if (
+        wiping_control_type == "contact_triggered_admittance"
+        and contact_admittance is None
+    ):
         contact_admittance = ContactTriggeredAdmittanceConfig(
             target_normal_force_n=float(task_values.get("target_normal_force_n", 0.0))
         )
-    engine_cleaning_control = _load_engine_cleaning_control_config(task_values)
     viewer = str(hook_values.get("viewer", "none"))
     if viewer not in ("none", "matplotlib", "mujoco"):
         raise ValueError("scenario.hooks.viewer must be none, matplotlib, or mujoco.")
@@ -939,7 +906,6 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             trajectory=trajectory,
             mission=mission,
             wiping_path=wiping_path,
-            engine_cleaning=engine_cleaning,
             engine_navigation=engine_navigation,
             waypoint_phases=tuple(str(value) for value in task_values.get("waypoint_phases", ())),
             target_force_n=np.asarray(task_values.get("target_force_n", []), dtype=float),
@@ -964,10 +930,8 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
                 task_values.get("contact_loss_tolerance_steps", 20)
             ),
             force_strategy=force_strategy,
-            admittance=_load_admittance_config(task_values),
-            tracking_control=tracking_control,
             contact_admittance=contact_admittance,
-            engine_cleaning_control=engine_cleaning_control,
+            tracking_control=tracking_control,
         ),
         runtime=ScenarioRuntimeConfig(
             controller_dt_s=float(runtime_values.get("controller_dt_s", 0.02)),
@@ -1044,7 +1008,6 @@ def _waypoint_source(task_values: dict[str, Any]) -> str:
             "trajectory",
             "mission",
             "wiping_path",
-            "engine_cleaning",
             "engine_navigation",
         )
         if task_values.get(name) is not None
@@ -1091,14 +1054,8 @@ def _default_assembly_config_path(
     task_values: dict[str, Any],
     arm_mode: str,
 ) -> str:
-    tracking_values = _mapping(
-        task_values.get("tracking_control", {}),
-        "scenario.task.tracking_control",
-    )
     task_type = str(task_values.get("type", "idle"))
-    mobile = task_type in ("navigation", "engine_cleaning", "engine_navigation") or bool(
-        tracking_values.get("stage_mobile_base", False)
-    )
+    mobile = task_type in ("navigation", "engine_navigation")
     prefix = "dual" if arm_mode == "dual" else "single"
     suffix = "_mobile" if mobile else ""
     return f"../robots/assemblies/{prefix}_spatial{suffix}.yaml"
@@ -1450,48 +1407,6 @@ def _load_force_strategy_config(
     return ScenarioForceStrategyConfig(type=strategy_type)
 
 
-def _load_admittance_config(task_values: dict[str, Any]) -> ScenarioAdmittanceConfig:
-    values = _mapping(
-        task_values.get("admittance", {}),
-        "scenario.task.admittance",
-    )
-    return ScenarioAdmittanceConfig(
-        target_normal_force_n=float(
-            values.get(
-                "target_normal_force_n",
-                task_values.get("target_normal_force_n", 0.0),
-            )
-        ),
-        contact_force_threshold_n=float(values.get("contact_force_threshold_n", 0.1)),
-        tangent_tolerance_m=float(values.get("tangent_tolerance_m", 1.0e-3)),
-        force_tolerance_n=float(values.get("force_tolerance_n", 0.08)),
-        stable_steps_required=int(values.get("stable_steps_required", 1)),
-        max_steps_per_target=int(values.get("max_steps_per_target", 100)),
-        position_gain=float(values.get("position_gain", 10.0)),
-        kp_force=float(values.get("kp_force", 0.5)),
-        ki_force=float(values.get("ki_force", 0.012)),
-        admittance_mass=float(values.get("admittance_mass", 1.0)),
-        admittance_damping=float(values.get("admittance_damping", 20.0)),
-        admittance_stiffness=float(values.get("admittance_stiffness", 5.0)),
-        admittance_clip_m=float(values.get("admittance_clip_m", 0.012)),
-        force_deadband_n=float(values.get("force_deadband_n", 0.03)),
-        force_filter_alpha=float(values.get("force_filter_alpha", 0.1)),
-        max_tangent_velocity_m_s=float(values.get("max_tangent_velocity_m_s", 0.012)),
-        max_normal_velocity_m_s=float(values.get("max_normal_velocity_m_s", 0.010)),
-        enforce_velocity_limits=bool(values.get("enforce_velocity_limits", False)),
-    )
-
-
-def _load_low_level_control_values(path: Path | None) -> dict[str, Any]:
-    if path is None:
-        return {}
-    raw = load_yaml(path)
-    return _mapping(
-        raw.get("low_level_control"),
-        "low_level_control",
-    )
-
-
 def _load_contact_admittance_config(
     task_values: dict[str, Any],
 ) -> ContactTriggeredAdmittanceConfig | None:
@@ -1532,42 +1447,13 @@ def _load_contact_admittance_config(
     )
 
 
-def _load_engine_cleaning_control_config(
-    task_values: dict[str, Any],
-) -> EngineCleaningControllerGains | None:
-    values = task_values.get("engine_cleaning_control")
-    if values is None:
-        return None
-    mapping = _mapping(values, "scenario.task.engine_cleaning_control")
-    return EngineCleaningControllerGains(
-        tangential_position_gain=float(mapping.get("tangential_position_gain", 8.0)),
-        normal_position_gain=float(mapping.get("normal_position_gain", 3.0)),
-        normal_force_gain=float(
-            mapping.get(
-                "normal_force_gain",
-                max(float(task_values.get("normal_force_gain", 0.0)), 0.001),
-            )
-        ),
-        approach_position_gain=float(mapping.get("approach_position_gain", 5.0)),
-        retreat_position_gain=float(mapping.get("retreat_position_gain", 5.0)),
-        max_tcp_speed_mps=float(mapping.get("max_tcp_speed_mps", 0.03)),
-        max_normal_speed_mps=float(mapping.get("max_normal_speed_mps", 0.01)),
-        waypoint_tolerance_m=float(
-            mapping.get(
-                "waypoint_tolerance_m",
-                task_values.get("waypoint_tolerance_m", 0.001),
-            )
-        ),
-        max_contact_force_n=float(
-            mapping.get(
-                "max_contact_force_n",
-                task_values.get("max_contact_force_n", 5.0),
-            )
-        ),
-        force_deadband_n=float(mapping.get("force_deadband_n", 0.05)),
-        min_clearance_m=float(
-            mapping.get("min_clearance_m", task_values.get("min_clearance_m", 0.0))
-        ),
+def _load_low_level_control_values(path: Path | None) -> dict[str, Any]:
+    if path is None:
+        return {}
+    raw = load_yaml(path)
+    return _mapping(
+        raw.get("low_level_control"),
+        "low_level_control",
     )
 
 

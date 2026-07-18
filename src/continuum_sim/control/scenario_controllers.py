@@ -7,18 +7,9 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from continuum_sim.control.cbf_qp_kinematics import cbf_lower_bound, solve_cbf_qp_velocity
-from continuum_sim.control.contact_triggered_admittance import (
-    ContactTriggeredAdmittanceConfig,
-    ContactTriggeredAdmittanceTracker,
-)
 from continuum_sim.control.waypoint_scheduler import WaypointScheduler
 from continuum_sim.control.coordinated_tracking import (
     CoordinatedTrackingConfig,
-)
-from continuum_sim.control.engine_cleaning_controller import EngineCleaningController
-from continuum_sim.control.engine_cleaning_types import (
-    EngineCleaningControllerGains,
-    EngineCleaningFeedback,
 )
 from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
 from continuum_sim.control.task_intent import (
@@ -35,16 +26,6 @@ from continuum_sim.control.wiping_force_strategies import (
     WipingForceStrategy,
     default_wiping_force_strategy,
 )
-from continuum_sim.dynamics import (
-    PCCDynamicsConfig,
-    PCCDynamicsState,
-    contact_generalized_force,
-    damping_matrix,
-    mass_matrix,
-    stiffness_matrix,
-    step_dynamics,
-)
-from continuum_sim.kinematics.differential import finite_difference_position_jacobian
 from continuum_sim.kinematics.pcc import forward_kinematics
 from continuum_sim.kinematics.whole_body import (
     assemble_whole_body_jacobian,
@@ -54,15 +35,12 @@ from continuum_sim.kinematics.whole_body import (
 )
 from continuum_sim.model.base_pose import quaternion_error_rotation_vector
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
-from continuum_sim.model.robot_params import PCC_VALUES_PER_SEGMENT
 from continuum_sim.scenes.engine_query import EngineSceneQueryProtocol
 from continuum_sim.system.control_layout import ControlLayout
 from continuum_sim.system.types import (
-    ArmTendonRateCommand,
     RobotSystemCommand,
     RobotSystemState,
 )
-from continuum_sim.tasks.engine_surface_path import CleaningWaypoint
 
 
 @dataclass(frozen=True)
@@ -1132,8 +1110,6 @@ class WipingController:
         solver_config: WholeBodyControllerConfig = WholeBodyControllerConfig(),
         enforce_backend_tendon_limits: bool = False,
         coordinated_config: CoordinatedTrackingConfig | None = None,
-        dynamics_config: PCCDynamicsConfig | None = None,
-        admittance_config: ContactTriggeredAdmittanceConfig | None = None,
         online_reachability: OnlineReachabilityConfig | None = None,
     ) -> None:
         self.control_type = control_type
@@ -1172,7 +1148,7 @@ class WipingController:
             "controller_dt_s": controller_dt_s,
             "advance_time_s": advance_time_s,
             "advance_steps": advance_steps,
-            "advance_enabled": (control_type != "contact_triggered_admittance"),
+            "advance_enabled": True,
             "observer_control_mode": observer_control_mode,
             "executor_position_gain": executor_position_gain,
             "observer_position_gain": observer_position_gain,
@@ -1217,21 +1193,7 @@ class WipingController:
         self.phase = "approach"
         self.controller_dt_s = float(controller_dt_s)
         self._executor_name = _single_role_name(assembly, "executor")
-        executor = assembly.arms[self._executor_name]
-        self._executor_bending_model = self._tracking._controller.solver.layout.bending_models[
-            self._executor_name
-        ]
         self._kinematics_mode = solver_config.kinematics_mode
-        self._dynamics_config = (
-            PCCDynamicsConfig.default(executor.spatial_arm.params)
-            if dynamics_config is None
-            else dynamics_config
-        )
-        self._admittance = (
-            None
-            if admittance_config is None
-            else ContactTriggeredAdmittanceTracker(admittance_config)
-        )
 
     @property
     def done(self) -> bool:
@@ -1361,10 +1323,6 @@ class WipingController:
                 "task_type": "wiping",
                 "wiping_phase": self.phase,
                 "wiping_control_type": self.control_type,
-                "wiping_dynamic_requested": (
-                    self.control_type == "dynamic_adaptive_impedance"
-                ),
-                "wiping_dynamic_system_controller_active": False,
                 "target_normal_force_n": float(self.target_force_n[waypoint_index]),
                 "estimated_normal_force_n": estimated_force,
                 "force_error_n": force_error,
@@ -1497,231 +1455,6 @@ class WipingController:
                     ),
                     "retreat",
                 )
-        self._executor_bending_model = self._tracking._controller.solver.layout.bending_models[
-            self._executor_name
-        ]
-
-    def _with_dynamic_executor_command(
-        self,
-        state: RobotSystemState,
-        command: RobotSystemCommand,
-        target_position_world: np.ndarray,
-        normal_force_n: float,
-        normal_world: np.ndarray,
-    ) -> RobotSystemCommand:
-        arm_config = self.assembly.arms[self._executor_name]
-        arm_state = state.arms[self._executor_name]
-        model = self._executor_bending_model
-        q = model.to_q(model.estimate(arm_state.tendon_displacement_m))
-        qdot = model.to_q(model.estimate(arm_state.tendon_velocity_mps))
-        q = _zero_axial(q)
-        qdot = _zero_axial(qdot)
-        desired_world = 4.0 * (
-            np.asarray(target_position_world, dtype=float)
-            - arm_state.tip_pose_world.position
-        )
-        mount = state.base.pose.compose(arm_config.mount_pose)
-        rotation = mount.as_matrix()[:3, :3]
-        desired_local = rotation.T @ desired_world
-        tip_jacobian = finite_difference_position_jacobian(
-            q,
-            arm_config.spatial_arm.params,
-            kinematics_mode=self._kinematics_mode,
-        )
-        active = _bending_dof_mask(arm_config.spatial_arm.params)
-        desired_qdot = np.zeros_like(q)
-        desired_qdot[active] = np.linalg.pinv(tip_jacobian[:, active]) @ desired_local
-        desired_qddot = (desired_qdot - qdot) / max(self.controller_dt_s, 1.0e-12)
-        M = mass_matrix(
-            q,
-            arm_config.spatial_arm.params,
-            self._dynamics_config,
-            kinematics_mode=self._kinematics_mode,
-        )
-        D = damping_matrix(arm_config.spatial_arm.params, self._dynamics_config)
-        K = stiffness_matrix(arm_config.spatial_arm.params, self._dynamics_config)
-        contact_tau = contact_generalized_force(
-            q,
-            float(max(0.0, normal_force_n if np.isfinite(normal_force_n) else 0.0))
-            * (rotation.T @ np.asarray(normal_world, dtype=float)),
-            arm_config.spatial_arm.params,
-            kinematics_mode=self._kinematics_mode,
-        )
-        tau = M @ desired_qddot + D @ qdot + K @ q - contact_tau
-        predicted, _info = step_dynamics(
-            PCCDynamicsState(q=q, qdot=qdot),
-            applied_generalized_force=tau + contact_tau,
-            params=arm_config.spatial_arm.params,
-            config=self._dynamics_config,
-            dt=self.controller_dt_s,
-            kinematics_mode=self._kinematics_mode,
-        )
-        tendon_rate = model.to_tendon(predicted.qdot[active])
-        arms = dict(command.arms)
-        arms[self._executor_name] = ArmTendonRateCommand(tendon_rate)
-        return RobotSystemCommand(
-            base_twist_world=command.base_twist_world,
-            arms=arms,
-            metadata={
-                **command.metadata,
-                "dynamic_predicted_q": predicted.q.copy(),
-                "dynamic_predicted_qdot": predicted.qdot.copy(),
-                "dynamic_stiffness_diag": np.diag(K),
-                "dynamic_damping_diag": np.diag(D),
-            },
-        )
-
-
-class EngineCleaningSystemController:
-    """Scenario adapter for the task-space engine cleaning controller."""
-
-    def __init__(
-        self,
-        assembly: RobotAssemblyConfig,
-        waypoints_world: np.ndarray,
-        normals_world: np.ndarray,
-        phases: tuple[str, ...],
-        target_force_n: np.ndarray,
-        standoff_distance_m: np.ndarray,
-        *,
-        scene_query: EngineSceneQueryProtocol | None,
-        gains: EngineCleaningControllerGains,
-        controller_dt_s: float,
-        observer_roi_world: np.ndarray | None = None,
-        observer_control_mode: str = "tracking",
-        executor_position_gain: float = 4.0,
-        observer_position_gain: float = 5.0,
-        max_target_speed_mps: float | None = None,
-        solver_config: WholeBodyControllerConfig = WholeBodyControllerConfig(),
-        enforce_backend_tendon_limits: bool = False,
-        coordinated_config: CoordinatedTrackingConfig | None = None,
-    ) -> None:
-        self.assembly = assembly
-        self.scene_query = scene_query
-        self._executor_name = _single_role_name(assembly, "executor")
-        self._waypoints_world = np.asarray(waypoints_world, dtype=float).copy()
-        self._observer_roi_world = (
-            None
-            if observer_roi_world is None
-            else np.asarray(observer_roi_world, dtype=float).copy()
-        )
-        self._observer_control_mode = str(observer_control_mode)
-        low_level_config = (
-            CoordinatedTrackingConfig(
-                kinematics_mode=solver_config.kinematics_mode,
-                executor_position_gain=executor_position_gain,
-                observer_position_gain=observer_position_gain,
-                max_target_speed_mps=max_target_speed_mps,
-                enforce_backend_tendon_limits=enforce_backend_tendon_limits,
-            )
-            if coordinated_config is None
-            else coordinated_config
-        )
-        self._low_level = UnifiedLowLevelController(
-            assembly,
-            coordinated_config=low_level_config,
-            solver_config=solver_config,
-            scene_query=None,
-        )
-        self._controller = EngineCleaningController(
-            gains,
-            _cleaning_waypoints(
-                waypoints_world,
-                normals_world,
-                phases,
-                target_force_n,
-                standoff_distance_m,
-            ),
-        )
-
-    @property
-    def done(self) -> bool:
-        return self._controller.is_done() or self._controller.safety_stop
-
-    @property
-    def terminal_reason(self) -> str:
-        if self._controller.safety_stop:
-            return str(self._controller.stop_reason or "safety_stop")
-        return "completed" if self._controller.is_done() else ""
-
-    def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
-        executor = state.arms[self._executor_name]
-        distance = None
-        force = 0.0
-        in_contact = False
-        if self.scene_query is not None:
-            query = self.scene_query.nearest_distance(executor.tip_pose_world.position)
-            distance = float(query.distance_m)
-            force = max(0.0, -distance * 600.0)
-            in_contact = distance <= 0.0
-        cleaning_command = self._controller.step(
-            EngineCleaningFeedback(
-                tcp_pose=executor.tip_pose_world,
-                measured_normal_force_n=force,
-                contact_distance_m=distance,
-                in_contact=in_contact,
-                timestamp_s=state.time_s,
-            )
-        )
-        active_index = int(
-            np.clip(
-                cleaning_command.active_waypoint_index,
-                0,
-                self._waypoints_world.shape[0] - 1,
-            )
-        )
-        step = TaskStep(
-            intent=SystemTaskIntent(
-                executor=CartesianTaskIntent(
-                    target_position_world=self._waypoints_world[active_index],
-                    feedforward_velocity_world=(
-                        cleaning_command.desired_tcp_velocity_world
-                    ),
-                    control_mode="velocity",
-                ),
-                observer=ObserverTaskIntent(
-                    control_mode=self._observer_control_mode,
-                    roi_position_world=self._observer_roi_world,
-                ),
-            ),
-            status=TaskStatus(
-                task_type="engine_cleaning",
-                phase=cleaning_command.phase,
-                active_index=active_index,
-                complete=self.done,
-                stop_reason=cleaning_command.stop_reason or "",
-            ),
-        )
-        command = self._low_level.compute_command(state, step)
-        controller_metadata = command.metadata
-        if self.done:
-            command = RobotSystemCommand.zeros(
-                {
-                    arm.name: arm.spatial_arm.tendon_count
-                    for arm in self.assembly.enabled_arms
-                }
-            )
-        return RobotSystemCommand(
-            base_twist_world=command.base_twist_world,
-            arms=command.arms,
-            metadata={
-                **controller_metadata,
-                **cleaning_command.metadata,
-                "task_type": "engine_cleaning",
-                "engine_cleaning_controller": "task_space",
-                "engine_cleaning_phase": cleaning_command.phase,
-                "engine_cleaning_waypoint_index": cleaning_command.active_waypoint_index,
-                "engine_cleaning_waypoint_reached": cleaning_command.waypoint_reached,
-                "engine_cleaning_safety_stop": cleaning_command.safety_stop,
-                "engine_cleaning_stop_reason": cleaning_command.stop_reason,
-                "engine_cleaning_contact_distance_m": (
-                    np.nan if distance is None else distance
-                ),
-                "engine_cleaning_estimated_force_n": force,
-            },
-        )
-
-
 def _unit_interval(value: float) -> float:
     if not np.isfinite(value):
         return float("nan")
@@ -1821,48 +1554,6 @@ def _waypoint_quaternions(
     if np.any((~np.isfinite(norms)) | (norms <= 1.0e-12)):
         raise ValueError("waypoint_orientations_world_wxyz rows must be finite nonzero quaternions.")
     return result / norms[:, None]
-
-
-def _bending_dof_mask(params) -> np.ndarray:
-    mask = np.ones(params.q_size, dtype=bool)
-    mask[PCC_VALUES_PER_SEGMENT - 1 :: PCC_VALUES_PER_SEGMENT] = False
-    return mask
-
-
-def _zero_axial(q: np.ndarray) -> np.ndarray:
-    result = np.asarray(q, dtype=float).copy()
-    result[PCC_VALUES_PER_SEGMENT - 1 :: PCC_VALUES_PER_SEGMENT] = 0.0
-    return result
-
-
-def _cleaning_waypoints(
-    positions: np.ndarray,
-    normals: np.ndarray,
-    phases: tuple[str, ...],
-    target_force_n: np.ndarray,
-    standoff_distance_m: np.ndarray,
-) -> tuple[CleaningWaypoint, ...]:
-    position_array = np.asarray(positions, dtype=float)
-    normal_array = np.asarray(normals, dtype=float)
-    waypoints: list[CleaningWaypoint] = []
-    for index in range(position_array.shape[0]):
-        normal = normal_array[index]
-        tangent_u = _default_tangent(normal)
-        tangent_v = np.cross(normal / np.linalg.norm(normal), tangent_u)
-        tangent_v = tangent_v / np.linalg.norm(tangent_v)
-        waypoints.append(
-            CleaningWaypoint(
-                position=position_array[index],
-                normal=normal,
-                tangent_u=tangent_u,
-                tangent_v=tangent_v,
-                phase=phases[index],
-                target_force_n=float(target_force_n[index]),
-                standoff_distance_m=float(standoff_distance_m[index]),
-                index=index,
-            )
-        )
-    return tuple(waypoints)
 
 
 def _default_tangent(normal: np.ndarray) -> np.ndarray:

@@ -10,7 +10,7 @@ scenario:
     source_xml_path: ../../assets/mujoco/dual_three_segment_arm_tendon_with_visuals_mobile_base.xml
     generated_xml_path: ../../output/generated/scenario_dual_engine_navigation.xml
   scene:
-    engine_config_path: ../scenes/engine_cleaning.yaml
+    engine_config_path: ../scenes/engine_scene.yaml
   task:
     type: engine_navigation
     observer_control_mode: collision_avoidance

@@ -192,7 +192,7 @@ class ContactTriggeredAdmittanceStrategy(WipingForceStrategy):
 
 
 class DynamicAdaptiveImpedanceStrategy(KinematicHybridForceStrategy):
-    """Use reduced PCC dynamics as an optional predictive correction."""
+    """Use reduced PCC dynamics as an optional predictive normal correction."""
 
     strategy_type = "dynamic_adaptive_impedance"
 
@@ -235,7 +235,11 @@ class DynamicAdaptiveImpedanceStrategy(KinematicHybridForceStrategy):
             qdot = self.bending_model.to_q(
                 self.bending_model.estimate(context.executor.tendon_velocity_mps)
             )
-            force_error = 0.0 if not np.isfinite(context.force_error_n) else context.force_error_n
+            force_error = (
+                0.0
+                if not np.isfinite(context.force_error_n)
+                else context.force_error_n
+            )
             generalized_force = contact_generalized_force(
                 q,
                 force_error * context.normal_world,
@@ -269,7 +273,9 @@ class DynamicAdaptiveImpedanceStrategy(KinematicHybridForceStrategy):
                     context.contact_tolerance_m,
                 )
             )
-            corrected = baseline.corrected_waypoint + normal_correction * context.normal_world
+            corrected = baseline.corrected_waypoint + (
+                normal_correction * context.normal_world
+            )
             metadata.update(
                 {
                     "wiping_dynamic_system_controller_active": True,
@@ -277,7 +283,10 @@ class DynamicAdaptiveImpedanceStrategy(KinematicHybridForceStrategy):
                     "dynamic_predicted_tip_delta_m": predicted_tip_delta.copy(),
                     "dynamic_predicted_q": predicted.q.copy(),
                     "dynamic_predicted_qdot": predicted.qdot.copy(),
-                    "dynamic_predicted_qddot": np.asarray(info["qddot"], dtype=float).copy(),
+                    "dynamic_predicted_qddot": np.asarray(
+                        info["qddot"],
+                        dtype=float,
+                    ).copy(),
                     "dynamic_contact_generalized_force": generalized_force.copy(),
                     "kinematics_mode": self.kinematics_mode,
                 }
@@ -287,11 +296,7 @@ class DynamicAdaptiveImpedanceStrategy(KinematicHybridForceStrategy):
                 metadata=metadata,
             )
         except Exception as exc:  # noqa: BLE001 - keep baseline controller alive.
-            metadata.update(
-                {
-                    "wiping_dynamic_error": f"{type(exc).__name__}: {exc}",
-                }
-            )
+            metadata["wiping_dynamic_error"] = f"{type(exc).__name__}: {exc}"
             return WipingForceStrategyResult(
                 corrected_waypoint=baseline.corrected_waypoint,
                 metadata=metadata,

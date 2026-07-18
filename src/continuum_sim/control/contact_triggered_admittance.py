@@ -1,18 +1,4 @@
-"""Contact-triggered admittance logic for force-position wiping tasks.
-
-This module contains the reusable part of the experimental
-``soft_controller_tests`` force-control workflow:
-
-* keep force control disabled before contact,
-* enable target force as soon as contact is detected,
-* convert normal force error into an admittance displacement,
-* update waypoints only when tangent tracking and force tracking are both stable,
-  with a per-waypoint max-step fallback.
-
-It intentionally does not depend on MuJoCo or a robot model. Runtime code can feed
-it measured tip position and normal force, then use the returned corrected target
-or desired Cartesian velocity in whichever IK/controller stack it owns.
-"""
+"""Contact-triggered admittance logic for wiping force-position tasks."""
 
 from __future__ import annotations
 
@@ -69,7 +55,7 @@ class ContactTriggeredAdmittanceConfig:
 
 @dataclass(frozen=True)
 class ContactTriggeredAdmittanceCommand:
-    """One control update produced by :class:`ContactTriggeredAdmittanceTracker`."""
+    """One update produced by ContactTriggeredAdmittanceTracker."""
 
     target_index: int
     target_position: np.ndarray
@@ -90,7 +76,7 @@ class ContactTriggeredAdmittanceCommand:
 
 @dataclass
 class ContactTriggeredAdmittanceTracker:
-    """Stateful waypoint and admittance tracker independent of simulator backend."""
+    """Stateful waypoint and admittance tracker independent of MuJoCo."""
 
     config: ContactTriggeredAdmittanceConfig
     target_index: int = 0
@@ -112,8 +98,6 @@ class ContactTriggeredAdmittanceTracker:
         return self._last_command
 
     def reset(self, *, target_index: int = 0) -> None:
-        """Reset internal state while preserving configuration."""
-
         if target_index < 0:
             raise ValueError("target_index must be non-negative.")
         self.target_index = int(target_index)
@@ -135,8 +119,6 @@ class ContactTriggeredAdmittanceTracker:
         measured_normal_force_n: float,
         dt: float,
     ) -> ContactTriggeredAdmittanceCommand:
-        """Advance contact trigger, admittance state, and waypoint gate by one step."""
-
         if dt <= 0.0:
             raise ValueError(f"dt must be positive, got {dt}.")
         targets = _target_array(target_positions)

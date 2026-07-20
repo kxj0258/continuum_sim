@@ -100,6 +100,7 @@ tests/               当前主线仍维护的单元和集成测试
 
 ## 相关文档
 
+- `docs/getting_started.md`：新手入门、项目架构、任务流程、调参和扩展指南。
 - `docs/main_scenarios.md`：5 个主场景的职责和运行方式。
 - `docs/configuration_reference.md`：场景 YAML 关键字段说明。
 - `docs/coordinate_conventions.md`：坐标、命令和法向约定。

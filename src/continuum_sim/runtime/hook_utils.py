@@ -82,6 +82,36 @@ def metadata_paths(
     return tuple(result)
 
 
+def sample_overlay_points(points: np.ndarray, stride: int) -> np.ndarray:
+    """Sample overlay path points while preserving the final point."""
+
+    sampled = points[::stride]
+    if (len(points) - 1) % stride != 0:
+        sampled = np.vstack((sampled, points[-1]))
+    return sampled
+
+
+def split_target_history(
+    points: list[np.ndarray],
+    kinds: list[str],
+    stride: int,
+) -> list[list[np.ndarray]]:
+    """Split target trail whenever the target kind changes."""
+
+    segments: list[list[np.ndarray]] = []
+    previous_kind: str | None = None
+    for point, kind in zip(points, kinds, strict=True):
+        if not segments or kind != previous_kind:
+            segments.append([point])
+        else:
+            segments[-1].append(point)
+        previous_kind = kind
+    return [
+        list(sample_overlay_points(np.asarray(segment), stride))
+        for segment in segments
+    ]
+
+
 def finite_metadata_float(
     metadata: dict[str, Any],
     key: str,

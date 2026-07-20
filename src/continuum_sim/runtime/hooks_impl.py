@@ -16,6 +16,8 @@ from continuum_sim.runtime.hook_utils import (
     metadata_path as _metadata_path,
     metadata_paths as _metadata_paths,
     metadata_point as _metadata_point,
+    sample_overlay_points as _sample_overlay_points,
+    split_target_history as _split_target_history,
     tip_target_error_vector as _tip_target_error_vector,
 )
 from continuum_sim.runtime.metadata_schema import ENGINE_NAVIGATION_OVERLAY_METADATA
@@ -1422,32 +1424,6 @@ def _draw_error_vector_overlay_scene(
         config.error_vector_radius,
         config.error_vector_rgba,
     )
-
-
-def _sample_overlay_points(points: np.ndarray, stride: int) -> np.ndarray:
-    sampled = points[::stride]
-    if (len(points) - 1) % stride != 0:
-        sampled = np.vstack((sampled, points[-1]))
-    return sampled
-
-
-def _split_target_history(
-    points: list[np.ndarray],
-    kinds: list[str],
-    stride: int,
-) -> list[list[np.ndarray]]:
-    segments: list[list[np.ndarray]] = []
-    previous_kind: str | None = None
-    for point, kind in zip(points, kinds, strict=True):
-        if not segments or kind != previous_kind:
-            segments.append([point])
-        else:
-            segments[-1].append(point)
-        previous_kind = kind
-    return [
-        list(_sample_overlay_points(np.asarray(segment), stride))
-        for segment in segments
-    ]
 
 
 def _draw_segment_endpoint_overlay_scene(

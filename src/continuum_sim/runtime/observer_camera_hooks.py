@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from continuum_sim.model.base_pose import Pose6D
-from continuum_sim.runtime.hooks_impl import _metadata_point
+from continuum_sim.runtime.hook_utils import metadata_point as _metadata_point
 from continuum_sim.runtime.video_utils import (
     normalise_output_paths as _normalise_output_paths,
     open_video_writer as _open_video_writer,

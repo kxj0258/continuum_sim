@@ -24,6 +24,24 @@ def metadata_vector_or_nan(
     return vector.copy()
 
 
+def metadata_point(
+    metadata: dict[str, object],
+    key: str,
+) -> np.ndarray | None:
+    """Return a finite 3D metadata point, or None when unavailable."""
+
+    value = metadata.get(key)
+    if value is None:
+        return None
+    try:
+        point = np.asarray(value, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if point.shape != (3,) or not np.all(np.isfinite(point)):
+        return None
+    return point.copy()
+
+
 def finite_metadata_float(
     metadata: dict[str, Any],
     key: str,

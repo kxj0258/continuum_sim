@@ -11,6 +11,7 @@ import numpy as np
 from continuum_sim.runtime.hook_utils import (
     executor_arm as _executor_arm,
     finite_metadata_float as _finite_metadata_float,
+    metadata_point as _metadata_point,
 )
 from continuum_sim.runtime.metadata_schema import ENGINE_NAVIGATION_OVERLAY_METADATA
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
@@ -1622,22 +1623,6 @@ def _draw_error_vector_overlay_scene(
         config.error_vector_radius,
         config.error_vector_rgba,
     )
-
-
-def _metadata_point(
-    metadata: dict[str, object],
-    key: str,
-) -> np.ndarray | None:
-    value = metadata.get(key)
-    if value is None:
-        return None
-    try:
-        point = np.asarray(value, dtype=float)
-    except (TypeError, ValueError):
-        return None
-    if point.shape != (3,) or not np.all(np.isfinite(point)):
-        return None
-    return point.copy()
 
 
 def _metadata_path(

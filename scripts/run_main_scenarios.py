@@ -1,20 +1,26 @@
-"""Run the maintained main scenario YAML files sequentially.
-
-Each scenario is executed through ``scripts/run_scenario.py`` in a child
-process.  The next scenario starts only after the previous child process exits,
-which means scenario hooks and artifact export have finished for that run.
-"""
+"""Run the maintained main scenario YAML files sequentially."""
 
 from __future__ import annotations
 
 import argparse
-import subprocess
+from dataclasses import replace
 import sys
 from pathlib import Path
 from time import perf_counter
 
+import numpy as np
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = PROJECT_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from continuum_sim.application import SimulationApplication  # noqa: E402
+from continuum_sim.application.scenario import (  # noqa: E402
+    ScenarioConfig,
+    load_scenario_config,
+)
 
 MAIN_SCENARIOS = (
     Path("configs/scenarios/mujoco_tracking.yaml"),
@@ -35,25 +41,26 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     print(f"scenario_count: {len(scenario_paths)}")
-    failures: list[tuple[Path, int]] = []
+    failures: list[tuple[Path, str]] = []
     started = perf_counter()
     for index, scenario_path in enumerate(scenario_paths, start=1):
         print(f"\n[{index}/{len(scenario_paths)}] {scenario_path}")
-        command = [
-            sys.executable,
-            str(PROJECT_ROOT / "scripts" / "run_scenario.py"),
-            str(scenario_path),
-        ]
         scenario_started = perf_counter()
-        completed = subprocess.run(command, cwd=PROJECT_ROOT)
-        elapsed = perf_counter() - scenario_started
-        print(f"elapsed_s: {elapsed:.3f}")
-        if completed.returncode != 0:
-            failures.append((scenario_path, completed.returncode))
-            print(
-                f"failed: return_code={completed.returncode}",
-                file=sys.stderr,
-            )
+        try:
+            config = load_scenario_config(scenario_path)
+            if not args.with_windows:
+                config = _windowless_config(config)
+            application = SimulationApplication.from_config(config)
+            result = application.run()
+            elapsed = perf_counter() - scenario_started
+            _print_result(application, result)
+            print(f"elapsed_s: {elapsed:.3f}")
+        except Exception as exc:  # noqa: BLE001 - batch runner reports all failures.
+            elapsed = perf_counter() - scenario_started
+            message = f"{type(exc).__name__}: {exc}"
+            failures.append((scenario_path, message))
+            print(f"failed: {message}", file=sys.stderr)
+            print(f"elapsed_s: {elapsed:.3f}")
             if args.stop_on_error:
                 break
 
@@ -61,8 +68,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"total_scenarios: {len(scenario_paths)}")
     print(f"failures: {len(failures)}")
     print(f"elapsed_s: {perf_counter() - started:.3f}")
-    for path, return_code in failures:
-        print(f"- {path}: return_code={return_code}")
+    for path, message in failures:
+        print(f"- {path}: {message}")
     return 1 if failures else 0
 
 
@@ -82,6 +89,14 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="store_true",
         help="Stop after the first failed scenario. Defaults to continuing.",
     )
+    parser.add_argument(
+        "--with-windows",
+        action="store_true",
+        help=(
+            "Keep each scenario's configured viewer, live panels, and observer "
+            "camera window. Defaults to a windowless batch profile."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -91,6 +106,52 @@ def _scenario_paths(paths: list[Path]) -> list[Path]:
         path if path.is_absolute() else PROJECT_ROOT / path
         for path in selected
     ]
+
+
+def _windowless_config(config: ScenarioConfig) -> ScenarioConfig:
+    return replace(
+        config,
+        hooks=replace(
+            config.hooks,
+            viewer="none",
+            keep_viewer_open=False,
+            show_live_tendon_panel=False,
+            show_live_force_panel=False,
+            show_live_diagnostics_panel=False,
+            show_observer_camera=False,
+        ),
+    )
+
+
+def _print_result(application: SimulationApplication, result: object) -> None:
+    print(f"scenario: {application.config.name}")
+    print(f"states: {len(result.states)}")
+    print(f"commands: {len(result.commands)}")
+    print(f"stopped_early: {result.stopped_early}")
+    print(f"stop_reason: {result.metadata.get('stop_reason', '')}")
+    if application.last_artifacts is not None:
+        print(f"run_dir: {application.last_artifacts.run_dir}")
+    recorder = application.hooks_by_name.get("recorder")
+    if recorder is not None and recorder.tracking_error_m:
+        errors = np.asarray(recorder.tracking_error_m, dtype=float)
+        errors = errors[np.isfinite(errors)]
+        if errors.size:
+            print(f"final_error_m: {errors[-1]:.6e}")
+            print(f"mean_error_m: {np.mean(errors):.6e}")
+            print(f"max_error_m: {np.max(errors):.6e}")
+        achieved = np.asarray(
+            getattr(recorder, "achieved_waypoint_error_m", ()),
+            dtype=float,
+        )
+        achieved = achieved[np.isfinite(achieved)]
+        if achieved.size:
+            print(f"final_achieved_error_m: {achieved[-1]:.6e}")
+            print(f"mean_achieved_error_m: {np.mean(achieved):.6e}")
+            print(f"max_achieved_error_m: {np.max(achieved):.6e}")
+    for name, hook in application.hooks_by_name.items():
+        samples = getattr(hook, "samples", None)
+        if samples is not None:
+            print(f"{name}_samples: {len(samples)}")
 
 
 if __name__ == "__main__":

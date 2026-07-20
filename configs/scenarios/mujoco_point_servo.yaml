@@ -12,7 +12,7 @@ scenario:
   scene: {}
   task:
     type: tracking
-    waypoint_tolerance_m: 0.001
+    waypoint_tolerance_m: 0.003
     target_advance_mode: tolerance
     observer_control_mode: collision_avoidance
     observer_control:

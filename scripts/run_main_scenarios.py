@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
 import sys
 from pathlib import Path
 from time import perf_counter
@@ -17,8 +16,10 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from continuum_sim.application import SimulationApplication  # noqa: E402
+from continuum_sim.application.runtime_profiles import (  # noqa: E402
+    with_windowless_batch_profile,
+)
 from continuum_sim.application.scenario import (  # noqa: E402
-    ScenarioConfig,
     load_scenario_config,
 )
 
@@ -49,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             config = load_scenario_config(scenario_path)
             if not args.with_windows:
-                config = _windowless_config(config)
+                config = with_windowless_batch_profile(config)
             application = SimulationApplication.from_config(config)
             result = application.run()
             elapsed = perf_counter() - scenario_started
@@ -106,21 +107,6 @@ def _scenario_paths(paths: list[Path]) -> list[Path]:
         path if path.is_absolute() else PROJECT_ROOT / path
         for path in selected
     ]
-
-
-def _windowless_config(config: ScenarioConfig) -> ScenarioConfig:
-    return replace(
-        config,
-        hooks=replace(
-            config.hooks,
-            viewer="none",
-            keep_viewer_open=False,
-            show_live_tendon_panel=False,
-            show_live_force_panel=False,
-            show_live_diagnostics_panel=False,
-            show_observer_camera=False,
-        ),
-    )
 
 
 def _print_result(application: SimulationApplication, result: object) -> None:

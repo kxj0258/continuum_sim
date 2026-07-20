@@ -10,50 +10,36 @@ import numpy as np
 
 from continuum_sim.application.scenario import (
     ScenarioConfig,
-    ScenarioObserverControlConfig,
-    ScenarioSceneAvoidanceConfig,
-    ScenarioTrackingControlConfig,
     load_scenario_config,
+)
+from continuum_sim.application.control_config_factory import (
+    build_wiping_force_strategy,
+    engine_navigation_with_unified_observer_control,
+    online_reachability_config,
+    tracking_coordinated_config,
+    tracking_solver_config,
+    tracking_target_speed_limit,
+)
+from continuum_sim.application.hook_factory import (
+    build_runtime_hooks,
+    observer_camera_attachment_config,
 )
 from continuum_sim.backends.mujoco_system_backend import MujocoSystemBackend
 from continuum_sim.config import load_mujoco_config
 from continuum_sim.control.scenario_controllers import (
     NavigationController,
-    OnlineReachabilityConfig,
     TimedTrajectoryTrackingController,
     WaypointTrackingController,
     WipingController,
     ZeroSystemController,
 )
 from continuum_sim.control.tendon_rate_control import BendingRateServoConfig
-from continuum_sim.control.wiping_force_strategies import (
-    ContactTriggeredAdmittanceStrategy,
-    ContactDistanceStrategy,
-    DynamicAdaptiveImpedanceStrategy,
-    KinematicHybridForceStrategy,
-)
 from continuum_sim.control.staged_engine_navigation import (
     StagedEngineNavigationController,
 )
 from continuum_sim.control.staged_navigation import StagedNavigationController
-from continuum_sim.control.coordinated_tracking import CoordinatedTrackingConfig
-from continuum_sim.control.whole_body_controller import WholeBodyControllerConfig
-from continuum_sim.kinematics.whole_body import SingularityConfig
 from continuum_sim.model.base_pose import look_rotation_quaternion_wxyz
 from continuum_sim.model.robot_assembly import load_robot_assembly_config
-from continuum_sim.runtime.hooks import (
-    ControllerCompletionHook,
-    LiveTendonPanelHook,
-    LiveDiagnosticsPanelHook,
-    LiveWipingForcePanelHook,
-    MatplotlibSystemViewerHook,
-    MujocoObserverCameraFeedbackHook,
-    MujocoLiveVideoRecorderHook,
-    MujocoViewerHook,
-    MujocoReplayRecorderHook,
-    StateRecorderHook,
-    TendonDiagnosticHook,
-)
 from continuum_sim.io.scenario_artifacts import save_scenario_artifacts
 from continuum_sim.runtime.simulation_loop import (
     SimulationLoop,
@@ -77,10 +63,7 @@ from continuum_sim.scenes.scene_builder import (
     inject_tip_camera,
     lock_mobile_base_freejoint,
 )
-from continuum_sim.tools.attachments import load_attachment_config
 from continuum_sim.tasks.engine_navigation import (
-    EngineNavigationObserverControlSpec,
-    EngineNavigationSpec,
     resolve_engine_navigation_plan,
 )
 from continuum_sim.tasks.navigation_mission import resolve_navigation_waypoints
@@ -149,7 +132,7 @@ class SimulationApplication:
                 raise ValueError(
                     "engine_navigation requires an engine scene and task specification."
                 )
-            engine_navigation_spec = _engine_navigation_with_unified_observer_control(
+            engine_navigation_spec = engine_navigation_with_unified_observer_control(
                 config.task.engine_navigation,
                 config.task.observer_control,
                 config.task.tracking_control,
@@ -192,14 +175,14 @@ class SimulationApplication:
                     config.task.orientation_tolerance_rad
                 ),
                 low_level_coordinated_config=(
-                    _tracking_coordinated_config(
+                    tracking_coordinated_config(
                         tracking,
                         config.task.observer_control,
                         config.task.scene_avoidance,
                     )
                 ),
-                low_level_solver_config=_tracking_solver_config(tracking),
-                online_reachability=_online_reachability_config(tracking),
+                low_level_solver_config=tracking_solver_config(tracking),
+                online_reachability=online_reachability_config(tracking),
             )
         elif config.task.type == "navigation":
             tracking = config.task.tracking_control
@@ -220,18 +203,18 @@ class SimulationApplication:
                 "executor_position_gain": tracking.executor_position_gain,
                 "observer_position_gain": tracking.observer_position_gain,
                 "feedforward_speed_mps": tracking.feedforward_speed_mps,
-                "max_target_speed_mps": _tracking_target_speed_limit(tracking),
+                "max_target_speed_mps": tracking_target_speed_limit(tracking),
                 "waypoint_orientations_world_wxyz": (
                     task_plan.waypoint_orientations_world_wxyz
                 ),
                 "orientation_tolerance_rad": (
                     config.task.orientation_tolerance_rad
                 ),
-                "solver_config": _tracking_solver_config(tracking),
+                "solver_config": tracking_solver_config(tracking),
                 "enforce_backend_tendon_limits": (
                     tracking.enforce_backend_tendon_limits
                 ),
-                "coordinated_config": _tracking_coordinated_config(
+                "coordinated_config": tracking_coordinated_config(
                     tracking,
                     config.task.observer_control,
                     config.task.scene_avoidance,
@@ -241,7 +224,7 @@ class SimulationApplication:
                 "cbf_influence_distance_m": (
                     config.task.navigation_cbf_influence_distance_m
                 ),
-                "online_reachability": _online_reachability_config(tracking),
+                "online_reachability": online_reachability_config(tracking),
             }
             if tracking.stage_mobile_base:
                 controller = StagedNavigationController(
@@ -295,7 +278,7 @@ class SimulationApplication:
                 max_normal_velocity_m_s=config.task.max_normal_velocity_m_s,
                 force_control_weight=config.task.force_control_weight,
                 max_contact_force_n=config.task.max_contact_force_n,
-                force_strategy=_build_wiping_force_strategy(config, assembly),
+                force_strategy=build_wiping_force_strategy(config, assembly),
                 tracking_mode=tracking.tracking_mode,
                 trajectory_duration_s=tracking.trajectory_duration_s,
                 approach_samples=tracking.approach_samples,
@@ -303,15 +286,15 @@ class SimulationApplication:
                 executor_position_gain=tracking.executor_position_gain,
                 observer_position_gain=tracking.observer_position_gain,
                 feedforward_speed_mps=tracking.feedforward_speed_mps,
-                max_target_speed_mps=_tracking_target_speed_limit(tracking),
-                solver_config=_tracking_solver_config(tracking),
+                max_target_speed_mps=tracking_target_speed_limit(tracking),
+                solver_config=tracking_solver_config(tracking),
                 enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
-                coordinated_config=_tracking_coordinated_config(
+                coordinated_config=tracking_coordinated_config(
                     tracking,
                     config.task.observer_control,
                     config.task.scene_avoidance,
                 ),
-                online_reachability=_online_reachability_config(tracking),
+                online_reachability=online_reachability_config(tracking),
             )
         else:
             tracking = config.task.tracking_control
@@ -334,10 +317,10 @@ class SimulationApplication:
                     source_waypoint_index=task_plan.source_waypoint_index,
                     executor_position_gain=tracking.executor_position_gain,
                     observer_position_gain=tracking.observer_position_gain,
-                    max_target_speed_mps=_tracking_target_speed_limit(tracking),
-                    solver_config=_tracking_solver_config(tracking),
+                    max_target_speed_mps=tracking_target_speed_limit(tracking),
+                    solver_config=tracking_solver_config(tracking),
                     enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
-                    coordinated_config=_tracking_coordinated_config(
+                    coordinated_config=tracking_coordinated_config(
                         tracking,
                         config.task.observer_control,
                         config.task.scene_avoidance,
@@ -368,102 +351,23 @@ class SimulationApplication:
                     executor_position_gain=tracking.executor_position_gain,
                     observer_position_gain=tracking.observer_position_gain,
                     feedforward_speed_mps=tracking.feedforward_speed_mps,
-                    max_target_speed_mps=_tracking_target_speed_limit(tracking),
-                    solver_config=_tracking_solver_config(tracking),
+                    max_target_speed_mps=tracking_target_speed_limit(tracking),
+                    solver_config=tracking_solver_config(tracking),
                     enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
-                    coordinated_config=_tracking_coordinated_config(
+                    coordinated_config=tracking_coordinated_config(
                         tracking,
                         config.task.observer_control,
                         config.task.scene_avoidance,
                     ),
-                    online_reachability=_online_reachability_config(tracking),
+                    online_reachability=online_reachability_config(tracking),
                 )
-        hooks: list[object] = []
-        hooks_by_name: dict[str, object] = {}
-        if config.hooks.recorder:
-            hooks_by_name["recorder"] = StateRecorderHook()
-        if config.hooks.tendon_debug:
-            hooks_by_name["tendon_debug"] = TendonDiagnosticHook(
-                stride=config.hooks.tendon_debug_stride
-            )
-        if config.hooks.show_live_tendon_panel:
-            hooks_by_name["live_tendon_panel"] = LiveTendonPanelHook(
-                stride=config.hooks.live_tendon_panel_stride,
-                history_points=config.hooks.live_force_panel_history_points,
-            )
-        if config.hooks.show_live_force_panel:
-            hooks_by_name["live_force_panel"] = LiveWipingForcePanelHook(
-                stride=config.hooks.live_force_panel_stride,
-                history_points=config.hooks.live_force_panel_history_points,
-            )
-        if config.hooks.show_live_diagnostics_panel:
-            hooks_by_name["live_diagnostics_panel"] = LiveDiagnosticsPanelHook(
-                stride=config.hooks.live_diagnostics_panel_stride,
-                history_points=config.hooks.live_diagnostics_panel_history_points,
-            )
-        observer_camera = _observer_camera_attachment_config(assembly)
-        observer_camera_video_paths = (
-            None
-            if observer_camera is None or observer_camera.camera is None
-            else _observer_camera_pending_video_paths(
-                config,
-                observer_camera.camera.name,
-            )
+        hooks_by_name = build_runtime_hooks(
+            config=config,
+            backend=backend,
+            controller=controller,
+            assembly=assembly,
+            observer_camera_target_world=observer_camera_target_world,
         )
-        if (
-            config.backend.type == "mujoco"
-            and observer_camera is not None
-            and observer_camera.camera is not None
-            and (
-                config.hooks.show_observer_camera
-                or bool(observer_camera_video_paths)
-            )
-        ):
-            hooks_by_name["observer_camera"] = MujocoObserverCameraFeedbackHook(
-                backend,
-                camera_name=observer_camera.camera.name,
-                intrinsics=observer_camera.camera.intrinsics,
-                fallback_target_world=observer_camera_target_world,
-                show_window=config.hooks.show_observer_camera,
-                stride=config.hooks.observer_camera_stride,
-                video_output_paths=observer_camera_video_paths,
-                video_fps=config.artifacts.video_fps,
-                video_stride=config.artifacts.video_stride,
-            )
-        if (
-            config.backend.type == "mujoco"
-            and config.artifacts.enabled
-            and _video_artifacts_enabled(config.artifacts)
-            and config.artifacts.video_mode == "live_mujoco"
-        ):
-            hooks_by_name["live_mujoco_video"] = MujocoLiveVideoRecorderHook(
-                backend,
-                _live_mujoco_pending_video_paths(config),
-                fps=config.artifacts.video_fps,
-                stride=config.artifacts.video_stride,
-                width=backend.config.rendering.offscreen_width,
-                height=backend.config.rendering.offscreen_height,
-            )
-        if (
-            config.backend.type == "mujoco"
-            and config.artifacts.enabled
-            and config.artifacts.video_mode == "replay"
-        ):
-            hooks_by_name["mujoco_replay"] = MujocoReplayRecorderHook(backend)
-        if config.hooks.viewer == "matplotlib":
-            hooks_by_name["viewer"] = MatplotlibSystemViewerHook(
-                keep_open=config.hooks.keep_viewer_open
-            )
-        elif config.hooks.viewer == "mujoco":
-            if config.backend.type != "mujoco":
-                raise ValueError("The MuJoCo viewer requires a MuJoCo backend.")
-            hooks_by_name["viewer"] = MujocoViewerHook(
-                backend,
-                keep_open=config.hooks.keep_viewer_open,
-            )
-        if hasattr(controller, "done"):
-            hooks_by_name["completion"] = ControllerCompletionHook(controller)
-        hooks.extend(hooks_by_name.values())
         loop = SimulationLoop(
             backend,
             controller,
@@ -472,7 +376,7 @@ class SimulationApplication:
                 n_substeps=config.runtime.n_substeps,
                 max_steps=config.runtime.max_steps,
             ),
-            hooks=tuple(hooks),
+            hooks=tuple(hooks_by_name.values()),
         )
         return cls(config=config, loop=loop, hooks_by_name=hooks_by_name)
 
@@ -527,7 +431,7 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
     )
     if visual_structured_scene is not None:
         inject_structured_scene(root, visual_structured_scene)
-    observer_camera = _observer_camera_attachment_config(assembly)
+    observer_camera = observer_camera_attachment_config(assembly)
     if observer_camera is not None and observer_camera.camera is not None:
         inject_tip_camera(
             root,
@@ -566,27 +470,6 @@ def _build_mujoco_backend(config, assembly, engine_scene, structured_scene):
         tendon_rate_servo_config=tendon_rate_servo_config,
         kinematics_mode=config.backend.kinematics_mode,
     )
-
-
-def _observer_camera_attachment_config(assembly):
-    observer_arms = [arm for arm in assembly.enabled_arms if arm.role == "observer"]
-    if len(observer_arms) != 1 or observer_arms[0].attachment is None:
-        return None
-    path = _attachment_config_path(assembly.path, observer_arms[0].attachment)
-    if path is None:
-        return None
-    config = load_attachment_config(path)
-    if config.type != "camera_airgun":
-        return None
-    return config
-
-
-def _attachment_config_path(assembly_path: Path, attachment_name: str) -> Path | None:
-    for parent in (assembly_path.parent, *assembly_path.parents):
-        candidate = parent / "tools" / f"{attachment_name}.yaml"
-        if candidate.is_file():
-            return candidate
-    return None
 
 
 def _structured_scene_for_mujoco_visuals(config, structured_scene):
@@ -658,220 +541,6 @@ def _apply_mujoco_tendon_position_actuator_config(root, mujoco_config) -> None:
             "forcerange",
             f"{actuator_config.forcerange_n[0]:g} {actuator_config.forcerange_n[1]:g}",
         )
-
-
-def _build_wiping_force_strategy(config, assembly):
-    strategy_type = config.task.force_strategy.type
-    if strategy_type == "contact_distance":
-        return ContactDistanceStrategy()
-    if strategy_type == "kinematic_hybrid":
-        return KinematicHybridForceStrategy()
-    if strategy_type == "contact_triggered_admittance":
-        if config.task.contact_admittance is None:
-            raise ValueError(
-                "contact_triggered_admittance requires "
-                "scenario.task.contact_admittance."
-            )
-        return ContactTriggeredAdmittanceStrategy(config.task.contact_admittance)
-    if strategy_type == "dynamic_adaptive_impedance":
-        return DynamicAdaptiveImpedanceStrategy(
-            assembly,
-            dynamics_config_path=(
-                None
-                if config.task.dynamics_config_path is None
-                else str(config.task.dynamics_config_path)
-            ),
-            kinematics_mode=config.backend.kinematics_mode,
-        )
-    raise ValueError(f"Unsupported wiping force strategy {strategy_type!r}.")
-
-
-def _engine_navigation_with_unified_observer_control(
-    spec: EngineNavigationSpec,
-    observer: ScenarioObserverControlConfig,
-    tracking: ScenarioTrackingControlConfig,
-) -> EngineNavigationSpec:
-    engine_observer = spec.observer_control
-    return replace(
-        spec,
-        observer_control=EngineNavigationObserverControlSpec(
-            position_gain=tracking.observer_position_gain,
-            executor_offset_world_m=engine_observer.executor_offset_world_m,
-            roi_blend=engine_observer.roi_blend,
-            inter_arm_influence_distance_m=observer.influence_distance_m,
-            inter_arm_safe_distance_m=observer.minimum_distance_m,
-            inter_arm_critical_distance_m=observer.critical_distance_m,
-            inter_arm_release_margin_m=observer.release_margin_m,
-            inter_arm_avoidance_gain=observer.avoidance_gain,
-            inter_arm_max_avoidance_speed_mps=observer.max_avoidance_speed_mps,
-            centerline_samples_per_segment=(
-                engine_observer.centerline_samples_per_segment
-            ),
-            observer_tracking_weight=tracking.observer_tracking_weight,
-            observer_collision_weight=tracking.executor_collision_avoidance_weight,
-            stop_all_on_critical_distance=False,
-        ),
-    )
-
-
-def _tracking_solver_config(
-    tracking: ScenarioTrackingControlConfig,
-) -> WholeBodyControllerConfig:
-    return WholeBodyControllerConfig(
-        executor_tracking_weight=tracking.executor_tracking_weight,
-        observer_tracking_weight=tracking.observer_tracking_weight,
-        executor_collision_avoidance_weight=(
-            tracking.executor_collision_avoidance_weight
-        ),
-        base_regularization_weight=tracking.base_regularization_weight,
-        tendon_regularization_weight=tracking.tendon_regularization_weight,
-        singularity=SingularityConfig(
-            rank_tolerance=tracking.rank_tolerance,
-            minimum_singular_value=tracking.minimum_singular_value,
-            nominal_damping=tracking.nominal_damping,
-            maximum_damping=tracking.maximum_damping,
-            minimum_velocity_scale=tracking.minimum_velocity_scale,
-        ),
-        decouple_arm_singularity=tracking.decouple_arm_singularity,
-        singularity_strategy=tracking.singularity_strategy,
-        enforce_base_velocity_limits=tracking.enforce_solver_velocity_limits,
-        enforce_tendon_rate_limits=tracking.enforce_solver_velocity_limits,
-        kinematics_mode=tracking.kinematics_mode,
-    )
-
-
-def _tracking_coordinated_config(
-    tracking: ScenarioTrackingControlConfig,
-    observer: ScenarioObserverControlConfig | None = None,
-    scene_avoidance: ScenarioSceneAvoidanceConfig | None = None,
-) -> CoordinatedTrackingConfig:
-    observer = ScenarioObserverControlConfig() if observer is None else observer
-    scene_avoidance = (
-        ScenarioSceneAvoidanceConfig()
-        if scene_avoidance is None
-        else scene_avoidance
-    )
-    return CoordinatedTrackingConfig(
-        kinematics_mode=tracking.kinematics_mode,
-        executor_position_gain=tracking.executor_position_gain,
-        executor_orientation_gain=tracking.executor_orientation_gain,
-        observer_position_gain=tracking.observer_position_gain,
-        feedforward_gain=tracking.feedforward_gain,
-        max_target_speed_mps=_tracking_target_speed_limit(tracking),
-        max_target_angular_speed_rad_s=tracking.max_target_angular_speed_rad_s,
-        executor_orientation_tracking_weight=(
-            tracking.executor_orientation_tracking_weight
-        ),
-        executor_orientation_tracking_mode=(
-            tracking.executor_orientation_tracking_mode
-        ),
-        inter_arm_min_distance_m=observer.minimum_distance_m,
-        inter_arm_influence_distance_m=observer.influence_distance_m,
-        inter_arm_hard_stop_distance_m=observer.critical_distance_m,
-        inter_arm_release_margin_m=observer.release_margin_m,
-        inter_arm_avoidance_gain=observer.avoidance_gain,
-        inter_arm_max_avoidance_speed_mps=observer.max_avoidance_speed_mps,
-        inter_arm_collision_pair_count=observer.collision_pair_count,
-        inter_arm_collision_pair_index_separation=(
-            observer.collision_pair_index_separation
-        ),
-        observer_look_at_executor_tip=observer.look_at_executor_tip,
-        observer_look_at_gain=observer.look_at_gain,
-        observer_look_at_weight=observer.look_at_weight,
-        observer_look_at_distance_m=observer.look_at_distance_m,
-        observer_look_at_max_speed_mps=(
-            observer.look_at_max_angular_speed_rad_s
-            if observer.look_at_max_angular_speed_rad_s is not None
-            else observer.look_at_max_speed_mps
-        ),
-        observer_visual_servo_center_gain=observer.visual_servo_center_gain,
-        observer_visual_servo_depth_gain=observer.visual_servo_depth_gain,
-        observer_visual_servo_depth_target_m=observer.visual_servo_depth_target_m,
-        observer_visual_servo_max_speed_mps=observer.visual_servo_max_speed_mps,
-        observer_visual_servo_max_angular_speed_rad_s=(
-            observer.visual_servo_max_angular_speed_rad_s
-        ),
-        observer_collision_priority=True,
-        freeze_executor_inside_safe_distance=False,
-        stop_all_on_critical_distance=False,
-        scene_avoidance_enabled=scene_avoidance.enabled,
-        executor_scene_avoidance_mode=scene_avoidance.executor_mode,
-        observer_scene_avoidance_mode=scene_avoidance.observer_mode,
-        engine_min_clearance_m=scene_avoidance.engine_min_clearance_m,
-        engine_influence_distance_m=(
-            scene_avoidance.engine_influence_distance_m
-        ),
-        engine_avoidance_gain=scene_avoidance.engine_avoidance_gain,
-        enforce_backend_tendon_limits=tracking.enforce_backend_tendon_limits,
-        priority_stack=tracking.priority_stack,
-    )
-
-
-def _online_reachability_config(
-    tracking: ScenarioTrackingControlConfig,
-) -> OnlineReachabilityConfig:
-    config = tracking.online_reachability
-    return OnlineReachabilityConfig(
-        enabled=config.enabled,
-        auto_advance_enabled=config.auto_advance_enabled,
-        score_threshold=config.score_threshold,
-        window_steps=config.window_steps,
-        min_steps_before_auto_advance=config.min_steps_before_auto_advance,
-        low_score_patience_steps=config.low_score_patience_steps,
-        good_progress_mps=config.good_progress_mps,
-        good_tendon_speed_ratio=config.good_tendon_speed_ratio,
-        good_alignment=config.good_alignment,
-        bad_model_residual_mps=config.bad_model_residual_mps,
-    )
-
-
-def _tracking_target_speed_limit(
-    tracking: ScenarioTrackingControlConfig,
-) -> float | None:
-    if not tracking.enforce_target_speed_limit:
-        return None
-    return tracking.max_target_speed_mps
-
-
-def _video_artifacts_enabled(artifacts) -> bool:
-    return bool(artifacts.save_gif or artifacts.save_mp4)
-
-
-def _live_mujoco_pending_video_paths(config) -> list[Path]:
-    suffixes: list[str] = []
-    if config.artifacts.save_gif:
-        suffixes.append("gif")
-    if config.artifacts.save_mp4:
-        suffixes.append("mp4")
-    return [
-        config.artifacts.output_root
-        / f"_{config.name}_live_mujoco_pending.{suffix}"
-        for suffix in suffixes
-    ]
-
-
-def _observer_camera_pending_video_paths(config, camera_name: str) -> list[Path]:
-    if (
-        config.backend.type != "mujoco"
-        or not config.artifacts.enabled
-        or not _video_artifacts_enabled(config.artifacts)
-        or config.artifacts.video_mode != "live_mujoco"
-    ):
-        return []
-    suffixes: list[str] = []
-    if config.artifacts.save_gif:
-        suffixes.append("gif")
-    if config.artifacts.save_mp4:
-        suffixes.append("mp4")
-    safe_camera_name = "".join(
-        character if character.isalnum() or character in ("-", "_") else "_"
-        for character in camera_name
-    )
-    return [
-        config.artifacts.output_root
-        / f"_{config.name}_{safe_camera_name}_pending.{suffix}"
-        for suffix in suffixes
-    ]
 
 
 def _resolve_task_plan(config, assembly, engine_scene, structured_scene) -> TaskPlan:

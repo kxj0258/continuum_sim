@@ -18,6 +18,9 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from continuum_sim.application import SimulationApplication  # noqa: E402
+from continuum_sim.application.runtime_profiles import (  # noqa: E402
+    with_windowless_batch_profile,
+)
 from continuum_sim.application.scenario import (  # noqa: E402
     ScenarioConfig,
     load_scenario_config,
@@ -44,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             config = load_scenario_config(scenario_path)
             if args.headless:
-                config = _headless_config(config)
+                config = with_windowless_batch_profile(config)
             if args.disable_artifacts:
                 config = replace(
                     config,
@@ -139,21 +142,6 @@ def _discover_scenarios(
             continue
         selected.append(path)
     return selected
-
-
-def _headless_config(config: ScenarioConfig) -> ScenarioConfig:
-    return replace(
-        config,
-        hooks=replace(
-            config.hooks,
-            viewer="none",
-            keep_viewer_open=False,
-            show_live_tendon_panel=False,
-            show_live_force_panel=False,
-            show_live_diagnostics_panel=False,
-            show_observer_camera=False,
-        ),
-    )
 
 
 def _print_tracking_metrics(config: ScenarioConfig, result: object) -> None:

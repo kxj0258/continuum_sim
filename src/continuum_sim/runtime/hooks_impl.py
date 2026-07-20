@@ -15,6 +15,11 @@ from continuum_sim.sensing.visual_feedback import (
     VisualServoFeedback,
     project_roi_to_camera_feedback,
 )
+from continuum_sim.runtime.hook_utils import (
+    executor_arm as _executor_arm,
+    finite_metadata_float as _finite_metadata_float,
+    metadata_vector_or_nan as _metadata_vector_or_nan,
+)
 from continuum_sim.runtime.metadata_schema import ENGINE_NAVIGATION_OVERLAY_METADATA
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
 
@@ -486,35 +491,6 @@ class StateRecorderHook:
             self.arm_tip_position_m.setdefault(name, []).append(
                 arm.tip_pose_world.position.copy()
             )
-
-
-def _metadata_vector_or_nan(
-    metadata: dict[str, Any],
-    key: str,
-) -> np.ndarray:
-    value = metadata.get(key)
-    if value is None:
-        return np.full(3, np.nan, dtype=float)
-    vector = np.asarray(value, dtype=float)
-    if vector.shape != (3,) or not np.all(np.isfinite(vector)):
-        return np.full(3, np.nan, dtype=float)
-    return vector.copy()
-
-
-def _finite_metadata_float(
-    metadata: dict[str, Any],
-    key: str,
-    *,
-    fallback_key: str | None = None,
-) -> float:
-    value = float(metadata.get(key, np.nan))
-    if np.isfinite(value) or fallback_key is None:
-        return value
-    return float(metadata.get(fallback_key, np.nan))
-
-
-def _executor_arm(state: RobotSystemState):
-    return next((arm for arm in state.arms.values() if arm.role == "executor"), None)
 
 
 class MujocoObserverCameraFeedbackHook:

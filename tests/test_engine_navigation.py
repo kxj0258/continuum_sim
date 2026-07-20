@@ -18,7 +18,7 @@ from continuum_sim.tasks.engine_navigation import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-ENGINE_SCENE = PROJECT_ROOT / "configs" / "scenes" / "engine_cleaning.yaml"
+ENGINE_SCENE = PROJECT_ROOT / "configs" / "scenes" / "engine_scene.yaml"
 MOBILE_ASSEMBLY = (
     PROJECT_ROOT / "configs" / "robots" / "assemblies" / "dual_spatial_mobile.yaml"
 )

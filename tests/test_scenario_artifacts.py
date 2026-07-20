@@ -171,9 +171,20 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
         base_position_error_m=[0.1],
         base_orientation_error_rad=[0.2],
     )
+
+    class LiveDiagnosticsPanel:
+        errors: list[str] = []
+
+        def save_snapshot(self, path):
+            path.write_bytes(b"live diagnostics png")
+            return path
+
     application = SimpleNamespace(
         config=config,
-        hooks_by_name={"recorder": recorder},
+        hooks_by_name={
+            "recorder": recorder,
+            "live_diagnostics_panel": LiveDiagnosticsPanel(),
+        },
         loop=SimpleNamespace(backend=SimpleNamespace()),
     )
 
@@ -190,6 +201,7 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
     assert paths.metadata_json.is_file()
     assert (paths.plots_dir / "trajectory.png").is_file()
     assert (paths.plots_dir / "four_layer_control_diagnostics.png").is_file()
+    assert (paths.plots_dir / "live_diagnostics_panel.png").is_file()
     assert (
         paths.plots_dir
         / "engine_navigation_local_path_one_third_circle.png"
@@ -197,6 +209,10 @@ def test_scenario_artifacts_keep_npz_metadata_and_plots_when_gif_fails(
     metadata = json.loads(paths.metadata_json.read_text(encoding="utf-8"))
     assert metadata["video"] is None
     assert metadata["errors"] == ["video: RuntimeError: gif encoder unavailable"]
+    assert any(
+        path.endswith("plots/live_diagnostics_panel.png")
+        for path in metadata["plots"]
+    )
     assert metadata["metrics"]["final_achieved_waypoint_error_m"] == 0.0005
     assert (
         metadata["metrics"]["control_layers"]["layer2_task_space_servo"][

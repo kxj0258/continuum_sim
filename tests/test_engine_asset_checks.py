@@ -16,7 +16,7 @@ from scripts.preview_engine_scene_mujoco import build_engine_preview_mjcf
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SCENE_CONFIG = PROJECT_ROOT / "configs" / "scenes" / "engine_cleaning.yaml"
+SCENE_CONFIG = PROJECT_ROOT / "configs" / "scenes" / "engine_scene.yaml"
 
 
 def test_parse_ascii_stl_bounds(tmp_path: Path) -> None:
@@ -397,7 +397,7 @@ def _write_scene_config(
         yaml.safe_dump(
             {
                 "name": "test_engine",
-                "scene_type": "engine_cleaning",
+                "scene_type": "engine_scene",
                 "engine": {
                     "assets": assets,
                     "scale": scale,

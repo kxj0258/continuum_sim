@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from continuum_sim.model.base_pose import Pose6D
-from continuum_sim.runtime.hooks import MujocoObserverCameraFeedbackHook
+from continuum_sim.runtime.observer_camera_hooks import MujocoObserverCameraFeedbackHook
 from continuum_sim.sensing.camera_model import CameraIntrinsicsConfig
 from continuum_sim.sensing.visual_feedback import VisualServoFeedback
 from continuum_sim.system.types import (

@@ -14,9 +14,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
 CORE_TEST_FILES = frozenset(
     {
+        "test_base_pose.py",
+        "test_bending_space.py",
         "test_differential_ik.py",
         "test_differential_kinematics.py",
-        "test_analytic_backend.py",
         "test_core_chain.py",
         "test_motor_chain_viewer.py",
         "test_motor_mapping.py",
@@ -26,12 +27,10 @@ CORE_TEST_FILES = frozenset(
         "test_robot_config.py",
         "test_tendon_coupling.py",
         "test_tendon_mapping.py",
-        "test_trajectory_tracking_config.py",
     }
 )
 CLI_SMOKE_TEST_FILES = frozenset(
     {
-        "test_cli_smoke.py",
         "test_mujoco_build_segment_visuals_script.py",
         "test_mujoco_tracking_runtime.py",
         "test_mujoco_segment_visuals_script.py",
@@ -40,10 +39,11 @@ CLI_SMOKE_TEST_FILES = frozenset(
 )
 BASELINE_TEST_FILES = CORE_TEST_FILES | frozenset(
     {
-        "test_cli_smoke.py",
+        "test_mujoco_navigation_runtime.py",
         "test_mujoco_tracking_runtime.py",
         "test_mujoco_tendon_debug_viewer.py",
         "test_mujoco_tendon_model_asset.py",
+        "test_mujoco_wiping_runtime.py",
     }
 )
 SLOW_TEST_FILES = CLI_SMOKE_TEST_FILES | frozenset(
@@ -66,11 +66,6 @@ MUJOCO_RELATED_TEST_FILES = frozenset(
 )
 STABLE_CLI_NODEIDS = frozenset(
     {
-        "tests/test_cli_smoke.py::test_view_pcc_headless_yaml_smoke",
-        "tests/test_cli_smoke.py::test_view_motor_chain_headless_yaml_smoke",
-        "tests/test_cli_smoke.py::test_run_tracking_headless_yaml_smoke",
-        "tests/test_cli_smoke.py::test_view_mujoco_headless_yaml_smoke",
-        "tests/test_cli_smoke.py::test_run_mujoco_tracking_headless_yaml_smoke",
         "tests/test_mujoco_segment_visuals_script.py::test_check_segment_visuals_reports_bounds_for_existing_meshes",
     }
 )

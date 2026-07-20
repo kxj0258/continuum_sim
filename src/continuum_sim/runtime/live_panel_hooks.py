@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from io import BytesIO
+from pathlib import Path
+
 import numpy as np
 
 from continuum_sim.runtime.hook_utils import (
@@ -251,6 +254,8 @@ class LiveDiagnosticsPanelHook:
         self._backend_right_axis = None
         self._drivers_right_axis = None
         self._last_task_target: np.ndarray | None = None
+        self._snapshot_png: bytes | None = None
+        self.errors: list[str] = []
 
     def on_reset(self, state: RobotSystemState) -> None:
         import matplotlib.pyplot as plt
@@ -271,6 +276,8 @@ class LiveDiagnosticsPanelHook:
         ):
             axis.patch.set_alpha(0.0)
         self._info_text = None
+        self._snapshot_png = None
+        self.errors.clear()
         self._clear()
         self._append(state, None)
         plt.ion()
@@ -298,16 +305,46 @@ class LiveDiagnosticsPanelHook:
         if self._plt is None:
             return
         try:
+            self._capture_snapshot()
             self._plt.ioff()
             if self._figure is not None:
                 self._plt.close(self._figure)
-        except Exception:
-            pass
+        except Exception as exc:
+            self.errors.append(f"live_diagnostics_panel: {type(exc).__name__}: {exc}")
         self._figure = None
         self._axes = None
         self._ik_right_axis = None
         self._backend_right_axis = None
         self._drivers_right_axis = None
+
+    def save_snapshot(self, path: str | Path) -> Path | None:
+        """Save the final live diagnostics panel image collected during shutdown."""
+
+        destination = Path(path)
+        if self._snapshot_png is not None:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(self._snapshot_png)
+            return destination
+        if self._figure is None:
+            return None
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            self._figure.savefig(destination, dpi=160, bbox_inches="tight")
+        except Exception as exc:
+            self.errors.append(f"live_diagnostics_panel: {type(exc).__name__}: {exc}")
+            return None
+        return destination
+
+    def _capture_snapshot(self) -> None:
+        if self._figure is None:
+            return
+        try:
+            self._draw()
+            buffer = BytesIO()
+            self._figure.savefig(buffer, format="png", dpi=160, bbox_inches="tight")
+            self._snapshot_png = buffer.getvalue()
+        except Exception as exc:
+            self.errors.append(f"live_diagnostics_panel: {type(exc).__name__}: {exc}")
 
     def _clear(self) -> None:
         for values in (

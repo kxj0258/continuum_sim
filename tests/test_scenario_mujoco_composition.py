@@ -3,7 +3,7 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
-from continuum_sim.runtime.hooks import _configure_mujoco_viewer
+from continuum_sim.runtime.viewer_hooks import _configure_mujoco_viewer
 from continuum_sim.scenes.engine_mjcf_adapter import retain_spatial_arm
 
 

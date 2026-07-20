@@ -135,7 +135,7 @@ f 1 2 3
     config_path = tmp_path / "engine_scene.yaml"
     raw_config = {
         "name": "test_engine",
-        "scene_type": "engine_cleaning",
+        "scene_type": "engine_scene",
         "engine": {
             "assets": {"visual_mesh": visual_mesh.name},
             "scale": scale,

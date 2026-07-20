@@ -87,6 +87,13 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
     if settings.save_plots:
         try:
             plot_files = [str(path) for path in _save_plots(arrays, paths.plots_dir)]
+            live_diagnostics_path = _collect_live_diagnostics_panel_snapshot(
+                application,
+                paths.plots_dir,
+                errors,
+            )
+            if live_diagnostics_path is not None:
+                plot_files.append(str(live_diagnostics_path))
         except Exception as exc:  # Artifact failure must not discard simulation data.
             errors.append(f"plots: {type(exc).__name__}: {exc}")
     video_formats = _enabled_video_formats(settings)
@@ -214,6 +221,35 @@ def _observer_video_frame_count(application) -> int | None:
     if recorder is None or not getattr(recorder, "output_paths", ()):
         return None
     return int(getattr(recorder, "frame_count", 0))
+
+
+def _collect_live_diagnostics_panel_snapshot(
+    application,
+    plots_dir: Path,
+    errors: list[str],
+) -> Path | None:
+    panel = application.hooks_by_name.get("live_diagnostics_panel")
+    if panel is None:
+        return None
+    for error in getattr(panel, "errors", []):
+        _append_unique_error(errors, str(error))
+    save_snapshot = getattr(panel, "save_snapshot", None)
+    if not callable(save_snapshot):
+        return None
+    destination = plots_dir / "live_diagnostics_panel.png"
+    try:
+        path = save_snapshot(destination)
+    except Exception as exc:  # Live diagnostics are optional run artifacts.
+        _append_unique_error(
+            errors,
+            f"live_diagnostics_panel: {type(exc).__name__}: {exc}",
+        )
+        return None
+    for error in getattr(panel, "errors", []):
+        _append_unique_error(errors, str(error))
+    if path is None:
+        return None
+    return Path(path)
 
 
 def _observer_video_status(

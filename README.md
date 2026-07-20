@@ -1,10 +1,21 @@
 # continuum_sim
 
-`continuum_sim` 是面向空间连续体机械臂的 MuJoCo 仿真、任务控制和场景编排项目。清理后的主线入口统一为 `configs/scenarios/*.yaml`，每个场景文件同时声明机械臂模式、后端、任务、运行时、hooks 和产物输出。
+`continuum_sim` 是一个面向空间连续体机械臂的 MuJoCo 场景仿真与任务控制项目。当前主线以 `SimulationApplication` 为唯一应用入口，通过 `configs/scenarios/*.yaml` 描述机器人装配、MuJoCo 后端、任务、运行时 hooks 和输出产物。
 
-## 主任务命令
+## 当前主线
 
-当前保留 5 个主任务场景：
+主线运行链路如下：
+
+```text
+场景 YAML
+  -> SimulationApplication
+  -> 任务控制器
+  -> UnifiedLowLevelController
+  -> MuJoCo system backend
+  -> hooks / artifacts / live diagnostics
+```
+
+当前保留 5 个场景入口：
 
 ```powershell
 python scripts/run_scenario.py configs/scenarios/mujoco_tracking.yaml
@@ -14,38 +25,24 @@ python scripts/run_scenario.py configs/scenarios/mujoco_wiping.yaml
 python scripts/run_scenario.py configs/scenarios/mujoco_point_servo.yaml
 ```
 
-`single` 和 `dual` 不再使用两套 YAML。需要切换单臂/双臂时，修改场景中的：
+`single` 和 `dual` 不再维护两套任务文件。需要切换单臂/双臂时，只修改场景中的：
 
 ```yaml
 scenario:
   arm_mode: dual   # dual 或 single
 ```
 
-`single` 模式只保留主臂 executor；控制逻辑、低层参数、评分参数和执行链路与 `dual` 模式保持一致。`dual` 模式额外启用 observer 从臂的可视化、避碰和监控。
+`single` 模式只保留 executor 主臂；`dual` 模式启用 executor 主臂和 observer 从臂，并可叠加避碰、观察相机和可视化反馈。
 
-## 当前控制主线
+## 场景说明
 
-清理后的控制流程只保留当前已达到预期的 MuJoCo 主线：
-
-```text
-scenario yaml
-  -> SimulationApplication
-  -> task controller
-  -> UnifiedLowLevelController
-  -> MuJoCo system backend
-  -> hooks / artifacts / live diagnostics
-```
-
-主任务类型为：
-
-- `tracking`：轨迹跟踪和点伺服共用该类型。
-- `navigation`：移动基座导航与主臂跟随。
-- `engine_navigation`：发动机场景中的 staged navigation。
-- `wiping`：黑板 approach、contact wiping、retreat 擦拭任务。
-
-analytic backend、旧 single/dual YAML、旧任务配置文件、旧 standalone runtime 和 engine cleaning 专用控制器已从主线中移除。`mujoco_wiping.yaml` 默认使用运动学混合力位策略，同时保留动态自适应阻抗和接触触发导纳作为 YAML 可选方案。
-
-## 关键配置
+| 场景 | 任务类型 | 默认模式 | 用途 |
+| --- | --- | --- | --- |
+| `mujoco_tracking.yaml` | `tracking` | `dual` | 固定基座轨迹跟踪 |
+| `mujoco_navigation.yaml` | `navigation` | `dual` | 结构化火箭喷管入口导航 |
+| `engine_navigation.yaml` | `engine_navigation` | `dual` | 发动机场景入口、插入和局部路径导航 |
+| `mujoco_wiping.yaml` | `wiping` | `dual` | 黑板接触擦拭任务 |
+| `mujoco_point_servo.yaml` | `tracking` | `single` | 单点伺服调试 |
 
 共享低层控制参数位于：
 
@@ -53,34 +50,7 @@ analytic backend、旧 single/dual YAML、旧任务配置文件、旧 standalone
 configs/control/mujoco_tracking_low_level.yaml
 ```
 
-该文件集中定义：
-
-- task-space servo 参数。
-- tendon command / IK 参数。
-- MuJoCo tendon position actuator 执行参数。
-- 在线 waypoint reachability / execution 评分参数。
-- 自动跳点阈值和窗口参数。
-
-主场景说明见：
-
-- `docs/main_scenarios.md`
-- `docs/configuration_reference.md`
-- `docs/online_waypoint_reachability.md`
-- `docs/coordinate_conventions.md`
-
-## 目录结构
-
-```text
-configs/scenarios/   当前主任务 YAML
-configs/control/     共享低层控制参数
-configs/robots/      单臂、双臂、移动基座和装配配置
-configs/scenes/      wiping board、engine、rocket 等结构化场景
-configs/tools/       工具/喷嘴/相机等任务附件配置
-assets/mujoco/       MuJoCo XML 基础模型
-scripts/             当前保留的场景运行、批量运行、视频导出和模型生成脚本
-src/continuum_sim/   应用层、控制器、后端、运行循环、IO 和可视化代码
-docs/                中文配置和主线说明文档
-```
+该文件集中维护 task-space servo、IK/tendon command、MuJoCo tendon position actuator、在线可达性评分和自动跳点参数。
 
 ## 输出产物
 
@@ -90,20 +60,54 @@ docs/                中文配置和主线说明文档
 output/runs/<scenario_name>_<timestamp>/
 ```
 
-常见内容包括：
+常见内容：
 
-- `result.npz`
-- `metadata.json`
-- `configs/`
-- `model/`
-- `plots/`
-- `videos/`
+- `result.npz`：状态、命令、诊断字段。
+- `metadata.json`：运行摘要、指标、输出文件索引和 artifact 错误。
+- `configs/`：本次运行使用的配置副本。
+- `model/`：生成或复制的 MuJoCo 模型。
+- `plots/`：轨迹、控制层诊断、PCC/MuJoCo 诊断和 live diagnostics 最终图。
+- `videos/`：MuJoCo live/replay 视频和 observer camera 视频。
 
-`output/runs/` 是本地运行产物，不应提交。
+`mujoco_wiping.yaml` 会打开擦拭力监控窗口；开启 `artifacts.save_plots: true` 时会保存最终接触力图。开启 `show_live_diagnostics_panel` 且 `save_plots` 时，会保存 `plots/live_diagnostics_panel.png`。
+
+## 目录结构
+
+```text
+configs/scenarios/   当前主任务 YAML
+configs/control/     共享低层控制参数
+configs/robots/      单臂、双臂、移动基座和装配配置
+configs/scenes/      wiping board、engine、rocket 等场景配置
+configs/tools/       末端工具、喷嘴、相机附件配置
+assets/              MuJoCo XML、网格、发动机模型和 CAD 源文件
+scripts/             场景运行、批量运行、视频导出和模型生成脚本
+src/continuum_sim/   应用层、控制器、后端、运行循环、IO 和可视化代码
+docs/                当前中文说明文档
+tests/               当前主线仍维护的单元和集成测试
+```
+
+## 已清理的旧入口
+
+当前项目不再维护以下旧入口：
+
+- analytic backend 场景入口。
+- `configs/tasks/*.yaml` 旧任务配置。
+- engine cleaning 专用任务配置、控制器和路径接口。
+- `continuum_sim.runtime.hooks` / `hooks_impl` 兼容导出层。
+- 迁移过程文档、阶段性 handoff、findings 和 progress 记录。
+
+如果需要新增能力，请优先接入当前 `configs/scenarios/*.yaml -> SimulationApplication` 主线。
+
+## 相关文档
+
+- `docs/main_scenarios.md`：5 个主场景的职责和运行方式。
+- `docs/configuration_reference.md`：场景 YAML 关键字段说明。
+- `docs/coordinate_conventions.md`：坐标、命令和法向约定。
+- `docs/online_waypoint_reachability.md`：在线 waypoint 可达性评分。
 
 ## 手动验证建议
 
-本项目不默认自动运行测试或仿真。修改后可按需手动执行：
+本项目不会默认自动运行测试或仿真。修改后可按需手动执行：
 
 ```powershell
 python scripts/run_scenario.py configs/scenarios/mujoco_tracking.yaml
@@ -113,7 +117,7 @@ python scripts/run_scenario.py configs/scenarios/mujoco_wiping.yaml
 python scripts/run_scenario.py configs/scenarios/mujoco_point_servo.yaml
 ```
 
-如需批量运行当前主场景：
+批量运行当前主场景：
 
 ```powershell
 python scripts/run_all_scenarios.py

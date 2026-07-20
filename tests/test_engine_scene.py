@@ -18,14 +18,14 @@ from continuum_sim.scenes.engine_scene import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SCENE_CONFIG = PROJECT_ROOT / "configs" / "scenes" / "engine_cleaning.yaml"
+SCENE_CONFIG = PROJECT_ROOT / "configs" / "scenes" / "engine_scene.yaml"
 
 
 def test_load_engine_scene_config_reads_engine_pose_scale_and_regions(tmp_path: Path) -> None:
     config = load_engine_scene_config(_write_precise_scene_config(tmp_path))
 
     assert isinstance(config, EngineSceneConfig)
-    assert config.scene_type == "engine_cleaning"
+    assert config.scene_type == "engine_scene"
     assert config.engine.scale == pytest.approx(0.001)
     assert config.engine.pose.position_m.tolist() == pytest.approx([0.35, 0.0, 0.12])
     assert config.engine.pose.frame_offset_m.tolist() == pytest.approx([0.114155, 0.530382, 0.01])
@@ -88,7 +88,7 @@ def test_iter_engine_regions_preserves_named_region_order() -> None:
 
     names = [name for name, _region in iter_engine_regions(config)]
 
-    assert names == ["entry_port", "cleaning_patch"]
+    assert names == ["entry_port"]
 
 
 def test_validate_engine_scene_config_allows_missing_assets_when_not_strict(tmp_path: Path) -> None:
@@ -111,7 +111,7 @@ def test_load_engine_scene_config_requires_engine_section(tmp_path: Path) -> Non
         yaml.safe_dump(
             {
                 "name": "missing_engine",
-                "scene_type": "engine_cleaning",
+                "scene_type": "engine_scene",
                 "regions": {},
             },
             sort_keys=False,
@@ -129,7 +129,7 @@ def test_load_engine_scene_config_rejects_non_mapping_regions(tmp_path: Path) ->
         yaml.safe_dump(
             {
                 "name": "invalid_regions",
-                "scene_type": "engine_cleaning",
+                "scene_type": "engine_scene",
                 "engine": {
                     "assets": {
                         "visual_mesh": "assets/placeholder/engine_visual.obj",
@@ -158,7 +158,7 @@ def test_load_engine_scene_config_rejects_unknown_region_type(tmp_path: Path) ->
         yaml.safe_dump(
             {
                 "name": "unknown_region",
-                "scene_type": "engine_cleaning",
+                "scene_type": "engine_scene",
                 "engine": {
                     "assets": {
                         "visual_mesh": "assets/placeholder/engine_visual.obj",
@@ -190,7 +190,7 @@ def test_resolve_engine_asset_paths_reanchors_relative_assets(tmp_path: Path) ->
     config = EngineSceneConfig(
         path=tmp_path / "engine_scene.yaml",
         name="engine_scene",
-        scene_type="engine_cleaning",
+        scene_type="engine_scene",
         engine=EngineModelConfig(
             assets=EngineAssetConfig(
                 visual_mesh=Path("assets/visual.obj"),
@@ -218,7 +218,7 @@ def _write_missing_asset_scene_config(tmp_path: Path) -> Path:
         yaml.safe_dump(
             {
                 "name": "missing_assets",
-                "scene_type": "engine_cleaning",
+                "scene_type": "engine_scene",
                 "engine": {
                     "assets": {
                         "visual_mesh": "assets/missing_visual.obj",
@@ -258,7 +258,7 @@ def _write_precise_scene_config(tmp_path: Path, *, include_world_offset: bool = 
         yaml.safe_dump(
             {
                 "name": "precise_engine",
-                "scene_type": "engine_cleaning",
+                "scene_type": "engine_scene",
                 "engine": {
                     "assets": {
                         "visual_mesh": "assets/placeholder/engine_visual.obj",

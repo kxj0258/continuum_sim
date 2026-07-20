@@ -35,7 +35,7 @@ def test_build_nozzle_collision_hints_from_collision_bbox() -> None:
 
 def test_suggest_nozzle_collision_writes_candidate_config(tmp_path: Path) -> None:
     config_path = _write_tiny_scene(tmp_path)
-    output_path = tmp_path / "engine_cleaning_with_nozzle_collision.yaml"
+    output_path = tmp_path / "engine_scene_with_nozzle_collision.yaml"
 
     result = suggest_nozzle_main(
         [
@@ -102,13 +102,13 @@ f 1 2 3
 """,
         encoding="utf-8",
     )
-    config_path = tmp_path / "engine_cleaning.yaml"
+    config_path = tmp_path / "engine_scene.yaml"
     config_path.write_text(
         yaml.safe_dump(
             {
                 "schema_version": 1,
-                "name": "engine_cleaning",
-                "scene_type": "engine_cleaning",
+                "name": "engine_scene",
+                "scene_type": "engine_scene",
                 "engine": {
                     "assets": {
                         "visual_mesh": visual_mesh.name,

@@ -46,7 +46,7 @@ f 1 2 3
         encoding="utf-8",
     )
     config_path = _write_scene_config(tmp_path, mesh_path.name, scale=1.0)
-    output_path = tmp_path / "engine_cleaning.suggested.yaml"
+    output_path = tmp_path / "engine_scene.suggested.yaml"
 
     result = suggest_pose_main(
         [
@@ -83,7 +83,7 @@ f 1 2 3
         encoding="utf-8",
     )
     config_path = _write_scene_config(tmp_path, mesh_path.name, scale=0.5)
-    output_path = tmp_path / "engine_cleaning_grounded.generated.yaml"
+    output_path = tmp_path / "engine_scene_grounded.generated.yaml"
 
     result = suggest_pose_main(
         [
@@ -98,7 +98,7 @@ f 1 2 3
 
     assert result == 0
     aligned = yaml.safe_load(output_path.read_text(encoding="utf-8"))
-    assert aligned["name"] == "engine_cleaning_grounded.generated"
+    assert aligned["name"] == "engine_scene_grounded.generated"
     assert aligned["engine"]["pose"]["position_m"] == [-1.5, -3.0, -3.0]
     assert aligned["metadata"]["generated_from"] == str(config_path)
     assert aligned["metadata"]["alignment_mode"] == "grounded"
@@ -111,7 +111,7 @@ def _write_scene_config(tmp_path: Path, visual_mesh: str, *, scale: float) -> Pa
         yaml.safe_dump(
             {
                 "name": "test_engine",
-                "scene_type": "engine_cleaning",
+                "scene_type": "engine_scene",
                 "engine": {
                     "assets": {"visual_mesh": visual_mesh},
                     "scale": scale,

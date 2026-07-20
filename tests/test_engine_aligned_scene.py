@@ -15,14 +15,14 @@ from scripts.preview_engine_scene_mujoco import build_engine_preview_mjcf
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SCENE_CONFIG = PROJECT_ROOT / "configs" / "scenes" / "engine_cleaning.yaml"
+SCENE_CONFIG = PROJECT_ROOT / "configs" / "scenes" / "engine_scene.yaml"
 
 
 def test_engine_scene_config_loads_with_identity_engine_pose() -> None:
     config = load_engine_scene_config(SCENE_CONFIG)
 
     assert config.engine.scale == pytest.approx(0.001)
-    assert config.engine.pose.position_m.tolist() == pytest.approx([0.0, 0.0, 0.0])
+    assert config.engine.pose.position_m.tolist() == pytest.approx([-0.5, -2.5, -1.75])
     assert config.engine.pose.quat_wxyz.tolist() == pytest.approx([1.0, 0.0, 0.0, 0.0])
 
 
@@ -38,9 +38,9 @@ def test_engine_scene_preserves_entry_region_and_exploration_metadata() -> None:
     hints = list(iter_primitive_collision_geoms(config))
 
     assert config.engine.scale == pytest.approx(0.001)
-    assert config.engine.pose.position_m.tolist() == pytest.approx([0.0, 0.0, 0.0])
+    assert config.engine.pose.position_m.tolist() == pytest.approx([-0.5, -2.5, -1.75])
     assert config.engine.pose.quat_wxyz.tolist() == pytest.approx([1.0, 0.0, 0.0, 0.0])
-    assert set(config.regions) == {"entry_port", "cleaning_patch"}
+    assert set(config.regions) == {"entry_port"}
     assert len(hints) == 1
     assert hints[0].name == "debug_box_1"
     assert hints[0].frame == "world"
@@ -130,13 +130,13 @@ f 1 2 3
 """
     visual_mesh.write_text(mesh_text, encoding="utf-8")
     collision_mesh.write_text(mesh_text, encoding="utf-8")
-    config_path = tmp_path / "engine_cleaning.yaml"
+    config_path = tmp_path / "engine_scene.yaml"
     config_path.write_text(
         yaml.safe_dump(
             {
                 "schema_version": 1,
-                "name": "engine_cleaning",
-                "scene_type": "engine_cleaning",
+                "name": "engine_scene",
+                "scene_type": "engine_scene",
                 "engine": {
                     "assets": {
                         "visual_mesh": visual_mesh.name,

@@ -96,6 +96,29 @@ def finite_metadata_float(
     return float(metadata.get(fallback_key, np.nan))
 
 
+def metadata_norm(value: object) -> float:
+    """Return the norm of a finite metadata array, or NaN when invalid."""
+
+    if value is None:
+        return float("nan")
+    array = np.asarray(value, dtype=float)
+    if not array.size or not np.all(np.isfinite(array)):
+        return float("nan")
+    return float(np.linalg.norm(array))
+
+
+def metadata_max_abs(value: object) -> float:
+    """Return max absolute finite metadata value, or NaN when unavailable."""
+
+    if value is None:
+        return float("nan")
+    array = np.asarray(value, dtype=float)
+    finite = array[np.isfinite(array)]
+    if not finite.size:
+        return float("nan")
+    return float(np.max(np.abs(finite)))
+
+
 def executor_arm(state: RobotSystemState):
     """Return the executor arm state when the current robot has one."""
 

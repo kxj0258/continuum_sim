@@ -11,6 +11,8 @@ import numpy as np
 from continuum_sim.runtime.hook_utils import (
     executor_arm as _executor_arm,
     finite_metadata_float as _finite_metadata_float,
+    metadata_max_abs as _metadata_max_abs,
+    metadata_norm as _metadata_norm,
     metadata_path as _metadata_path,
     metadata_paths as _metadata_paths,
     metadata_point as _metadata_point,
@@ -1022,25 +1024,6 @@ def _format_mm(value_m: float) -> str:
     if not np.isfinite(value_m):
         return "nan mm"
     return f"{1000.0 * value_m:.2f} mm"
-
-
-def _metadata_norm(value: object) -> float:
-    if value is None:
-        return float("nan")
-    array = np.asarray(value, dtype=float)
-    if not array.size or not np.all(np.isfinite(array)):
-        return float("nan")
-    return float(np.linalg.norm(array))
-
-
-def _metadata_max_abs(value: object) -> float:
-    if value is None:
-        return float("nan")
-    array = np.asarray(value, dtype=float)
-    finite = array[np.isfinite(array)]
-    if not finite.size:
-        return float("nan")
-    return float(np.max(np.abs(finite)))
 
 
 def _last_value(values: list[float]) -> float:

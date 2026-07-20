@@ -20,6 +20,11 @@ from continuum_sim.runtime.hook_utils import (
     finite_metadata_float as _finite_metadata_float,
 )
 from continuum_sim.runtime.metadata_schema import ENGINE_NAVIGATION_OVERLAY_METADATA
+from continuum_sim.runtime.video_utils import (
+    mujoco_render_camera as _mujoco_render_camera,
+    normalise_output_paths as _normalise_output_paths,
+    open_video_writer as _open_video_writer,
+)
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
 
 
@@ -685,36 +690,6 @@ class MujocoLiveVideoRecorderHook:
                 self._record_error(
                     f"live video renderer close failed: {type(exc).__name__}: {exc}"
                 )
-
-
-def _open_video_writer(imageio, path: Path, fps: int):
-    if path.suffix.lower() == ".gif":
-        return imageio.get_writer(path, mode="I", duration=1000.0 / fps, loop=0)
-    return imageio.get_writer(path, fps=fps, macro_block_size=1)
-
-
-def _normalise_output_paths(
-    output_path: str | Path | list[str | Path] | tuple[str | Path, ...],
-) -> tuple[Path, ...]:
-    if isinstance(output_path, (list, tuple)):
-        paths = tuple(Path(path) for path in output_path)
-    else:
-        paths = (Path(output_path),)
-    if not paths:
-        raise ValueError("Video recorder requires at least one output path.")
-    return paths
-
-
-def _mujoco_render_camera(mujoco, camera: object | None):
-    if camera is None:
-        return -1
-    render_camera = mujoco.MjvCamera()
-    render_camera.type = mujoco.mjtCamera.mjCAMERA_FREE
-    render_camera.lookat[:] = getattr(camera, "lookat")
-    render_camera.distance = float(getattr(camera, "distance"))
-    render_camera.azimuth = float(getattr(camera, "azimuth"))
-    render_camera.elevation = float(getattr(camera, "elevation"))
-    return render_camera
 
 
 def _update_follow_camera(

@@ -23,6 +23,7 @@ from continuum_sim.application.scenario_paths import (
     arm_mode_assembly_config_path as _arm_mode_assembly_config_path,
     arm_mode_generated_xml_path as _arm_mode_generated_xml_path,
     arm_mode_retain_arm as _arm_mode_retain_arm,
+    optional_path as _optional_path,
 )
 from continuum_sim.control.contact_triggered_admittance import (
     ContactTriggeredAdmittanceConfig,
@@ -1506,12 +1507,6 @@ def _required(values: dict, name: str, section: str) -> object:
     if name not in values:
         raise ValueError(f"Missing required field {section}.{name}.")
     return values[name]
-
-
-def _optional_path(config_path: Path, value: object) -> Path | None:
-    if value in (None, ""):
-        return None
-    return resolve_path(config_path, value)
 
 
 def _optional_float(value: object) -> float | None:

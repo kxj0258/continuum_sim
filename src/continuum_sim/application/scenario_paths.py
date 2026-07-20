@@ -44,6 +44,12 @@ def arm_mode_retain_arm(arm_mode: str) -> str | None:
     return "executor" if arm_mode == "single" else None
 
 
+def optional_path(config_path: Path, value: object) -> Path | None:
+    if value in (None, ""):
+        return None
+    return resolve_path(config_path, value)
+
+
 def replace_arm_mode_token(value: str, arm_mode: str) -> str:
     if arm_mode == "single":
         return (

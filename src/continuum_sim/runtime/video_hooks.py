@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from continuum_sim.runtime.hooks_impl import (
+from continuum_sim.runtime.mujoco_overlay_utils import (
     _TrackingOverlayState,
     _draw_tracking_overlay_scene,
     _update_follow_camera,

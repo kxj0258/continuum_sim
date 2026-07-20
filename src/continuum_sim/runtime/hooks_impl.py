@@ -11,6 +11,8 @@ import numpy as np
 from continuum_sim.runtime.hook_utils import (
     executor_arm as _executor_arm,
     finite_metadata_float as _finite_metadata_float,
+    metadata_path as _metadata_path,
+    metadata_paths as _metadata_paths,
     metadata_point as _metadata_point,
 )
 from continuum_sim.runtime.metadata_schema import ENGINE_NAVIGATION_OVERLAY_METADATA
@@ -1623,42 +1625,6 @@ def _draw_error_vector_overlay_scene(
         config.error_vector_radius,
         config.error_vector_rgba,
     )
-
-
-def _metadata_path(
-    metadata: dict[str, object],
-    key: str,
-) -> np.ndarray | None:
-    value = metadata.get(key)
-    if value is None:
-        return None
-    try:
-        points = np.asarray(value, dtype=float)
-    except (TypeError, ValueError):
-        return None
-    if (
-        points.ndim != 2
-        or points.shape[1:] != (3,)
-        or len(points) == 0
-        or not np.all(np.isfinite(points))
-    ):
-        return None
-    return points.copy()
-
-
-def _metadata_paths(
-    metadata: dict[str, object],
-    key: str,
-) -> tuple[np.ndarray, ...]:
-    value = metadata.get(key)
-    if not isinstance(value, list | tuple):
-        return ()
-    result: list[np.ndarray] = []
-    for item in value:
-        path = _metadata_path({"path": item}, "path")
-        if path is not None:
-            result.append(path)
-    return tuple(result)
 
 
 def _sample_overlay_points(points: np.ndarray, stride: int) -> np.ndarray:

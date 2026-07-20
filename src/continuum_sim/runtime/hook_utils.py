@@ -42,6 +42,46 @@ def metadata_point(
     return point.copy()
 
 
+def metadata_path(
+    metadata: dict[str, object],
+    key: str,
+) -> np.ndarray | None:
+    """Return a finite Nx3 metadata path, or None when unavailable."""
+
+    value = metadata.get(key)
+    if value is None:
+        return None
+    try:
+        points = np.asarray(value, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if (
+        points.ndim != 2
+        or points.shape[1:] != (3,)
+        or len(points) == 0
+        or not np.all(np.isfinite(points))
+    ):
+        return None
+    return points.copy()
+
+
+def metadata_paths(
+    metadata: dict[str, object],
+    key: str,
+) -> tuple[np.ndarray, ...]:
+    """Return finite Nx3 paths from metadata list/tuple entries."""
+
+    value = metadata.get(key)
+    if not isinstance(value, list | tuple):
+        return ()
+    result: list[np.ndarray] = []
+    for item in value:
+        path = metadata_path({"path": item}, "path")
+        if path is not None:
+            result.append(path)
+    return tuple(result)
+
+
 def finite_metadata_float(
     metadata: dict[str, Any],
     key: str,

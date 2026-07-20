@@ -10,7 +10,7 @@ import numpy as np
 from continuum_sim.application.hook_factory import observer_camera_attachment_config
 from continuum_sim.backends.mujoco_system_backend import MujocoSystemBackend
 from continuum_sim.config import load_mujoco_config
-from continuum_sim.control.tendon_rate_control import BendingRateServoConfig
+from continuum_sim.execution.tendon_rate_control import BendingRateServoConfig
 from continuum_sim.scenes.engine_mjcf_adapter import (
     inject_engine_scene,
     rebase_mjcf_file_assets,

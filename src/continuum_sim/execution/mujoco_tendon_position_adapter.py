@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from continuum_sim.config import MujocoConfig
-from continuum_sim.control.tendon_rate_control import (
+from continuum_sim.execution.tendon_rate_control import (
     BendingRateServoConfig,
     CompatibleBendingRateServo,
     CompatibleTendonRateIntegrator,

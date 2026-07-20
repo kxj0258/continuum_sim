@@ -22,7 +22,7 @@ from continuum_sim.config_validation import (
 from continuum_sim.control.contact_triggered_admittance import (
     ContactTriggeredAdmittanceConfig,
 )
-from continuum_sim.control.tendon_rate_control import (
+from continuum_sim.execution.tendon_rate_control import (
     BendingRateServoConfig,
     TENDON_INNER_LOOP_MODES,
 )

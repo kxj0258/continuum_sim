@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from continuum_sim.config import MujocoConfig
-from continuum_sim.control.tendon_rate_control import BendingRateServoConfig
+from continuum_sim.execution.tendon_rate_control import BendingRateServoConfig
 from continuum_sim.execution.mujoco_tendon_position_adapter import (
     MujocoTendonPositionExecutionAdapter,
     TendonPositionExecutionStep,

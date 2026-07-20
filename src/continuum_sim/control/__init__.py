@@ -4,7 +4,7 @@ from continuum_sim.control.base_approach_stage import (
     BaseApproachResult,
     BaseApproachStage,
 )
-from continuum_sim.control.cbf_qp_kinematics import (
+from continuum_sim.kinematics.cbf_qp import (
     CBFQPConfig,
     cbf_lower_bound,
     solve_cbf_qp_velocity,
@@ -67,7 +67,7 @@ from continuum_sim.control.tendon_command_controller import (
     ObserverCommandReference,
     TendonCommandController,
 )
-from continuum_sim.control.tendon_rate_control import (
+from continuum_sim.execution.tendon_rate_control import (
     BendingRateServoConfig,
     CompatibleBendingRateServo,
     CompatibleBendingRateServoStep,

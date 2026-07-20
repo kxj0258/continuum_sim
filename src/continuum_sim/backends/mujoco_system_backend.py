@@ -14,7 +14,7 @@ from continuum_sim.system.mobile_base import (
     MobileBaseState,
     integrate_base_pose,
 )
-from continuum_sim.control.tendon_rate_control import (
+from continuum_sim.execution.tendon_rate_control import (
     BendingRateServoConfig,
 )
 from continuum_sim.execution import ActuationCompatibilityLayer

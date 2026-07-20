@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
-from continuum_sim.control.cbf_qp_kinematics import cbf_lower_bound, solve_cbf_qp_velocity
+from continuum_sim.kinematics.cbf_qp import cbf_lower_bound, solve_cbf_qp_velocity
 from continuum_sim.control.waypoint_scheduler import WaypointScheduler
 from continuum_sim.control.coordinated_tracking import (
     CoordinatedTrackingConfig,

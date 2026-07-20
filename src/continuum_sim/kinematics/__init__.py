@@ -1,6 +1,11 @@
 """Kinematics models for continuum robot simulation."""
 
 from continuum_sim.kinematics.core_chain import ContinuumKinematicsChain
+from continuum_sim.kinematics.cbf_qp import (
+    CBFQPConfig,
+    cbf_lower_bound,
+    solve_cbf_qp_velocity,
+)
 from continuum_sim.kinematics.analytic_pcc import (
     analytic_bending_position_jacobian,
     analytic_centerline_point_bending_jacobian,
@@ -52,11 +57,13 @@ from continuum_sim.kinematics.whole_body import (
 
 __all__ = [
     "ContinuumKinematicsChain",
+    "CBFQPConfig",
     "analytic_bending_position_jacobian",
     "analytic_centerline_point_bending_jacobian",
     "analytic_centerline_point_jacobian",
     "analytic_position_jacobian",
     "bending_rate_to_motor_velocity",
+    "cbf_lower_bound",
     "differential_bending_position_jacobian",
     "DEFAULT_PCC_KINEMATICS_MODE",
     "PCC_KINEMATICS_MODES",
@@ -88,6 +95,7 @@ __all__ = [
     "rotate_position_jacobian_to_world",
     "segment_transform_with_derivatives",
     "segment_transform",
+    "solve_cbf_qp_velocity",
     "tendon_position_jacobian",
     "tendon_rate_to_shape_rate_matrix",
     "tip_position_from_q",

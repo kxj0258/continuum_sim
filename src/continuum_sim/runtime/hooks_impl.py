@@ -16,6 +16,7 @@ from continuum_sim.runtime.hook_utils import (
     metadata_path as _metadata_path,
     metadata_paths as _metadata_paths,
     metadata_point as _metadata_point,
+    tip_target_error_vector as _tip_target_error_vector,
 )
 from continuum_sim.runtime.metadata_schema import ENGINE_NAVIGATION_OVERLAY_METADATA
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
@@ -1039,21 +1040,6 @@ def _last_vector(values: list[np.ndarray]) -> str:
     if vector.shape != (3,):
         return "[nan, nan, nan]"
     return "[" + ", ".join(f"{float(value): .5f}" for value in vector) + "]"
-
-
-def _tip_target_error_vector(
-    state: RobotSystemState,
-    metadata: dict[str, object],
-) -> np.ndarray | None:
-    executor = _executor_arm(state)
-    if executor is None:
-        return None
-    target = _metadata_point(metadata, "executor_target_world")
-    if target is None:
-        target = _metadata_point(metadata, "engine_navigation_active_target_m")
-    if target is None:
-        return None
-    return target - executor.tip_pose_world.position
 
 
 class MujocoViewerHook:

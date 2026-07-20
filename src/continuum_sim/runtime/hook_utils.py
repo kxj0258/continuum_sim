@@ -119,6 +119,23 @@ def metadata_max_abs(value: object) -> float:
     return float(np.max(np.abs(finite)))
 
 
+def tip_target_error_vector(
+    state: RobotSystemState,
+    metadata: dict[str, object],
+) -> np.ndarray | None:
+    """Return executor tip-to-target error vector from common metadata keys."""
+
+    executor = executor_arm(state)
+    if executor is None:
+        return None
+    target = metadata_point(metadata, "executor_target_world")
+    if target is None:
+        target = metadata_point(metadata, "engine_navigation_active_target_m")
+    if target is None:
+        return None
+    return target - executor.tip_pose_world.position
+
+
 def executor_arm(state: RobotSystemState):
     """Return the executor arm state when the current robot has one."""
 

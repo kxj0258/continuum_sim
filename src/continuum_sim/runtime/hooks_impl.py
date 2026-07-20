@@ -15,19 +15,8 @@ from continuum_sim.sensing.visual_feedback import (
     VisualServoFeedback,
     project_roi_to_camera_feedback,
 )
+from continuum_sim.runtime.metadata_schema import ENGINE_NAVIGATION_OVERLAY_METADATA
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
-
-
-_ENGINE_NAVIGATION_METADATA_KEYS = (
-    "engine_navigation_pre_entry_target_m",
-    "engine_navigation_base_path_m",
-    "engine_navigation_insertion_path_m",
-    "engine_navigation_executor_path_m",
-    "engine_navigation_executor_paths_m",
-    "engine_navigation_observer_roi_m",
-    "engine_navigation_active_target_m",
-    "engine_navigation_active_target_kind",
-)
 
 
 @dataclass
@@ -92,7 +81,7 @@ class _TrackingOverlayState:
             self.base_trail.append(state.base.pose.position.copy())
             self.navigation_metadata = {
                 key: _copy_overlay_metadata_value(command.metadata[key])
-                for key in _ENGINE_NAVIGATION_METADATA_KEYS
+                for key in ENGINE_NAVIGATION_OVERLAY_METADATA
                 if key in command.metadata
             }
         else:

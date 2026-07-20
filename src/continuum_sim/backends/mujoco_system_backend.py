@@ -9,7 +9,7 @@ import numpy as np
 
 from continuum_sim.backends.mujoco_backend import MujocoBackend
 from continuum_sim.config import MujocoConfig, load_mujoco_config
-from continuum_sim.control.mobile_base_controller import (
+from continuum_sim.system.mobile_base import (
     MobileBaseCommand,
     MobileBaseState,
     integrate_base_pose,

@@ -2,6 +2,17 @@
 
 from __future__ import annotations
 
+ENGINE_NAVIGATION_OVERLAY_METADATA: tuple[str, ...] = (
+    "engine_navigation_pre_entry_target_m",
+    "engine_navigation_base_path_m",
+    "engine_navigation_insertion_path_m",
+    "engine_navigation_executor_path_m",
+    "engine_navigation_executor_paths_m",
+    "engine_navigation_observer_roi_m",
+    "engine_navigation_active_target_m",
+    "engine_navigation_active_target_kind",
+)
+
 OBSERVER_SCALAR_METADATA: tuple[tuple[str, type], ...] = (
     ("observer_control_mode", str),
     ("kinematics_mode", str),

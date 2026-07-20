@@ -4,18 +4,24 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from continuum_sim.runtime.hooks import (
-    ControllerCompletionHook,
+from continuum_sim.runtime.completion_hooks import ControllerCompletionHook
+from continuum_sim.runtime.diagnostic_hooks import TendonDiagnosticHook
+from continuum_sim.runtime.live_panel_hooks import (
     LiveDiagnosticsPanelHook,
     LiveTendonPanelHook,
     LiveWipingForcePanelHook,
-    MatplotlibSystemViewerHook,
-    MujocoLiveVideoRecorderHook,
+)
+from continuum_sim.runtime.observer_camera_hooks import (
     MujocoObserverCameraFeedbackHook,
+)
+from continuum_sim.runtime.recording_hooks import (
     MujocoReplayRecorderHook,
-    MujocoViewerHook,
     StateRecorderHook,
-    TendonDiagnosticHook,
+)
+from continuum_sim.runtime.video_hooks import MujocoLiveVideoRecorderHook
+from continuum_sim.runtime.viewer_hooks import (
+    MatplotlibSystemViewerHook,
+    MujocoViewerHook,
 )
 from continuum_sim.tools.attachments import load_attachment_config
 

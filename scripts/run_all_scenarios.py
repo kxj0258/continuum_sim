@@ -104,7 +104,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--no-headless",
         dest="headless",
         action="store_false",
-        help="Keep each scenario's configured viewer and live panels.",
+        help=(
+            "Keep each scenario's configured viewer, live panels, and observer "
+            "camera window."
+        ),
     )
     parser.add_argument(
         "--disable-artifacts",
@@ -148,6 +151,7 @@ def _headless_config(config: ScenarioConfig) -> ScenarioConfig:
             show_live_tendon_panel=False,
             show_live_force_panel=False,
             show_live_diagnostics_panel=False,
+            show_observer_camera=False,
         ),
     )
 

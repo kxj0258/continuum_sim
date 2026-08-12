@@ -20,6 +20,7 @@ from continuum_sim.runtime.video_hooks import MujocoLiveVideoRecorderHook
 from continuum_sim.runtime.viewer_hooks import (
     MatplotlibSystemViewerHook,
     MujocoViewerHook,
+    RealtimePacerHook,
 )
 from continuum_sim.tools.attachments import attachment_config_path, load_attachment_config
 
@@ -44,16 +45,31 @@ def build_runtime_hooks(
     if config.hooks.show_live_tendon_panel:
         hooks_by_name["live_tendon_panel"] = LiveTendonPanelHook(
             stride=config.hooks.live_tendon_panel_stride,
+            display_interval_s=max(
+                1.0 / 15.0,
+                config.runtime.controller_dt_s
+                * config.hooks.live_tendon_panel_stride,
+            ),
             history_points=config.hooks.live_force_panel_history_points,
         )
     if config.hooks.show_live_force_panel:
         hooks_by_name["live_force_panel"] = LiveWipingForcePanelHook(
             stride=config.hooks.live_force_panel_stride,
+            display_interval_s=max(
+                1.0 / 15.0,
+                config.runtime.controller_dt_s
+                * config.hooks.live_force_panel_stride,
+            ),
             history_points=config.hooks.live_force_panel_history_points,
         )
     if config.hooks.show_live_diagnostics_panel:
         hooks_by_name["live_diagnostics_panel"] = LiveDiagnosticsPanelHook(
             stride=config.hooks.live_diagnostics_panel_stride,
+            display_interval_s=max(
+                1.0 / 10.0,
+                config.runtime.controller_dt_s
+                * config.hooks.live_diagnostics_panel_stride,
+            ),
             history_points=config.hooks.live_diagnostics_panel_history_points,
         )
 
@@ -82,9 +98,15 @@ def build_runtime_hooks(
             fallback_target_world=observer_camera_target_world,
             show_window=config.hooks.show_observer_camera,
             stride=config.hooks.observer_camera_stride,
+            display_interval_s=max(
+                1.0 / 10.0,
+                config.runtime.controller_dt_s
+                * config.hooks.observer_camera_stride,
+            ),
             video_output_paths=observer_camera_video_paths,
             video_fps=config.artifacts.video_fps,
             video_stride=config.artifacts.video_stride,
+            async_render=True,
         )
 
     if (
@@ -117,7 +139,16 @@ def build_runtime_hooks(
         hooks_by_name["viewer"] = MujocoViewerHook(
             backend,
             keep_open=config.hooks.keep_viewer_open,
+            display_interval_s=max(
+                1.0 / 15.0,
+                config.runtime.controller_dt_s
+                * backend.config.viewer.sync_interval_steps,
+            ),
         )
+        if backend.config.viewer.realtime:
+            hooks_by_name["realtime_pacer"] = RealtimePacerHook(
+                realtime_factor=backend.config.viewer.realtime_factor,
+            )
     if hasattr(controller, "done"):
         hooks_by_name["completion"] = ControllerCompletionHook(controller)
     return hooks_by_name

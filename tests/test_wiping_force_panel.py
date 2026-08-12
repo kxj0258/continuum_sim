@@ -48,6 +48,8 @@ def test_wiping_force_panel_updates_and_closes_under_agg() -> None:
     assert panel.time_s == [0.02, 0.04]
     assert panel.normal_force_n == pytest.approx([1.25, 1.4])
     assert panel.contact_proxy_m == pytest.approx([-0.002, -0.0022])
+    assert len(panel.force_ax.lines) == 3
+    assert len(panel.proxy_ax.lines) == 3
 
     panel.show(block=False)
     panel.flush_events()

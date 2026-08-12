@@ -168,6 +168,34 @@ def test_render_frame_for_presentation_does_not_present_from_worker() -> None:
     assert hook._mujoco.forward_calls == 1
 
 
+def test_async_observer_keeps_feedback_synchronous_and_queues_render() -> None:
+    hook = MujocoObserverCameraFeedbackHook(
+        _Backend(),
+        camera_name="observer_eye_camera",
+        intrinsics=CameraIntrinsicsConfig(
+            width=64,
+            height=48,
+            fovy_deg=60.0,
+            near=0.02,
+            far=2.0,
+        ),
+        fallback_target_world=np.array([0.0, 0.0, -0.2]),
+        show_window=True,
+        async_render=True,
+    )
+    worker = _RenderWorker()
+    hook._mujoco = _Mujoco()
+    hook._render_worker = worker
+    hook._renderer = None
+
+    enriched = hook.enrich_state(_state(time_s=0.02))
+
+    assert enriched.metadata["visual_servo_target_visible"] is True
+    assert enriched.metadata["visual_servo_camera_name"] == "observer_eye_camera"
+    assert len(worker.submissions) == 1
+    assert hook._mujoco.forward_calls == 0
+
+
 def test_observer_camera_hook_records_rendered_frames_to_own_writers(
     tmp_path: Path,
 ) -> None:
@@ -313,6 +341,19 @@ class _Writer:
     def close(self) -> None:
         self.closed = True
         self.path.write_bytes(b"video")
+
+
+class _RenderWorker:
+    def __init__(self) -> None:
+        self.submissions = []
+
+    def submit(self, **kwargs) -> bool:
+        self.submissions.append(kwargs)
+        return True
+
+    def consume_frame_after(self, version: int):
+        del version
+        return None
 
 
 class _Image:

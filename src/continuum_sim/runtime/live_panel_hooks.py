@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
+from continuum_sim.runtime.concurrency import LatestValueSlot, TimeRateGate
 from continuum_sim.runtime.hook_utils import (
     finite_metadata_float as _finite_metadata_float,
     metadata_max_abs as _metadata_max_abs,
@@ -14,29 +15,40 @@ from continuum_sim.runtime.hook_utils import (
     metadata_point as _metadata_point,
     tip_target_error_vector as _tip_target_error_vector,
 )
+from continuum_sim.runtime.matplotlib_artists import PersistentAxisArtists
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
 
 
 class LiveTendonPanelHook:
     """Optional rich tendon monitor attached to the scenario hook lifecycle."""
 
-    def __init__(self, *, stride: int = 1, history_points: int = 300) -> None:
+    requires_gui_main_thread = True
+
+    def __init__(
+        self,
+        *,
+        stride: int = 1,
+        history_points: int = 300,
+        display_interval_s: float | None = None,
+    ) -> None:
         if stride <= 0:
             raise ValueError("LiveTendonPanelHook stride must be positive.")
         self.stride = stride
         self.history_points = history_points
         self._panel = None
-
-    def on_reset(self, state: RobotSystemState) -> None:
-        from continuum_sim.visualization.system_tendon_debug import (
-            SystemTendonMonitorPanel,
+        self._samples = None
+        self._sample_version = -1
+        self._display_gate = (
+            None
+            if display_interval_s is None
+            else TimeRateGate(display_interval_s)
         )
 
-        if self._panel is not None:
-            self._panel.close()
-        self._panel = SystemTendonMonitorPanel()
-        self._panel.update(state, redraw=False)
-        self._panel.show(block=False)
+    def on_reset(self, state: RobotSystemState) -> None:
+        self._samples = LatestValueSlot(state)
+        self._sample_version = -1
+        if self._display_gate is not None:
+            self._display_gate.reset(state.time_s)
 
     def on_step(
         self,
@@ -45,19 +57,41 @@ class LiveTendonPanelHook:
         step_index: int,
     ) -> None:
         del command
-        if step_index % self.stride == 0:
-            if self._panel is not None and self._panel.is_open():
-                self._panel.update(state)
-                self._panel.flush_events()
+        due = (
+            self._display_gate.due(state.time_s)
+            if self._display_gate is not None
+            else step_index % self.stride == 0
+        )
+        if due and self._samples is not None:
+            self._samples.publish(state)
+
+    def present_pending(self, *, force: bool = False) -> None:
+        if self._samples is None:
+            return
+        item = self._samples.consume_after(self._sample_version)
+        if item is None:
+            return
+        state, self._sample_version = item
+        if self._panel is None:
+            from continuum_sim.visualization.system_tendon_debug import (
+                SystemTendonMonitorPanel,
+            )
+
+            self._panel = SystemTendonMonitorPanel()
+            self._panel.show(block=False)
+        if self._panel.is_open():
+            self._panel.update(state)
 
     def should_stop(self, state: RobotSystemState, step_index: int) -> bool:
         del state, step_index
         return False
 
     def on_finish(self, state: RobotSystemState) -> None:
-        del state
+        if self._samples is not None:
+            self._samples.publish(state)
+
+    def close_presentation(self) -> None:
         if self._panel is not None:
-            _safe_panel_call(self._panel, "flush_events")
             _safe_panel_call(self._panel, "close")
             self._panel = None
 
@@ -75,7 +109,15 @@ def _safe_panel_call(panel: object, method_name: str) -> None:
 class LiveWipingForcePanelHook:
     """Optional live panel for scenario wiping force/contact metadata."""
 
-    def __init__(self, *, stride: int = 1, history_points: int = 300) -> None:
+    requires_gui_main_thread = True
+
+    def __init__(
+        self,
+        *,
+        stride: int = 1,
+        history_points: int = 300,
+        display_interval_s: float | None = None,
+    ) -> None:
         if stride <= 0:
             raise ValueError("LiveWipingForcePanelHook stride must be positive.")
         self.stride = stride
@@ -83,6 +125,13 @@ class LiveWipingForcePanelHook:
         self._plt = None
         self._figure = None
         self._axes = None
+        self._samples = None
+        self._sample_version = -1
+        self._display_gate = (
+            None
+            if display_interval_s is None
+            else TimeRateGate(display_interval_s)
+        )
         self._time: list[float] = []
         self._target_force: list[float] = []
         self._current_force: list[float] = []
@@ -90,20 +139,15 @@ class LiveWipingForcePanelHook:
         self._contact_distance: list[float] = []
 
     def on_reset(self, state: RobotSystemState) -> None:
-        import matplotlib.pyplot as plt
-
-        self._plt = plt
-        self._figure, self._axes = plt.subplots(2, 1, figsize=(9.5, 6.8), sharex=True)
-        manager = getattr(self._figure.canvas, "manager", None)
-        if manager is not None:
-            manager.set_window_title("continuum_sim wiping contact force")
+        self._samples = LatestValueSlot((state, None))
+        self._sample_version = -1
         self._time.clear()
         self._target_force.clear()
         self._current_force.clear()
         self._force_error.clear()
         self._contact_distance.clear()
-        plt.ion()
-        plt.show(block=False)
+        if self._display_gate is not None:
+            self._display_gate.reset(state.time_s)
 
     def on_step(
         self,
@@ -111,8 +155,26 @@ class LiveWipingForcePanelHook:
         command: RobotSystemCommand,
         step_index: int,
     ) -> None:
-        if step_index % self.stride != 0:
+        due = (
+            self._display_gate.due(state.time_s)
+            if self._display_gate is not None
+            else step_index % self.stride == 0
+        )
+        if not due or self._samples is None:
             return
+        self._samples.publish((state, command))
+
+    def present_pending(self, *, force: bool = False) -> None:
+        if self._samples is None:
+            return
+        item = self._samples.consume_after(self._sample_version)
+        if item is None:
+            return
+        (state, command), self._sample_version = item
+        if command is None:
+            return
+        if self._figure is None:
+            self._create_figure()
         self._time.append(float(state.time_s))
         self._target_force.append(
             float(command.metadata.get("target_normal_force_n", np.nan))
@@ -131,12 +193,34 @@ class LiveWipingForcePanelHook:
         self._trim()
         self._draw()
 
+    def _create_figure(self) -> None:
+        import matplotlib.pyplot as plt
+
+        self._plt = plt
+        self._figure, axes = plt.subplots(2, 1, figsize=(9.5, 6.8), sharex=True)
+        manager = getattr(self._figure.canvas, "manager", None)
+        if manager is not None:
+            manager.set_window_title("continuum_sim wiping contact force")
+        for axis in axes:
+            axis.grid(True, alpha=0.25)
+        force_axis, contact_axis = axes
+        force_axis.set_ylabel("force [N]")
+        force_axis.set_title("Wiping contact force")
+        contact_axis.set_xlabel("time [s]")
+        contact_axis.set_ylabel("distance [mm]")
+        contact_axis.set_title("Contact distance / penetration proxy")
+        self._axes = tuple(PersistentAxisArtists(axis) for axis in axes)
+        plt.ion()
+        plt.show(block=False)
+
     def should_stop(self, state: RobotSystemState, step_index: int) -> bool:
         del state, step_index
         return False
 
     def on_finish(self, state: RobotSystemState) -> None:
         del state
+
+    def close_presentation(self) -> None:
         if self._plt is not None:
             try:
                 self._plt.ioff()
@@ -162,8 +246,7 @@ class LiveWipingForcePanelHook:
             return
         force_axis, contact_axis = self._axes
         for axis in self._axes:
-            axis.clear()
-            axis.grid(True, alpha=0.25)
+            axis.begin_frame()
         time_s = np.asarray(self._time, dtype=float)
         target_force = np.asarray(self._target_force, dtype=float)
         current_force = np.asarray(self._current_force, dtype=float)
@@ -177,26 +260,29 @@ class LiveWipingForcePanelHook:
         force_axis.plot(time_s, target_force, "--", label="target force [N]")
         force_axis.plot(time_s, current_force, label="current contact force [N]")
         force_axis.plot(time_s, force_error, label="force error [N]")
-        force_axis.set_ylabel("force [N]")
-        force_axis.set_title("Wiping contact force")
         force_axis.legend(loc="upper right", fontsize=8)
 
         contact_axis.plot(time_s, contact_distance_mm, label="contact distance [mm]")
         contact_axis.plot(time_s, penetration_mm, label="penetration proxy [mm]")
         contact_axis.axhline(0.0, color="0.35", linestyle="--", linewidth=0.9)
-        contact_axis.set_xlabel("time [s]")
-        contact_axis.set_ylabel("distance [mm]")
-        contact_axis.set_title("Contact distance / penetration proxy")
         contact_axis.legend(loc="upper right", fontsize=8)
-        self._figure.tight_layout()
+        for axis in self._axes:
+            axis.end_frame()
         self._figure.canvas.draw_idle()
-        self._figure.canvas.flush_events()
 
 
 class LiveDiagnosticsPanelHook:
     """Optional compact live panel for tracking, safety, and actuator diagnostics."""
 
-    def __init__(self, *, stride: int = 5, history_points: int = 300) -> None:
+    requires_gui_main_thread = True
+
+    def __init__(
+        self,
+        *,
+        stride: int = 5,
+        history_points: int = 300,
+        display_interval_s: float | None = None,
+    ) -> None:
         if stride <= 0:
             raise ValueError("LiveDiagnosticsPanelHook stride must be positive.")
         if history_points <= 0:
@@ -256,33 +342,23 @@ class LiveDiagnosticsPanelHook:
         self._last_task_target: np.ndarray | None = None
         self._snapshot_png: bytes | None = None
         self.errors: list[str] = []
+        self._samples = None
+        self._sample_version = -1
+        self._display_gate = (
+            None
+            if display_interval_s is None
+            else TimeRateGate(display_interval_s)
+        )
 
     def on_reset(self, state: RobotSystemState) -> None:
-        import matplotlib.pyplot as plt
-
-        self._plt = plt
-        self._figure, axes = plt.subplots(3, 2, figsize=(12.0, 9.6))
-        manager = getattr(self._figure.canvas, "manager", None)
-        if manager is not None:
-            manager.set_window_title("continuum_sim live diagnostics")
-        self._axes = axes.reshape(-1)
-        self._ik_right_axis = self._axes[2].twinx()
-        self._backend_right_axis = self._axes[3].twinx()
-        self._drivers_right_axis = self._axes[5].twinx()
-        for axis in (
-            self._ik_right_axis,
-            self._backend_right_axis,
-            self._drivers_right_axis,
-        ):
-            axis.patch.set_alpha(0.0)
         self._info_text = None
         self._snapshot_png = None
         self.errors.clear()
         self._clear()
-        self._append(state, None)
-        plt.ion()
-        plt.show(block=False)
-        self._draw()
+        self._samples = LatestValueSlot((state, None))
+        self._sample_version = -1
+        if self._display_gate is not None:
+            self._display_gate.reset(state.time_s)
 
     def on_step(
         self,
@@ -290,11 +366,50 @@ class LiveDiagnosticsPanelHook:
         command: RobotSystemCommand,
         step_index: int,
     ) -> None:
-        if step_index % self.stride != 0:
+        due = (
+            self._display_gate.due(state.time_s)
+            if self._display_gate is not None
+            else step_index % self.stride == 0
+        )
+        if not due or self._samples is None:
             return
+        self._samples.publish((state, command))
+
+    def present_pending(self, *, force: bool = False) -> None:
+        if self._samples is None:
+            return
+        item = self._samples.consume_after(self._sample_version)
+        if item is None:
+            return
+        (state, command), self._sample_version = item
+        if self._figure is None:
+            self._create_figure()
         self._append(state, command)
         self._trim()
         self._draw()
+
+    def _create_figure(self) -> None:
+        import matplotlib.pyplot as plt
+
+        self._plt = plt
+        self._figure, raw_axes = plt.subplots(3, 2, figsize=(12.0, 9.6))
+        manager = getattr(self._figure.canvas, "manager", None)
+        if manager is not None:
+            manager.set_window_title("continuum_sim live diagnostics")
+        raw_axes = raw_axes.reshape(-1)
+        ik_right = raw_axes[2].twinx()
+        backend_right = raw_axes[3].twinx()
+        drivers_right = raw_axes[5].twinx()
+        for axis in raw_axes:
+            axis.grid(True, alpha=0.25)
+        for axis in (ik_right, backend_right, drivers_right):
+            axis.patch.set_alpha(0.0)
+        self._axes = tuple(PersistentAxisArtists(axis) for axis in raw_axes)
+        self._ik_right_axis = PersistentAxisArtists(ik_right)
+        self._backend_right_axis = PersistentAxisArtists(backend_right)
+        self._drivers_right_axis = PersistentAxisArtists(drivers_right)
+        plt.ion()
+        plt.show(block=False)
 
     def should_stop(self, state: RobotSystemState, step_index: int) -> bool:
         del state, step_index
@@ -302,6 +417,8 @@ class LiveDiagnosticsPanelHook:
 
     def on_finish(self, state: RobotSystemState) -> None:
         del state
+
+    def close_presentation(self) -> None:
         if self._plt is None:
             return
         try:
@@ -630,8 +747,7 @@ class LiveDiagnosticsPanelHook:
         time_s = np.asarray(self._time, dtype=float)
         axes = self._axes
         for axis in axes:
-            axis.cla()
-            axis.grid(True, alpha=0.25)
+            axis.begin_frame()
         right_axes = (
             self._ik_right_axis,
             self._backend_right_axis,
@@ -639,9 +755,7 @@ class LiveDiagnosticsPanelHook:
         )
         for axis in right_axes:
             if axis is not None:
-                axis.cla()
-                axis.grid(False)
-                axis.patch.set_alpha(0.0)
+                axis.begin_frame()
 
         waypoint_indices = np.asarray(self._waypoint_indices, dtype=float)
         approach_flags = np.asarray(self._tracking_approach_flags, dtype=float)
@@ -917,8 +1031,10 @@ class LiveDiagnosticsPanelHook:
         )
         self._figure.suptitle(title, fontsize=10, **title_style)
         self._figure.tight_layout(rect=(0.0, 0.0, 1.0, 0.965))
+        for axis in (*axes, *right_axes):
+            if axis is not None:
+                axis.end_frame()
         self._figure.canvas.draw_idle()
-        self._figure.canvas.flush_events()
 
 
 def _finite_positive(values: list[float]) -> np.ndarray:

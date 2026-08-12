@@ -3,6 +3,47 @@
 from __future__ import annotations
 
 from pathlib import Path
+from queue import Empty, Full, Queue
+from typing import Generic, TypeVar
+
+
+T = TypeVar("T")
+
+
+class BoundedFrameQueue(Generic[T]):
+    """Ordered bounded queue with explicit overload accounting."""
+
+    def __init__(self, *, maxsize: int = 8) -> None:
+        if maxsize <= 0:
+            raise ValueError("maxsize must be positive.")
+        self._queue: Queue[tuple[int, T]] = Queue(maxsize=maxsize)
+        self.overload_count = 0
+
+    def submit(self, sequence: int, payload: T) -> bool:
+        try:
+            self._queue.put_nowait((int(sequence), payload))
+        except Full:
+            self.overload_count += 1
+            return False
+        return True
+
+    def get(self, timeout: float | None = None) -> tuple[int, T]:
+        if timeout is None:
+            return self._queue.get()
+        return self._queue.get(timeout=timeout)
+
+    def get_nowait(self) -> tuple[int, T]:
+        return self._queue.get_nowait()
+
+    def task_done(self) -> None:
+        self._queue.task_done()
+
+    def join(self) -> None:
+        self._queue.join()
+
+    @property
+    def empty(self) -> bool:
+        return self._queue.empty()
 
 
 def open_video_writer(imageio, path: Path, fps: int):

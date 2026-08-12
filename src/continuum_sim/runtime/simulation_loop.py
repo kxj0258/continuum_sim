@@ -83,7 +83,9 @@ class SimulationLoop:
         initial = self.backend.reset_system()
         commands: list[RobotSystemCommand] = []
         for hook in self.hooks:
-            hook.on_reset(initial)
+            callback = getattr(hook, "on_reset", None)
+            if callback is not None:
+                callback(initial)
         initial = self._enrich_state(initial)
         states = [initial]
         stopped_early = False
@@ -94,7 +96,11 @@ class SimulationLoop:
                 (
                     hook
                     for hook in self.hooks
-                    if hook.should_stop(current, step_index)
+                    if (
+                        (should_stop := getattr(hook, "should_stop", None))
+                        is not None
+                        and should_stop(current, step_index)
+                    )
                 ),
                 None,
             )
@@ -110,11 +116,15 @@ class SimulationLoop:
             )
             commands.append(command)
             for hook in self.hooks:
-                hook.on_step(next_state, command, step_index)
+                callback = getattr(hook, "on_step", None)
+                if callback is not None:
+                    callback(next_state, command, step_index)
             next_state = self._enrich_state(next_state)
             states.append(next_state)
         for hook in self.hooks:
-            hook.on_finish(states[-1])
+            callback = getattr(hook, "on_finish", None)
+            if callback is not None:
+                callback(states[-1])
         return SimulationLoopResult(
             states=tuple(states),
             commands=tuple(commands),

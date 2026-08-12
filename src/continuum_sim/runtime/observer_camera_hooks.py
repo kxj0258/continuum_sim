@@ -5,13 +5,20 @@ from __future__ import annotations
 from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
+from queue import Empty
+from threading import Event, Thread, current_thread
 
 import numpy as np
 
 from continuum_sim.model.base_pose import Pose6D
+from continuum_sim.runtime.concurrency import LatestValueSlot, TimeRateGate
 from continuum_sim.runtime.hook_utils import metadata_point as _metadata_point
-from continuum_sim.runtime.mujoco_state_copy import copy_mujoco_dynamic_state
+from continuum_sim.runtime.mujoco_state_copy import (
+    capture_mujoco_dynamic_state,
+    copy_mujoco_dynamic_state,
+)
 from continuum_sim.runtime.video_utils import (
+    BoundedFrameQueue,
     normalise_output_paths as _normalise_output_paths,
     open_video_writer as _open_video_writer,
 )
@@ -21,6 +28,89 @@ from continuum_sim.sensing.visual_feedback import (
     project_roi_to_camera_feedback,
 )
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
+
+
+class _ObserverRenderWorker:
+    """Own observer renderer/writers and drain a bounded snapshot queue."""
+
+    def __init__(self, owner, *, queue_size: int = 8) -> None:
+        self.owner = owner
+        self.queue = BoundedFrameQueue(maxsize=queue_size)
+        self.frames = LatestValueSlot(None)
+        self._stop_event = Event()
+        self._thread: Thread | None = None
+        self.failure: BaseException | None = None
+
+    def start(self) -> None:
+        self._stop_event.clear()
+        self._thread = Thread(
+            target=self._run,
+            name="continuum-sim-observer-render",
+            daemon=False,
+        )
+        self._thread.start()
+
+    def submit(
+        self,
+        *,
+        state: RobotSystemState,
+        feedback: VisualServoFeedback | None,
+        display: bool,
+        record: bool,
+        sequence: int,
+    ) -> bool:
+        payload = (
+            capture_mujoco_dynamic_state(self.owner.backend.physics.data),
+            state,
+            feedback,
+            bool(display),
+            bool(record),
+        )
+        return self.queue.submit(sequence, payload)
+
+    def consume_frame_after(self, version: int):
+        return self.frames.consume_after(version)
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        thread = self._thread
+        if thread is not None and thread is not current_thread():
+            thread.join()
+        self._thread = None
+
+    def _run(self) -> None:
+        owner = self.owner
+        state = None
+        try:
+            owner._open_render_resources()
+            while not self._stop_event.is_set() or not self.queue.empty:
+                try:
+                    _sequence, payload = self.queue.get(timeout=0.05)
+                except Empty:
+                    continue
+                try:
+                    snapshot, state, feedback, display, record = payload
+                    snapshot.apply_to(owner._render_data)
+                    owner._mujoco.mj_forward(
+                        owner.backend.physics.model,
+                        owner._render_data,
+                    )
+                    frame = owner._render_frame(owner._render_data)
+                    frame = owner._draw_roi_overlay(frame, feedback=feedback)
+                    if display:
+                        self.frames.publish(frame)
+                    if record:
+                        owner._append_video_frame(frame)
+                finally:
+                    self.queue.task_done()
+        except BaseException as exc:  # noqa: BLE001 - isolated presentation failure.
+            self.failure = exc
+            owner._record_error(
+                f"observer camera render worker failed: {type(exc).__name__}: {exc}"
+            )
+        finally:
+            owner._close_video_writers()
+            owner._close_renderer()
 
 
 class MujocoObserverCameraFeedbackHook:
@@ -43,6 +133,8 @@ class MujocoObserverCameraFeedbackHook:
         video_stride: int | None = None,
         data_lock=None,
         runtime_timing=None,
+        async_render: bool = False,
+        render_queue_size: int = 8,
     ) -> None:
         if stride <= 0:
             raise ValueError("MujocoObserverCameraFeedbackHook stride must be positive.")
@@ -71,9 +163,15 @@ class MujocoObserverCameraFeedbackHook:
         )
         self.output_path = self.output_paths[0] if self.output_paths else None
         self.video_fps = int(video_fps)
-        self.video_stride = 1 if video_stride is None else int(video_stride)
+        self.video_stride = None if video_stride is None else int(video_stride)
+        self._video_gate = TimeRateGate(1.0 / self.video_fps)
         self.runtime_timing = runtime_timing
         self.data_lock = data_lock
+        self.async_render = bool(async_render)
+        self.render_queue_size = int(render_queue_size)
+        if self.render_queue_size <= 0:
+            raise ValueError("render_queue_size must be positive.")
+        self.requires_gui_main_thread = self.show_window and self.async_render
         self._target_world = (
             None
             if fallback_target_world is None
@@ -98,11 +196,13 @@ class MujocoObserverCameraFeedbackHook:
         self.path: Path | None = None
         self.paths: list[Path] = []
         self._writers = []
+        self._render_worker = None
+        self._presented_frame_version = -1
         self.last_feedback: VisualServoFeedback | None = None
         self.errors: list[str] = []
 
     def on_reset(self, state: RobotSystemState) -> None:
-        del state
+        self._video_gate.reset(state.time_s)
         self._frame_index = 0
         self._next_display_time_s = None
         self._last_display_check_time_s = None
@@ -112,8 +212,12 @@ class MujocoObserverCameraFeedbackHook:
         self.path = None
         self.paths.clear()
         self._writers = []
+        self._presented_frame_version = -1
         self.last_feedback = None
         self.errors.clear()
+        if self._render_worker is not None:
+            self._render_worker.stop()
+            self._render_worker = None
         self._close_renderer()
         for output_path in self.output_paths:
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -121,21 +225,34 @@ class MujocoObserverCameraFeedbackHook:
             import mujoco
 
             self._mujoco = mujoco
-            self._render_data = (
-                None
-                if self.data_lock is None
-                else mujoco.MjData(self.backend.physics.model)
-            )
-            self._renderer = mujoco.Renderer(
-                self.backend.physics.model,
-                height=self.intrinsics.height,
-                width=self.intrinsics.width,
-            )
+            if self.async_render:
+                self._render_worker = _ObserverRenderWorker(
+                    self,
+                    queue_size=self.render_queue_size,
+                )
+                self._render_worker.start()
+                return
+            self._open_render_resources()
         except Exception as exc:  # noqa: BLE001 - camera feedback must not stop runs.
             self._record_error(
                 f"observer camera setup failed: {type(exc).__name__}: {exc}"
             )
             return
+    def _open_render_resources(self) -> None:
+        if self._mujoco is None:
+            import mujoco
+
+            self._mujoco = mujoco
+        self._render_data = (
+            self._mujoco.MjData(self.backend.physics.model)
+            if self.async_render or self.data_lock is not None
+            else None
+        )
+        self._renderer = self._mujoco.Renderer(
+            self.backend.physics.model,
+            height=self.intrinsics.height,
+            width=self.intrinsics.width,
+        )
         if not self.output_paths:
             return
         try:
@@ -164,12 +281,20 @@ class MujocoObserverCameraFeedbackHook:
             return state
         try:
             display_due = self.show_window and self._display_due(state.time_s)
-            record_due = self._recording_started and bool(self._writers) and (
-                self._latest_step_index % self.video_stride == 0
+            record_due = self._recording_started and (
+                bool(self.output_paths) if self.async_render else bool(self._writers)
+            ) and (
+                self._video_gate.due(state.time_s)
+                if self.video_stride is None
+                else self._latest_step_index % self.video_stride == 0
             )
             model = self.backend.physics.model
-            data = self._camera_data_snapshot()
-            if display_due or record_due:
+            data = (
+                self.backend.physics.data
+                if self.async_render
+                else self._camera_data_snapshot()
+            )
+            if (display_due or record_due) and not self.async_render:
                 with (
                     nullcontext()
                     if self.runtime_timing is None
@@ -196,6 +321,18 @@ class MujocoObserverCameraFeedbackHook:
                 metadata.update(feedback.as_metadata())
             if self.errors:
                 metadata["visual_servo_camera_errors"] = tuple(self.errors)
+            if self.async_render:
+                worker = self._render_worker
+                if worker is not None and (display_due or record_due):
+                    worker.submit(
+                        state=state,
+                        feedback=self.last_feedback,
+                        display=display_due,
+                        record=record_due,
+                        sequence=self._frame_index,
+                    )
+                self._frame_index += 1
+                return replace(state, metadata=metadata)
             frame = None
             if display_due or record_due:
                 with (
@@ -322,9 +459,22 @@ class MujocoObserverCameraFeedbackHook:
 
     def on_finish(self, state: RobotSystemState) -> None:
         del state
-        self._close_video_writers()
-        self._close_renderer()
-        self._close_window()
+        if self._render_worker is not None:
+            worker = self._render_worker
+            worker.stop()
+            if worker.queue.overload_count:
+                self._record_error(
+                    "observer camera backpressure: rejected "
+                    f"{worker.queue.overload_count} frame(s) because the bounded "
+                    "render queue was full"
+                )
+            if not self.requires_gui_main_thread:
+                self._render_worker = None
+        else:
+            self._close_video_writers()
+            self._close_renderer()
+        if not self.requires_gui_main_thread:
+            self._close_window()
         self.paths = [path for path in self.output_paths if path.is_file()]
         if self.paths:
             self.path = self.paths[0]
@@ -332,6 +482,22 @@ class MujocoObserverCameraFeedbackHook:
             self.path = self.output_path
         elif self.output_paths and not self.errors:
             self._record_error("observer camera video produced no frames")
+
+    def present_pending(self, *, force: bool = False) -> None:
+        del force
+        worker = self._render_worker
+        if worker is None:
+            return
+        item = worker.consume_frame_after(self._presented_frame_version)
+        if item is None:
+            return
+        frame, self._presented_frame_version = item
+        if frame is not None:
+            self._show_frame(frame)
+
+    def close_presentation(self) -> None:
+        self._close_window()
+        self._render_worker = None
 
     def _camera_pose_world(self, model, data) -> Pose6D:
         camera_id = self._mujoco.mj_name2id(
@@ -370,8 +536,13 @@ class MujocoObserverCameraFeedbackHook:
             return
         self._show_with_matplotlib(frame)
 
-    def _draw_roi_overlay(self, frame: np.ndarray) -> np.ndarray:
-        feedback = self.last_feedback
+    def _draw_roi_overlay(
+        self,
+        frame: np.ndarray,
+        *,
+        feedback: VisualServoFeedback | None = None,
+    ) -> np.ndarray:
+        feedback = self.last_feedback if feedback is None else feedback
         if feedback is None:
             return frame
         pixel_error = np.asarray(feedback.pixel_error_px, dtype=float)

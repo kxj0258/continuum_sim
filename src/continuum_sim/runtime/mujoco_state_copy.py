@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 
@@ -28,4 +30,37 @@ def copy_mujoco_dynamic_state(source: object, destination: object) -> None:
         np.copyto(destination_values, source_values)
 
 
-__all__ = ["MUJOCO_DYNAMIC_ARRAY_FIELDS", "copy_mujoco_dynamic_state"]
+@dataclass(frozen=True)
+class MujocoDynamicStateSnapshot:
+    """Owned dynamic arrays safe to hand to a renderer thread."""
+
+    time: float
+    arrays: dict[str, np.ndarray]
+
+    def apply_to(self, destination: object) -> None:
+        destination.time = self.time
+        for field_name, values in self.arrays.items():
+            destination_values = getattr(destination, field_name, None)
+            if destination_values is not None:
+                np.copyto(destination_values, values)
+
+
+def capture_mujoco_dynamic_state(source: object) -> MujocoDynamicStateSnapshot:
+    """Capture an owned, immutable-by-convention dynamic-state payload."""
+
+    return MujocoDynamicStateSnapshot(
+        time=float(source.time),
+        arrays={
+            field_name: np.asarray(values).copy()
+            for field_name in MUJOCO_DYNAMIC_ARRAY_FIELDS
+            if (values := getattr(source, field_name, None)) is not None
+        },
+    )
+
+
+__all__ = [
+    "MUJOCO_DYNAMIC_ARRAY_FIELDS",
+    "MujocoDynamicStateSnapshot",
+    "capture_mujoco_dynamic_state",
+    "copy_mujoco_dynamic_state",
+]

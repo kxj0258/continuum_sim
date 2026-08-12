@@ -79,6 +79,39 @@ class WipingForceMonitorPanel:
             family="monospace",
             fontsize=9.0,
         )
+        (self._normal_force_line,) = self.force_ax.plot(
+            [], [], color="tab:blue", linewidth=1.8, label="normal force"
+        )
+        (self._force_error_line,) = self.force_ax.plot(
+            [], [], color="tab:red", linewidth=1.2, alpha=0.75,
+            label="force error",
+        )
+        self._target_force_line = self.force_ax.axhline(
+            self.target_normal_force_n,
+            color="tab:green",
+            linewidth=1.2,
+            linestyle="--",
+            label="target force",
+        )
+        self.force_ax.set_xlabel("time [s]")
+        self.force_ax.set_ylabel("force [N]")
+        self.force_ax.set_title("Wiping normal force")
+        self.force_ax.grid(True, alpha=0.25)
+        self.force_ax.legend(loc="upper right", fontsize=8)
+        (self._proxy_line,) = self.proxy_ax.plot(
+            [], [], color="tab:purple", linewidth=1.6,
+            label="signed contact proxy",
+        )
+        (self._penetration_line,) = self.proxy_ax.plot(
+            [], [], color="tab:orange", linewidth=1.2, alpha=0.8,
+            label="penetration proxy",
+        )
+        self.proxy_ax.axhline(0.0, color="0.35", linewidth=0.9, linestyle="--")
+        self.proxy_ax.set_xlabel("time [s]")
+        self.proxy_ax.set_ylabel("proxy [mm]")
+        self.proxy_ax.set_title("Contact distance / penetration proxy")
+        self.proxy_ax.grid(True, alpha=0.25)
+        self.proxy_ax.legend(loc="upper right", fontsize=8)
 
     def update(
         self,
@@ -123,8 +156,6 @@ class WipingForceMonitorPanel:
         if _is_noninteractive_matplotlib_backend(plt.get_backend()):
             return
         plt.show(block=block)
-        if not block:
-            self.flush_events()
 
     def flush_events(self) -> None:
         """Process pending GUI events for the monitor figure."""
@@ -167,33 +198,15 @@ class WipingForceMonitorPanel:
         del self.in_contact[:extra]
 
     def _draw_force_chart(self) -> None:
-        self.force_ax.cla()
         if not self.time_s:
             return
         time_s = np.asarray(self.time_s, dtype=float)
         normal_force = np.asarray(self.normal_force_n, dtype=float)
         force_error = np.asarray(self.force_error_n, dtype=float)
-        self.force_ax.plot(
-            time_s,
-            normal_force,
-            color="tab:blue",
-            linewidth=1.8,
-            label="normal force",
-        )
-        self.force_ax.plot(
-            time_s,
-            force_error,
-            color="tab:red",
-            linewidth=1.2,
-            alpha=0.75,
-            label="force error",
-        )
-        self.force_ax.axhline(
-            self.target_normal_force_n,
-            color="tab:green",
-            linewidth=1.2,
-            linestyle="--",
-            label="target force",
+        self._normal_force_line.set_data(time_s, normal_force)
+        self._force_error_line.set_data(time_s, force_error)
+        self._target_force_line.set_ydata(
+            [self.target_normal_force_n, self.target_normal_force_n]
         )
         lower = min(0.0, float(np.min(normal_force)), float(np.min(force_error)))
         upper = max(
@@ -203,14 +216,9 @@ class WipingForceMonitorPanel:
         )
         margin = max(0.1, 0.12 * max(abs(lower), abs(upper), 1.0))
         self.force_ax.set_ylim(lower - margin, upper + margin)
-        self.force_ax.set_xlabel("time [s]")
-        self.force_ax.set_ylabel("force [N]")
-        self.force_ax.set_title("Wiping normal force")
-        self.force_ax.grid(True, alpha=0.25)
-        self.force_ax.legend(loc="upper right", fontsize=8)
+        self.force_ax.set_xlim(float(time_s[0]), max(float(time_s[-1]), float(time_s[0]) + 1e-6))
 
     def _draw_proxy_chart(self) -> None:
-        self.proxy_ax.cla()
         if not self.time_s:
             return
         time_s = np.asarray(self.time_s, dtype=float)
@@ -219,31 +227,13 @@ class WipingForceMonitorPanel:
             0.0,
             -np.asarray(self.contact_proxy_m, dtype=float),
         )
-        self.proxy_ax.plot(
-            time_s,
-            proxy_mm,
-            color="tab:purple",
-            linewidth=1.6,
-            label="signed contact proxy",
-        )
-        self.proxy_ax.plot(
-            time_s,
-            penetration_mm,
-            color="tab:orange",
-            linewidth=1.2,
-            alpha=0.8,
-            label="penetration proxy",
-        )
-        self.proxy_ax.axhline(0.0, color="0.35", linewidth=0.9, linestyle="--")
+        self._proxy_line.set_data(time_s, proxy_mm)
+        self._penetration_line.set_data(time_s, penetration_mm)
         lower = min(0.0, float(np.min(proxy_mm)), float(np.min(penetration_mm)))
         upper = max(0.0, float(np.max(proxy_mm)), float(np.max(penetration_mm)))
         margin = max(0.1, 0.12 * max(abs(lower), abs(upper), 1.0))
         self.proxy_ax.set_ylim(lower - margin, upper + margin)
-        self.proxy_ax.set_xlabel("time [s]")
-        self.proxy_ax.set_ylabel("proxy [mm]")
-        self.proxy_ax.set_title("Contact distance / penetration proxy")
-        self.proxy_ax.grid(True, alpha=0.25)
-        self.proxy_ax.legend(loc="upper right", fontsize=8)
+        self.proxy_ax.set_xlim(float(time_s[0]), max(float(time_s[-1]), float(time_s[0]) + 1e-6))
 
 
 def _format_force_info_text(view_data: WipingForceViewData) -> str:

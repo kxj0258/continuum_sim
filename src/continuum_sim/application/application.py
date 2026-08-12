@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Event, Thread
 
 from continuum_sim.application.scenario import (
     ScenarioConfig,
@@ -96,8 +97,61 @@ class SimulationApplication:
         return cls(config=config, loop=loop, hooks_by_name=hooks_by_name)
 
     def run(self) -> SimulationLoopResult:
-        result = self.loop.run()
+        gui_hooks = tuple(
+            hook
+            for hook in self.hooks_by_name.values()
+            if bool(getattr(hook, "requires_gui_main_thread", False))
+        )
+        result = (
+            self._run_with_gui_presentations(gui_hooks)
+            if gui_hooks
+            else self.loop.run()
+        )
         self.last_artifacts = save_scenario_artifacts(self, result)
         return result
+
+    def _run_with_gui_presentations(self, gui_hooks):
+        completed = Event()
+        result_holder = []
+        failure_holder = []
+
+        def run_loop() -> None:
+            try:
+                result_holder.append(self.loop.run())
+            except BaseException as exc:  # noqa: BLE001 - re-raised on main thread.
+                failure_holder.append(exc)
+            finally:
+                completed.set()
+
+        worker = Thread(
+            target=run_loop,
+            name="continuum-sim-scenario",
+            daemon=False,
+        )
+        worker.start()
+        try:
+            while not completed.wait(0.01):
+                for hook in gui_hooks:
+                    hook.present_pending()
+                _pump_matplotlib_events()
+            worker.join()
+            for hook in gui_hooks:
+                hook.present_pending(force=True)
+            if failure_holder:
+                raise failure_holder[0]
+            return result_holder[0]
+        finally:
+            for hook in reversed(gui_hooks):
+                hook.close_presentation()
+
+
+def _pump_matplotlib_events() -> None:
+    try:
+        import matplotlib.pyplot as plt
+
+        if plt.get_fignums():
+            plt.pause(0.001)
+    except Exception:
+        pass
 
 

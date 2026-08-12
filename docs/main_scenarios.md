@@ -2,6 +2,16 @@
 
 项目在 `configs/scenarios/` 中提供 6 个可运行场景。自动任务由 `scripts/run_scenario.py` 启动，手动控制由 `scripts/run_manual_control.py` 启动。
 
+## Runtime scheduling
+
+Control-critical hooks (`enrich_state`, completion and safety checks) remain
+synchronous with the controller. Presentation work is scheduled separately:
+live Matplotlib panels consume latest-value state/command mailboxes on the main
+GUI thread, while the passive MuJoCo viewer, observer rendering and live video
+use independent `MjData` copies and worker threads. Display updates may skip
+stale frames; video uses a bounded FIFO and records backpressure in
+`video_error.txt`. Real-time pacing is independent from viewer refresh rate.
+
 ## 场景列表
 
 | 场景文件 | 任务类型 | 默认模式 | 基座 | 主要能力 |

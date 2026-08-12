@@ -82,6 +82,10 @@ class SystemTendonMonitorPanel:
             fontsize=8.5,
         )
         self.last_view_data: SystemTendonViewData | None = None
+        self._labels: tuple[str, ...] | None = None
+        self._target_bars = None
+        self._actual_bars = None
+        self._force_bars = None
 
     def update(
         self,
@@ -122,43 +126,74 @@ class SystemTendonMonitorPanel:
         self._plt.close(self.fig)
 
     def _draw_lengths(self, view: SystemTendonViewData) -> None:
-        self.length_ax.cla()
         indices = np.arange(1, len(view.labels) + 1, dtype=float)
-        self.length_ax.bar(
-            indices - 0.19,
-            1000.0 * view.target_m,
-            width=0.36,
-            color="tab:orange",
-            alpha=0.65,
-            label="target",
-        )
-        self.length_ax.bar(
-            indices + 0.19,
-            1000.0 * view.actual_m,
-            width=0.36,
-            color="tab:blue",
-            alpha=0.75,
-            label="current",
-        )
-        self._decorate_axis(self.length_ax, view, indices)
-        self.length_ax.set_ylabel("tendon displacement [mm]")
-        self.length_ax.set_title("Target vs current tendon length")
-        self.length_ax.legend(loc="upper right", fontsize=8)
+        if self._target_bars is None or self._actual_bars is None:
+            self._labels = view.labels
+            self._target_bars = self.length_ax.bar(
+                indices - 0.19,
+                1000.0 * view.target_m,
+                width=0.36,
+                color="tab:orange",
+                alpha=0.65,
+                label="target",
+            )
+            self._actual_bars = self.length_ax.bar(
+                indices + 0.19,
+                1000.0 * view.actual_m,
+                width=0.36,
+                color="tab:blue",
+                alpha=0.75,
+                label="current",
+            )
+            self._decorate_axis(self.length_ax, view, indices)
+            self.length_ax.set_ylabel("tendon displacement [mm]")
+            self.length_ax.set_title("Target vs current tendon length")
+            self.length_ax.legend(loc="upper right", fontsize=8)
+        else:
+            self._require_stable_labels(view)
+            for bar, height in zip(
+                self._target_bars,
+                1000.0 * view.target_m,
+                strict=True,
+            ):
+                bar.set_height(float(height))
+            for bar, height in zip(
+                self._actual_bars,
+                1000.0 * view.actual_m,
+                strict=True,
+            ):
+                bar.set_height(float(height))
+        self._rescale_y(self.length_ax)
 
     def _draw_forces(self, view: SystemTendonViewData) -> None:
-        self.force_ax.cla()
         indices = np.arange(1, len(view.labels) + 1, dtype=float)
-        self.force_ax.bar(
-            indices,
-            view.force_n,
-            width=0.60,
-            color="tab:red",
-            alpha=0.75,
-        )
-        self._decorate_axis(self.force_ax, view, indices)
-        self.force_ax.axhline(0.0, color="0.35", linewidth=0.8)
-        self.force_ax.set_ylabel("actuator force [N]")
-        self.force_ax.set_title("Tendon actuator force")
+        if self._force_bars is None:
+            self._labels = view.labels
+            self._force_bars = self.force_ax.bar(
+                indices,
+                view.force_n,
+                width=0.60,
+                color="tab:red",
+                alpha=0.75,
+            )
+            self._decorate_axis(self.force_ax, view, indices)
+            self.force_ax.axhline(0.0, color="0.35", linewidth=0.8)
+            self.force_ax.set_ylabel("actuator force [N]")
+            self.force_ax.set_title("Tendon actuator force")
+        else:
+            self._require_stable_labels(view)
+            for bar, height in zip(self._force_bars, view.force_n, strict=True):
+                bar.set_height(float(height))
+        self._rescale_y(self.force_ax)
+
+    def _require_stable_labels(self, view: SystemTendonViewData) -> None:
+        if view.labels != self._labels:
+            raise ValueError("Tendon labels changed after monitor artists were created.")
+
+    @staticmethod
+    def _rescale_y(axis) -> None:
+        axis.relim()
+        axis.autoscale_view(scalex=False, scaley=True)
 
     @staticmethod
     def _decorate_axis(axis, view: SystemTendonViewData, indices: np.ndarray) -> None:

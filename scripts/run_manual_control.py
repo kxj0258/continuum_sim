@@ -24,11 +24,15 @@ def main(argv: list[str] | None = None) -> int:
         default=PROJECT_ROOT / "configs" / "scenarios" / "mujoco_manual_control.yaml",
         help="Scenario used to compose the MuJoCo model.",
     )
-    parser.add_argument("--camera-fps", type=float, default=20.0)
+    parser.add_argument("--panel-fps", type=float, default=15.0)
+    parser.add_argument("--viewer-fps", type=float, default=15.0)
+    parser.add_argument("--camera-fps", type=float, default=10.0)
     parser.add_argument("--curvature-step", type=float, default=0.5, metavar="1/M")
     args = parser.parse_args(argv)
     run_manual_control(
         args.scenario,
+        panel_fps=args.panel_fps,
+        viewer_fps=args.viewer_fps,
         camera_fps=args.camera_fps,
         curvature_step_1_per_m=args.curvature_step,
     )

@@ -63,7 +63,7 @@ python scripts/run_all_scenarios.py
 
 | 场景 | 任务 | 默认装配 | 主要用途 |
 | --- | --- | --- | --- |
-| `mujoco_manual_control.yaml` | `idle` | 双臂六自由度移动基座 | 三窗口手动控制、基座调姿与状态观察 |
+| `mujoco_manual_control.yaml` | `idle` | 双臂六自由度移动基座 | 无发动机轻量场景、三窗口手动控制与基座调姿 |
 | `mujoco_tracking.yaml` | `tracking` | 双臂固定基座 | 方形轨迹跟踪、双臂协同和实时诊断 |
 | `mujoco_point_servo.yaml` | `tracking` | 单臂固定基座 | 单点伺服和控制链调试 |
 | `mujoco_navigation.yaml` | `navigation` | 双臂移动基座 | 结构化场景导航、避障和相机观察 |

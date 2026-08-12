@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 
@@ -33,14 +34,21 @@ class MujocoObserverCameraFeedbackHook:
         fallback_target_world: np.ndarray | None = None,
         show_window: bool = True,
         stride: int = 1,
+        display_interval_s: float | None = None,
         video_output_paths: (
             str | Path | list[str | Path] | tuple[str | Path, ...] | None
         ) = None,
         video_fps: int = 20,
         video_stride: int | None = None,
+        data_lock=None,
+        runtime_timing=None,
     ) -> None:
         if stride <= 0:
             raise ValueError("MujocoObserverCameraFeedbackHook stride must be positive.")
+        if display_interval_s is not None and display_interval_s <= 0.0:
+            raise ValueError(
+                "MujocoObserverCameraFeedbackHook display_interval_s must be positive."
+            )
         if video_fps <= 0:
             raise ValueError("MujocoObserverCameraFeedbackHook video_fps must be positive.")
         if video_stride is not None and video_stride <= 0:
@@ -52,6 +60,9 @@ class MujocoObserverCameraFeedbackHook:
         self.intrinsics = intrinsics
         self.show_window = bool(show_window)
         self.stride = int(stride)
+        self.display_interval_s = (
+            None if display_interval_s is None else float(display_interval_s)
+        )
         self.output_paths = (
             ()
             if video_output_paths is None
@@ -60,6 +71,8 @@ class MujocoObserverCameraFeedbackHook:
         self.output_path = self.output_paths[0] if self.output_paths else None
         self.video_fps = int(video_fps)
         self.video_stride = 1 if video_stride is None else int(video_stride)
+        self.runtime_timing = runtime_timing
+        self.data_lock = data_lock
         self._target_world = (
             None
             if fallback_target_world is None
@@ -69,11 +82,15 @@ class MujocoObserverCameraFeedbackHook:
             raise ValueError("fallback_target_world must have shape (3,).")
         self._mujoco = None
         self._renderer = None
+        self._render_data = None
         self._cv2 = None
         self._plt = None
         self._figure = None
         self._axis = None
+        self._image_artist = None
         self._frame_index = 0
+        self._next_display_time_s: float | None = None
+        self._last_display_check_time_s: float | None = None
         self._recording_started = False
         self._latest_step_index = -1
         self.frame_count = 0
@@ -86,6 +103,8 @@ class MujocoObserverCameraFeedbackHook:
     def on_reset(self, state: RobotSystemState) -> None:
         del state
         self._frame_index = 0
+        self._next_display_time_s = None
+        self._last_display_check_time_s = None
         self._recording_started = False
         self._latest_step_index = -1
         self.frame_count = 0
@@ -101,6 +120,11 @@ class MujocoObserverCameraFeedbackHook:
             import mujoco
 
             self._mujoco = mujoco
+            self._render_data = (
+                None
+                if self.data_lock is None
+                else mujoco.MjData(self.backend.physics.model)
+            )
             self._renderer = mujoco.Renderer(
                 self.backend.physics.model,
                 height=self.intrinsics.height,
@@ -138,9 +162,19 @@ class MujocoObserverCameraFeedbackHook:
         if self._mujoco is None:
             return state
         try:
+            display_due = self.show_window and self._display_due(state.time_s)
+            record_due = self._recording_started and bool(self._writers) and (
+                self._latest_step_index % self.video_stride == 0
+            )
             model = self.backend.physics.model
-            data = self.backend.physics.data
-            self._mujoco.mj_forward(model, data)
+            data = self._camera_data_snapshot()
+            if display_due or record_due:
+                with (
+                    nullcontext()
+                    if self.runtime_timing is None
+                    else self.runtime_timing.measure("camera.forward")
+                ):
+                    self._mujoco.mj_forward(model, data)
             camera_pose = self._camera_pose_world(model, data)
             metadata = {
                 **state.metadata,
@@ -161,17 +195,24 @@ class MujocoObserverCameraFeedbackHook:
                 metadata.update(feedback.as_metadata())
             if self.errors:
                 metadata["visual_servo_camera_errors"] = tuple(self.errors)
-            display_due = self.show_window and self._frame_index % self.stride == 0
-            record_due = self._recording_started and bool(self._writers) and (
-                self._latest_step_index % self.video_stride == 0
-            )
+            frame = None
             if display_due or record_due:
-                frame = self._render_frame(data)
-                frame = self._draw_roi_overlay(frame)
-                if display_due:
+                with (
+                    nullcontext()
+                    if self.runtime_timing is None
+                    else self.runtime_timing.measure("camera.render")
+                ):
+                    frame = self._render_frame(data)
+                    frame = self._draw_roi_overlay(frame)
+            if display_due and frame is not None:
+                with (
+                    nullcontext()
+                    if self.runtime_timing is None
+                    else self.runtime_timing.measure("camera.present")
+                ):
                     self._show_frame(frame)
-                if record_due:
-                    self._append_video_frame(frame)
+            if record_due and frame is not None:
+                self._append_video_frame(frame)
             self._frame_index += 1
             return replace(state, metadata=metadata)
         except Exception as exc:  # noqa: BLE001 - keep simulation alive.
@@ -187,6 +228,56 @@ class MujocoObserverCameraFeedbackHook:
                     "visual_servo_camera_errors": tuple(self.errors),
                 },
             )
+
+    def _camera_data_snapshot(self):
+        source = self.backend.physics.data
+        if self._render_data is None:
+            return source
+        lock = self.data_lock
+        with lock:
+            destination = self._render_data
+            destination.time = source.time
+            for name in (
+                "qpos",
+                "qvel",
+                "act",
+                "ctrl",
+                "mocap_pos",
+                "mocap_quat",
+                "userdata",
+            ):
+                destination_values = getattr(destination, name, None)
+                source_values = getattr(source, name, None)
+                if destination_values is not None and source_values is not None:
+                    destination_values[...] = source_values
+        return destination
+
+    def _display_due(self, time_s: float) -> bool:
+        if self.display_interval_s is None:
+            return self._frame_index % self.stride == 0
+        now = float(time_s)
+        tolerance = 1.0e-12
+        if (
+            self._last_display_check_time_s is not None
+            and now + tolerance < self._last_display_check_time_s
+        ):
+            self._next_display_time_s = None
+        self._last_display_check_time_s = now
+        if self._next_display_time_s is None:
+            self._next_display_time_s = now + self.display_interval_s
+            return True
+        if now + tolerance < self._next_display_time_s:
+            return False
+        intervals = max(
+            1,
+            int(
+                (now + tolerance - self._next_display_time_s)
+                // self.display_interval_s
+            )
+            + 1,
+        )
+        self._next_display_time_s += intervals * self.display_interval_s
+        return True
 
     def on_step(
         self,
@@ -370,15 +461,17 @@ class MujocoObserverCameraFeedbackHook:
                     f"{type(exc).__name__}: {exc}"
                 )
                 return
-        self._axis.clear()
-        self._axis.imshow(frame)
-        self._axis.set_axis_off()
+        if self._image_artist is None:
+            self._image_artist = self._axis.imshow(frame)
+            self._axis.set_axis_off()
+        else:
+            self._image_artist.set_data(frame)
         self._figure.canvas.draw_idle()
-        self._figure.canvas.flush_events()
 
     def _close_renderer(self) -> None:
         renderer = self._renderer
         self._renderer = None
+        self._render_data = None
         close = getattr(renderer, "close", None)
         if close is not None:
             try:
@@ -411,6 +504,7 @@ class MujocoObserverCameraFeedbackHook:
                 self._plt.close(self._figure)
             except Exception:
                 pass
+        self._image_artist = None
 
     def _record_error(self, message: str) -> None:
         if not self.errors or self.errors[-1] != message:

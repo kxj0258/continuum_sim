@@ -157,7 +157,7 @@ MuJoCo 系统后端读取关节、肌腱、执行器、site、相机和传感器
 
 ### 手动控制
 
-`mujoco_manual_control.yaml` 使用 `idle` 任务。手动程序直接向两条臂发送肌腱速率命令，并同步控制面板、MuJoCo viewer 和 observer 相机。详见 [双臂手动控制](manual_control.md)。
+`mujoco_manual_control.yaml` 使用 `idle` 任务和不含发动机的轻量空场景。手动程序直接向两条臂发送肌腱速率命令，并同步控制面板、MuJoCo viewer 和 observer 相机。详见 [双臂手动控制](manual_control.md)。
 
 ### 轨迹跟踪与点伺服
 

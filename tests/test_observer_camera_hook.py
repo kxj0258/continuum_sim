@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import RLock
 
 import numpy as np
 
@@ -46,6 +47,100 @@ def test_observer_camera_hook_renders_even_without_roi_target() -> None:
     assert renderer.camera_names == ["observer_eye_camera"]
     assert enriched.metadata["visual_servo_camera_name"] == "observer_eye_camera"
     assert "visual_servo_target_visible" not in enriched.metadata
+
+
+def test_observer_camera_hook_schedules_display_by_simulation_time() -> None:
+    hook = MujocoObserverCameraFeedbackHook(
+        _Backend(),
+        camera_name="observer_eye_camera",
+        intrinsics=CameraIntrinsicsConfig(
+            width=64,
+            height=48,
+            fovy_deg=60.0,
+            near=0.02,
+            far=2.0,
+        ),
+        show_window=True,
+        display_interval_s=0.05,
+    )
+    renderer = _Renderer()
+    mujoco = _Mujoco()
+    hook._mujoco = mujoco
+    hook._renderer = renderer
+    hook._show_with_cv2 = lambda frame: True
+
+    for time_s in (0.00, 0.02, 0.04, 0.06, 0.08, 0.10):
+        hook.enrich_state(_state(time_s=time_s))
+
+    assert renderer.camera_names == [
+        "observer_eye_camera",
+        "observer_eye_camera",
+        "observer_eye_camera",
+    ]
+    assert mujoco.forward_calls == 3
+
+    hook.enrich_state(_state(time_s=0.0))
+
+    assert len(renderer.camera_names) == 4
+    assert mujoco.forward_calls == 4
+
+
+def test_matplotlib_camera_reuses_single_image_artist_without_flushing() -> None:
+    hook = MujocoObserverCameraFeedbackHook(
+        _Backend(),
+        camera_name="observer_eye_camera",
+        intrinsics=CameraIntrinsicsConfig(
+            width=64,
+            height=48,
+            fovy_deg=60.0,
+            near=0.02,
+            far=2.0,
+        ),
+    )
+    axis = _Axis()
+    figure = _Figure()
+    hook._plt = object()
+    hook._axis = axis
+    hook._figure = figure
+
+    first = np.zeros((48, 64, 3), dtype=np.uint8)
+    second = np.ones((48, 64, 3), dtype=np.uint8)
+    hook._show_with_matplotlib(first)
+    hook._show_with_matplotlib(second)
+
+    assert axis.imshow_calls == 1
+    assert axis.axis_off_calls == 1
+    assert axis.image.set_data_calls == 1
+    assert np.array_equal(axis.image.data, second)
+    assert figure.canvas.draw_idle_calls == 2
+
+
+def test_camera_snapshot_copies_dynamic_state_under_lock() -> None:
+    backend = _Backend()
+    source = backend.physics.data
+    source.time = 1.25
+    source.qpos = np.array([1.0, 2.0])
+    source.qvel = np.array([3.0, 4.0])
+    hook = MujocoObserverCameraFeedbackHook(
+        backend,
+        camera_name="observer_eye_camera",
+        intrinsics=CameraIntrinsicsConfig(
+            width=64,
+            height=48,
+            fovy_deg=60.0,
+            near=0.02,
+            far=2.0,
+        ),
+        data_lock=RLock(),
+    )
+    hook._render_data = _SnapshotData()
+
+    snapshot = hook._camera_data_snapshot()
+
+    assert snapshot is hook._render_data
+    assert snapshot.time == 1.25
+    assert np.array_equal(snapshot.qpos, [1.0, 2.0])
+    assert np.array_equal(snapshot.qvel, [3.0, 4.0])
 
 
 def test_observer_camera_hook_records_rendered_frames_to_own_writers(
@@ -138,16 +233,30 @@ class _Physics:
 
 
 class _Data:
+    time = 0.0
+    qpos = np.zeros(2)
+    qvel = np.zeros(2)
     cam_xmat = np.asarray([np.eye(3).reshape(-1)], dtype=float)
     cam_xpos = np.zeros((1, 3), dtype=float)
+
+
+class _SnapshotData:
+    def __init__(self) -> None:
+        self.time = 0.0
+        self.qpos = np.zeros(2)
+        self.qvel = np.zeros(2)
 
 
 class _Mujoco:
     class mjtObj:
         mjOBJ_CAMERA = object()
 
+    def __init__(self) -> None:
+        self.forward_calls = 0
+
     def mj_forward(self, model, data) -> None:
         del model, data
+        self.forward_calls += 1
 
     def mj_name2id(self, model, obj_type, name) -> int:
         del model, obj_type, name
@@ -181,9 +290,47 @@ class _Writer:
         self.path.write_bytes(b"video")
 
 
-def _state() -> RobotSystemState:
+class _Image:
+    def __init__(self, data: np.ndarray) -> None:
+        self.data = data
+        self.set_data_calls = 0
+
+    def set_data(self, data: np.ndarray) -> None:
+        self.data = data
+        self.set_data_calls += 1
+
+
+class _Axis:
+    def __init__(self) -> None:
+        self.imshow_calls = 0
+        self.axis_off_calls = 0
+        self.image: _Image | None = None
+
+    def imshow(self, frame: np.ndarray) -> _Image:
+        self.imshow_calls += 1
+        self.image = _Image(frame)
+        return self.image
+
+    def set_axis_off(self) -> None:
+        self.axis_off_calls += 1
+
+
+class _Canvas:
+    def __init__(self) -> None:
+        self.draw_idle_calls = 0
+
+    def draw_idle(self) -> None:
+        self.draw_idle_calls += 1
+
+
+class _Figure:
+    def __init__(self) -> None:
+        self.canvas = _Canvas()
+
+
+def _state(*, time_s: float = 0.0) -> RobotSystemState:
     return RobotSystemState(
-        time_s=0.0,
+        time_s=time_s,
         base=BaseSystemState(pose=Pose6D.identity()),
         arms={},
     )

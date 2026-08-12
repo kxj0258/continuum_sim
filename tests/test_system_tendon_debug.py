@@ -6,7 +6,10 @@ import pytest
 
 from continuum_sim.model.base_pose import Pose6D
 from continuum_sim.system.types import ArmSystemState, BaseSystemState, RobotSystemState
-from continuum_sim.visualization.system_tendon_debug import system_tendon_view_data
+from continuum_sim.visualization.system_tendon_debug import (
+    SystemTendonMonitorPanel,
+    system_tendon_view_data,
+)
 
 
 def test_arm_system_state_validates_target_and_force_shapes() -> None:
@@ -76,6 +79,50 @@ def test_system_tendon_view_data_flattens_named_arms_in_state_order() -> None:
         "executor: rate 1/2, displacement 0/2\n"
         "  mode compatible, scale 1.0000, residual 0.000e+00 m/s"
     )
+
+
+def test_monitor_panel_reuses_bar_artists_between_updates() -> None:
+    panel = SystemTendonMonitorPanel()
+    initial = RobotSystemState(
+        time_s=0.0,
+        base=BaseSystemState(Pose6D.identity()),
+        arms={
+            "executor": _arm_state(
+                "executor",
+                target=[0.001, 0.002],
+                actual=[0.0005, 0.0015],
+                force=[1.0, 2.0],
+            )
+        },
+    )
+    updated = RobotSystemState(
+        time_s=0.02,
+        base=BaseSystemState(Pose6D.identity()),
+        arms={
+            "executor": _arm_state(
+                "executor",
+                target=[0.003, 0.004],
+                actual=[0.0025, 0.0035],
+                force=[3.0, 4.0],
+            )
+        },
+    )
+    try:
+        panel.update(initial, redraw=False)
+        target_bars = tuple(panel._target_bars)
+        actual_bars = tuple(panel._actual_bars)
+        force_bars = tuple(panel._force_bars)
+
+        panel.update(updated, redraw=False)
+
+        assert tuple(panel._target_bars) == target_bars
+        assert tuple(panel._actual_bars) == actual_bars
+        assert tuple(panel._force_bars) == force_bars
+        assert_allclose([bar.get_height() for bar in target_bars], [3.0, 4.0])
+        assert_allclose([bar.get_height() for bar in actual_bars], [2.5, 3.5])
+        assert_allclose([bar.get_height() for bar in force_bars], [3.0, 4.0])
+    finally:
+        panel.close()
 
 
 def _arm_state(

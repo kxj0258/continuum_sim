@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+from threading import RLock
+from types import SimpleNamespace
+
 import numpy as np
 from numpy.testing import assert_allclose
 
 from continuum_sim.visualization.mujoco_system_debug_viewer import (
+    MujocoSystemDebugViewer,
     bounded_compatible_target,
     named_system_target,
     normalize_target_mm,
@@ -79,3 +84,145 @@ def test_bounded_compatible_target_scales_whole_delta_without_component_clipping
     result = bounded_compatible_target(current, candidate, lower, upper)
 
     assert_allclose(result, [0.8, -0.4, 0.2])
+
+
+def test_set_targets_defers_widget_sync_to_ui_refresh() -> None:
+    viewer = MujocoSystemDebugViewer.__new__(MujocoSystemDebugViewer)
+    viewer.targets = {
+        "executor": np.zeros(3, dtype=float),
+        "observer": np.zeros(3, dtype=float),
+    }
+    viewer.sliders = {
+        name: [_Slider() for _ in range(3)] for name in viewer.targets
+    }
+    viewer.target_inputs = {
+        name: [_TextBox() for _ in range(3)] for name in viewer.targets
+    }
+    viewer._updating_controls = False
+    viewer._views_dirty = False
+    viewer._dirty_target_arms = set()
+    viewer._simulation_lock = RLock()
+
+    viewer.set_targets({"executor": np.array([0.001, 0.0, 0.0])})
+
+    assert_allclose(viewer.targets["executor"], [0.001, 0.0, 0.0])
+    assert_allclose(viewer.targets["observer"], np.zeros(3))
+    assert [item.set_calls for item in viewer.sliders["executor"]] == [0, 0, 0]
+    assert [item.set_calls for item in viewer.target_inputs["executor"]] == [0, 0, 0]
+    assert viewer._dirty_target_arms == {"executor"}
+
+    viewer._sync_target_controls()
+
+    assert [item.set_calls for item in viewer.sliders["executor"]] == [1, 0, 0]
+    assert [item.set_calls for item in viewer.target_inputs["executor"]] == [1, 0, 0]
+    assert [item.set_calls for item in viewer.sliders["observer"]] == [0, 0, 0]
+    assert [item.set_calls for item in viewer.target_inputs["observer"]] == [0, 0, 0]
+    assert viewer.sliders["executor"][0].set_states == [(False, False)]
+    assert viewer.target_inputs["executor"][0].set_states == [(False, False)]
+    assert viewer._dirty_target_arms == set()
+    assert viewer._views_dirty is True
+
+
+def test_raw_slider_change_marks_views_dirty() -> None:
+    viewer = MujocoSystemDebugViewer.__new__(MujocoSystemDebugViewer)
+    viewer.targets = {"executor": np.zeros(1, dtype=float)}
+    viewer.target_inputs = {"executor": [_TextBox()]}
+    viewer._updating_controls = False
+    viewer._views_dirty = False
+    viewer._dirty_target_arms = set()
+    viewer._simulation_lock = RLock()
+    viewer.control_space = "raw_tendon_debug"
+    viewer.runtime_timing = None
+
+    viewer._on_slider("executor", 0, 1.0)
+
+    assert_allclose(viewer.targets["executor"], [0.001])
+    assert viewer._views_dirty is True
+
+
+def test_curvature_button_marks_input_for_latency_timing() -> None:
+    viewer = MujocoSystemDebugViewer.__new__(MujocoSystemDebugViewer)
+    viewer.targets = {"executor": np.zeros(6, dtype=float)}
+    viewer.sliders = {"executor": [_Slider() for _ in range(6)]}
+    viewer.target_inputs = {"executor": [_TextBox() for _ in range(6)]}
+    viewer._updating_controls = False
+    viewer._views_dirty = False
+    viewer._dirty_target_arms = set()
+    viewer._simulation_lock = RLock()
+    viewer.curvature_step_1_per_m = 0.5
+    viewer.runtime_timing = _Timing()
+    model = _IdentityBendingModel()
+    arm = SimpleNamespace(
+        name="executor",
+        spatial_arm=SimpleNamespace(
+            limits=SimpleNamespace(
+                tendon_displacement_min_m=np.full(6, -0.020),
+                tendon_displacement_max_m=np.full(6, 0.020),
+            )
+        ),
+    )
+    viewer.backend = SimpleNamespace(
+        layout=SimpleNamespace(bending_models={"executor": model}),
+        assembly=SimpleNamespace(enabled_arms=(arm,)),
+    )
+
+    viewer.adjust_segment_bending("executor", 0, 0, 1.0)
+
+    assert viewer.runtime_timing.input_labels == ["executor:S1:+kx"]
+    assert sum(item.set_calls for item in viewer.sliders["executor"]) == 0
+    assert sum(item.set_calls for item in viewer.target_inputs["executor"]) == 0
+    assert viewer._dirty_target_arms == {"executor"}
+
+
+class _Slider:
+    valmin = -20.0
+    valmax = 20.0
+
+    def __init__(self) -> None:
+        self.val = 0.0
+        self.set_calls = 0
+        self.drawon = True
+        self.eventson = True
+        self.set_states: list[tuple[bool, bool]] = []
+
+    def set_val(self, value: float) -> None:
+        self.set_states.append((self.drawon, self.eventson))
+        self.val = float(value)
+        self.set_calls += 1
+
+
+class _TextBox:
+    def __init__(self) -> None:
+        self.text = "0.000"
+        self.set_calls = 0
+        self.drawon = True
+        self.eventson = True
+        self.set_states: list[tuple[bool, bool]] = []
+
+    def set_val(self, value: str) -> None:
+        self.set_states.append((self.drawon, self.eventson))
+        self.text = str(value)
+        self.set_calls += 1
+
+
+class _Timing:
+    def __init__(self) -> None:
+        self.input_labels: list[str] = []
+
+    def mark_input(self, label: str) -> None:
+        self.input_labels.append(label)
+
+    def measure(self, stage: str):
+        del stage
+        return nullcontext()
+
+
+class _IdentityBendingModel:
+    def project(self, values: np.ndarray) -> np.ndarray:
+        return np.asarray(values, dtype=float).copy()
+
+    def estimate(self, values: np.ndarray) -> np.ndarray:
+        return np.asarray(values, dtype=float).copy()
+
+    def to_tendon(self, values: np.ndarray) -> np.ndarray:
+        return np.asarray(values, dtype=float).copy()

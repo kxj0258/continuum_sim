@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -80,6 +81,7 @@ class MujocoBackend:
             else None
         )
         self._follower_mocap_ids = self._resolve_follower_mocap_ids()
+        self.runtime_timing = None
         self.reset()
 
     @classmethod
@@ -110,27 +112,50 @@ class MujocoBackend:
         return self.get_state()
 
     def step(self, control: np.ndarray, n_substeps: int = 20) -> BackendState:
-        """Apply a control vector and advance the simulation."""
+        """Apply a control vector, advance, and return a state snapshot."""
 
-        control_array, base_pose_rpy = self._split_control_array(control)
-        if control_array.shape != (self.model.nu,):
-            raise ValueError(f"Expected control with shape ({self.model.nu},), got {control_array.shape}.")
-        if n_substeps <= 0:
-            raise ValueError(f"n_substeps must be positive, got {n_substeps}.")
+        self.advance(control, n_substeps=n_substeps)
+        return self.get_state()
 
-        if base_pose_rpy is not None:
-            self.set_mobile_base_pose_rpy(base_pose_rpy)
-        self.data.ctrl[:] = self._absolute_control_for_model(control_array)
-        self.update_follower_poses()
-        for _ in range(n_substeps):
+    def advance(self, control: np.ndarray, n_substeps: int = 20) -> None:
+        """Apply a control vector and advance without constructing a snapshot."""
+
+        timing = self.runtime_timing
+        with (
+            nullcontext()
+            if timing is None
+            else timing.measure("mujoco.prepare")
+        ):
+            control_array, base_pose_rpy = self._split_control_array(control)
+            if control_array.shape != (self.model.nu,):
+                raise ValueError(
+                    f"Expected control with shape ({self.model.nu},), "
+                    f"got {control_array.shape}."
+                )
+            if n_substeps <= 0:
+                raise ValueError(f"n_substeps must be positive, got {n_substeps}.")
+            self.data.ctrl[:] = self._absolute_control_for_model(control_array)
+
+        with (
+            nullcontext()
+            if timing is None
+            else timing.measure("mujoco.steps")
+        ):
+            for _ in range(n_substeps):
+                if base_pose_rpy is not None:
+                    self._write_mobile_base_pose_rpy(base_pose_rpy)
+                self.update_follower_poses()
+                self._mujoco.mj_step(self.model, self.data)
+
+        with (
+            nullcontext()
+            if timing is None
+            else timing.measure("mujoco.forward")
+        ):
             if base_pose_rpy is not None:
-                self.set_mobile_base_pose_rpy(base_pose_rpy)
-            self._mujoco.mj_step(self.model, self.data)
-            if base_pose_rpy is not None:
-                self.set_mobile_base_pose_rpy(base_pose_rpy)
+                self._write_mobile_base_pose_rpy(base_pose_rpy)
             self.update_follower_poses()
             self._mujoco.mj_forward(self.model, self.data)
-        return self.get_state()
 
     def get_state(self) -> BackendState:
         """Return a snapshot of time, poses, and generalized coordinates."""
@@ -272,6 +297,12 @@ class MujocoBackend:
     def set_mobile_base_pose_rpy(self, pose_rpy: np.ndarray) -> None:
         """Set the optional mobile-base freejoint pose as xyz + roll/pitch/yaw."""
 
+        self._write_mobile_base_pose_rpy(pose_rpy)
+        self._mujoco.mj_forward(self.model, self.data)
+
+    def _write_mobile_base_pose_rpy(self, pose_rpy: np.ndarray) -> None:
+        """Write the mobile-base state without recomputing MuJoCo derived data."""
+
         if self._mobile_base_qpos_addr is None:
             raise ValueError("MuJoCo model does not define mobile_base_freejoint.")
         values = np.asarray(pose_rpy, dtype=float)
@@ -284,7 +315,6 @@ class MujocoBackend:
         if self._mobile_base_qvel_addr is not None:
             qvel_addr = self._mobile_base_qvel_addr
             self.data.qvel[qvel_addr : qvel_addr + 6] = 0.0
-        self._mujoco.mj_forward(self.model, self.data)
 
     def get_mobile_base_pose_rpy(self) -> np.ndarray:
         """Return optional mobile-base freejoint pose as xyz + roll/pitch/yaw."""

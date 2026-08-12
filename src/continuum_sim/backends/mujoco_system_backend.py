@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 from collections.abc import Mapping
@@ -103,6 +104,13 @@ class MujocoSystemBackend:
         self._tool_wrench_bias: dict[str, np.ndarray] = {}
         self._tool_wrench_filtered: dict[str, np.ndarray] = {}
         self._tool_wrench_time_s: dict[str, float] = {}
+        self.runtime_timing = None
+
+    def set_runtime_timing(self, reporter) -> None:
+        """Attach one optional timing reporter to system and physics stages."""
+
+        self.runtime_timing = reporter
+        self.physics.runtime_timing = reporter
 
     @classmethod
     def from_config(
@@ -157,44 +165,55 @@ class MujocoSystemBackend:
                 "System command arms must exactly match the control layout: "
                 f"{sorted(command.arms)} and {sorted(self.layout.arms)}."
             )
-        self._base_state = integrate_base_pose(
-            self._base_state,
-            MobileBaseCommand(command.base_twist_world, frame="world"),
-            dt=dt,
-            max_linear_speed=(
-                self.assembly.base.max_linear_speed_mps
-                if bool(command.metadata.get("enforce_backend_base_speed_limits", False))
-                else None
-            ),
-            max_angular_speed=(
-                self.assembly.base.max_angular_speed_rad_s
-                if bool(command.metadata.get("enforce_backend_base_speed_limits", False))
-                else None
-            ),
-        )
-        base_position = np.clip(
-            self._base_state.pose.position,
-            self.assembly.base.position_min_m,
-            self.assembly.base.position_max_m,
-        )
-        self._base_state = MobileBaseState(
-            pose=Pose6D(position=base_position, quat=self._base_state.pose.quat),
-            locked=self._base_state.locked,
-            last_twist=self._base_state.last_twist,
-        )
+        timing = self.runtime_timing
+        with (
+            nullcontext()
+            if timing is None
+            else timing.measure("system.prepare")
+        ):
+            self._base_state = integrate_base_pose(
+                self._base_state,
+                MobileBaseCommand(command.base_twist_world, frame="world"),
+                dt=dt,
+                max_linear_speed=(
+                    self.assembly.base.max_linear_speed_mps
+                    if bool(command.metadata.get("enforce_backend_base_speed_limits", False))
+                    else None
+                ),
+                max_angular_speed=(
+                    self.assembly.base.max_angular_speed_rad_s
+                    if bool(command.metadata.get("enforce_backend_base_speed_limits", False))
+                    else None
+                ),
+            )
+            base_position = np.clip(
+                self._base_state.pose.position,
+                self.assembly.base.position_min_m,
+                self.assembly.base.position_max_m,
+            )
+            self._base_state = MobileBaseState(
+                pose=Pose6D(position=base_position, quat=self._base_state.pose.quat),
+                locked=self._base_state.locked,
+                last_twist=self._base_state.last_twist,
+            )
+            actual_tendon_displacement = self.physics.get_tendon_length()
+            actual_actuator_force = self.physics.get_actuator_force()
+            previous_tendon_target = {
+                arm_name: target.copy()
+                for arm_name, target in self._tendon_execution.last_tendon_targets.items()
+            }
 
-        actual_tendon_displacement = self.physics.get_tendon_length()
-        actual_actuator_force = self.physics.get_actuator_force()
-        previous_tendon_target = {
-            arm_name: target.copy()
-            for arm_name, target in self._tendon_execution.last_tendon_targets.items()
-        }
-        execution_step = self._tendon_execution.project_and_track(
-            command,
-            dt=dt,
-            actual_tendon_displacement_m=actual_tendon_displacement,
-            actuator_force_n=actual_actuator_force,
-        )
+        with (
+            nullcontext()
+            if timing is None
+            else timing.measure("control.inner_loop")
+        ):
+            execution_step = self._tendon_execution.project_and_track(
+                command,
+                dt=dt,
+                actual_tendon_displacement_m=actual_tendon_displacement,
+                actuator_force_n=actual_actuator_force,
+            )
 
         base_rpy = _pose_to_xyz_rpy(self._base_state.pose)
         raw_control = (
@@ -202,15 +221,25 @@ class MujocoSystemBackend:
             if self.assembly.base.control_mode == "fixed"
             else np.concatenate((execution_step.tendon_position_target_m, base_rpy))
         )
-        self.physics.step(raw_control, n_substeps=n_substeps)
-        state = self.get_system_state()
-        saturation = self._tendon_execution.finalize_step(
-            execution_step,
-            dt=dt,
-            previous_actual_tendon_displacement_m=actual_tendon_displacement,
-            previous_tendon_targets=previous_tendon_target,
-            state_arms=state.arms,
-        )
+        self.physics.advance(raw_control, n_substeps=n_substeps)
+        with (
+            nullcontext()
+            if timing is None
+            else timing.measure("state.build")
+        ):
+            state = self.get_system_state()
+        with (
+            nullcontext()
+            if timing is None
+            else timing.measure("control.finalize")
+        ):
+            saturation = self._tendon_execution.finalize_step(
+                execution_step,
+                dt=dt,
+                previous_actual_tendon_displacement_m=actual_tendon_displacement,
+                previous_tendon_targets=previous_tendon_target,
+                state_arms=state.arms,
+            )
         return RobotSystemState(
             time_s=state.time_s,
             base=state.base,

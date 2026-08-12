@@ -13,6 +13,15 @@ python -m pip install -e ".[mujoco]"
 python scripts/run_manual_control.py
 ```
 
+The manual-control entry point prints a timing summary every 0.5 seconds.
+Stage values use `average/maximum` milliseconds. The control loop runs on an
+independent 50 Hz worker clock; `cycle.interval` is its real start-to-start
+interval, `cycle.total` is control work time, and `control.wait` is its idle
+time. The Matplotlib panel, passive viewer, and observer camera are refreshed
+independently at lower rates. Clicking a `kx` or `ky` button also prints
+`callback->cycle` and `callback->complete` latency for the next completed
+control cycle.
+
 默认场景：
 
 ```text
@@ -28,9 +37,11 @@ python scripts/run_manual_control.py configs/scenarios/mujoco_wiping.yaml
 命令行参数：
 
 ```powershell
-python scripts/run_manual_control.py --camera-fps 20 --curvature-step 0.5
+python scripts/run_manual_control.py --panel-fps 15 --viewer-fps 15 --camera-fps 10 --curvature-step 0.5
 ```
 
+- `--panel-fps`：控制与诊断面板目标刷新率，默认 `15 Hz`。
+- `--viewer-fps`：MuJoCo 三维窗口目标刷新率，默认 `15 Hz`。
 - `--camera-fps`：观测相机窗口目标刷新率。
 - `--curvature-step`：每次曲率按钮的增量，单位 `1/m`。
 
@@ -105,9 +116,9 @@ wrench: ok / SATURATED
 
 方形传感器用于显示和六维力测量，球形工具参与环境碰撞。MuJoCo 的 `force`/`torque` 传感器输出经过复位置零、15 Hz 低通滤波、输出方向处理、坐标转换、限幅和重力补偿后写入系统状态。
 
-## 发动机显示与相机
+## 轻量场景与相机
 
-默认手动场景加载发动机网格。发动机材质使用 `engine_silver`：不透明灰银色底色配合镜面高光。场景灯光同时用于 MuJoCo 三维窗口和 observer 相机渲染，因此两个窗口显示一致的发动机表面颜色。
+默认手动场景不加载发动机或其他任务环境，只保留双臂、移动基座、末端工具、传感器和 observer 相机。这样手动调节曲率时可以减少主窗口与相机的渲染负载；如需在特定环境中调试，仍可将对应场景 YAML 作为位置参数传入。
 
 observer 相机刚性安装在观测臂末端。模型显示一个直径 `7.5 mm` 的半球相机外壳和独立镜头，外壳直径为机械臂末端直径的一半。通过 observer 的分段曲率按钮调整视线，图像窗口会按 `--camera-fps` 指定频率刷新。
 

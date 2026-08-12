@@ -14,6 +14,7 @@ from continuum_sim.visualization.mujoco_system_debug_viewer import (
     normalize_target_mm,
     target_rates,
 )
+from continuum_sim.runtime.concurrency import LatestValueSlot
 from continuum_sim.system.types import ArmTendonRateCommand
 
 
@@ -101,7 +102,9 @@ def test_set_targets_defers_widget_sync_to_ui_refresh() -> None:
     viewer._updating_controls = False
     viewer._views_dirty = False
     viewer._dirty_target_arms = set()
-    viewer._simulation_lock = RLock()
+    viewer._target_lock = RLock()
+    viewer._target_slot = LatestValueSlot(_copy_targets(viewer.targets))
+    viewer._simulation_lock = _ForbiddenLock()
 
     viewer.set_targets({"executor": np.array([0.001, 0.0, 0.0])})
 
@@ -130,7 +133,9 @@ def test_raw_slider_change_marks_views_dirty() -> None:
     viewer._updating_controls = False
     viewer._views_dirty = False
     viewer._dirty_target_arms = set()
-    viewer._simulation_lock = RLock()
+    viewer._target_lock = RLock()
+    viewer._target_slot = LatestValueSlot(_copy_targets(viewer.targets))
+    viewer._simulation_lock = _ForbiddenLock()
     viewer.control_space = "raw_tendon_debug"
     viewer.runtime_timing = None
 
@@ -148,7 +153,9 @@ def test_curvature_button_marks_input_for_latency_timing() -> None:
     viewer._updating_controls = False
     viewer._views_dirty = False
     viewer._dirty_target_arms = set()
-    viewer._simulation_lock = RLock()
+    viewer._target_lock = RLock()
+    viewer._target_slot = LatestValueSlot(_copy_targets(viewer.targets))
+    viewer._simulation_lock = _ForbiddenLock()
     viewer.curvature_step_1_per_m = 0.5
     viewer.runtime_timing = _Timing()
     model = _IdentityBendingModel()
@@ -226,3 +233,15 @@ class _IdentityBendingModel:
 
     def to_tendon(self, values: np.ndarray) -> np.ndarray:
         return np.asarray(values, dtype=float).copy()
+
+
+class _ForbiddenLock:
+    def __enter__(self):
+        raise AssertionError("UI target callbacks must not acquire the MuJoCo lock")
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        del exc_type, exc, traceback
+
+
+def _copy_targets(targets: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    return {name: values.copy() for name, values in targets.items()}

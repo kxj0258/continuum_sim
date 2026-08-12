@@ -143,6 +143,31 @@ def test_camera_snapshot_copies_dynamic_state_under_lock() -> None:
     assert np.array_equal(snapshot.qvel, [3.0, 4.0])
 
 
+def test_render_frame_for_presentation_does_not_present_from_worker() -> None:
+    hook = MujocoObserverCameraFeedbackHook(
+        _Backend(),
+        camera_name="observer_eye_camera",
+        intrinsics=CameraIntrinsicsConfig(
+            width=64,
+            height=48,
+            fovy_deg=60.0,
+            near=0.02,
+            far=2.0,
+        ),
+        show_window=False,
+    )
+    hook._mujoco = _Mujoco()
+    hook._renderer = _Renderer()
+    hook._show_frame = lambda frame: (_ for _ in ()).throw(
+        AssertionError("render worker must not call GUI presentation")
+    )
+
+    frame = hook.render_frame(_state())
+
+    assert frame.shape == (48, 64, 3)
+    assert hook._mujoco.forward_calls == 1
+
+
 def test_observer_camera_hook_records_rendered_frames_to_own_writers(
     tmp_path: Path,
 ) -> None:

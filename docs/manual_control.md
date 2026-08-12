@@ -22,6 +22,14 @@ independently at lower rates. Clicking a `kx` or `ky` button also prints
 `callback->cycle` and `callback->complete` latency for the next completed
 control cycle.
 
+The 50 Hz value is the control scheduling target, not a rendering rate. Target
+callbacks publish the newest requested value without waiting for MuJoCo or a
+window redraw. The passive viewer and observer camera each use a private
+`MjData` copy; only the dynamic-state copy briefly shares the live-data lock.
+Camera rendering and terminal timing output run on background workers, while
+Matplotlib artists remain owned by the GUI thread. Slow presentation therefore
+skips stale frames instead of accumulating work in the control path.
+
 默认场景：
 
 ```text

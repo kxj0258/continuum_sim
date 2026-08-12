@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from contextlib import nullcontext
-from threading import Event, RLock, Thread, current_thread
-from time import perf_counter
+from threading import RLock
 import traceback
 
 import numpy as np
@@ -13,6 +12,7 @@ import numpy as np
 from continuum_sim.backends.mujoco_system_backend import MujocoSystemBackend
 from continuum_sim.model.base_pose import quaternion_wxyz_to_rotation_matrix
 from continuum_sim.model.mount_frame import load_mobile_base_mount_config
+from continuum_sim.runtime.concurrency import LatestValueSlot, MonotonicRateRunner
 from continuum_sim.system.types import (
     ArmTendonRateCommand,
     RobotSystemCommand,
@@ -138,59 +138,6 @@ def bounded_compatible_target(
     return current + np.clip(scale, 0.0, 1.0) * delta
 
 
-class _FixedRateControlWorker:
-    """Run control work on a monotonic fixed-rate clock outside the GUI thread."""
-
-    def __init__(
-        self,
-        interval_s: float,
-        callback: Callable[[], object],
-        error_callback: Callable[[BaseException], None],
-    ) -> None:
-        self.interval_s = float(interval_s)
-        self._callback = callback
-        self._error_callback = error_callback
-        self._stop_event = Event()
-        self._thread: Thread | None = None
-
-    def start(self) -> None:
-        if self._thread is not None and self._thread.is_alive():
-            return
-        self._stop_event.clear()
-        self._thread = Thread(
-            target=self._run,
-            name="continuum-sim-control",
-            daemon=True,
-        )
-        self._thread.start()
-
-    def stop(self) -> None:
-        self._stop_event.set()
-        thread = self._thread
-        if thread is not None and thread is not current_thread():
-            thread.join()
-        if thread is None or not thread.is_alive():
-            self._thread = None
-
-    @property
-    def is_alive(self) -> bool:
-        return self._thread is not None and self._thread.is_alive()
-
-    def _run(self) -> None:
-        next_deadline_s = perf_counter()
-        try:
-            while not self._stop_event.is_set():
-                self._callback()
-                next_deadline_s += self.interval_s
-                now_s = perf_counter()
-                if next_deadline_s <= now_s:
-                    missed = int((now_s - next_deadline_s) // self.interval_s) + 1
-                    next_deadline_s += missed * self.interval_s
-                self._stop_event.wait(max(0.0, next_deadline_s - perf_counter()))
-        except BaseException as exc:  # noqa: BLE001 - report worker failures to UI.
-            self._error_callback(exc)
-
-
 class MujocoSystemDebugViewer:
     """Matplotlib controls and diagnostics for a composed MuJoCo system backend."""
 
@@ -229,6 +176,7 @@ class MujocoSystemDebugViewer:
         self.diagnostic_text_provider = diagnostic_text_provider
         self.panel_fps = float(panel_fps)
         self._simulation_lock = RLock() if simulation_lock is None else simulation_lock
+        self._target_lock = RLock()
         self.runtime_timing = runtime_timing
         if runtime_timing is not None:
             backend.set_runtime_timing(runtime_timing)
@@ -238,6 +186,8 @@ class MujocoSystemDebugViewer:
             name: np.asarray(arm.tendon_target_m, dtype=float).copy()
             for name, arm in self.state.arms.items()
         }
+        self._target_slot = LatestValueSlot(_copy_targets(self.targets))
+        self._state_slot = LatestValueSlot(self.state)
         self._running = False
         self._updating_controls = False
         self._views_dirty = False
@@ -333,10 +283,11 @@ class MujocoSystemDebugViewer:
             **_disable_widget_blit(TextBox),
         )
         _disconnect_textbox_resize(self.curvature_step_input)
-        self._control_worker = _FixedRateControlWorker(
+        self._control_worker = MonotonicRateRunner(
             self.control_dt_s,
             self.step,
             self._on_control_worker_error,
+            name="continuum-sim-control",
         )
         self.timer = self.panel.fig.canvas.new_timer(
             interval=max(1, round(1000.0 / self.panel_fps))
@@ -559,7 +510,7 @@ class MujocoSystemDebugViewer:
         values = np.asarray(target_pose_rpy, dtype=float)
         if values.shape != (6,) or not np.all(np.isfinite(values)):
             raise ValueError("Base target must be one finite xyz-rpy vector.")
-        with self._simulation_lock:
+        with self._target_lock:
             clipped = np.clip(
                 values,
                 self.base_lower_pose_rpy,
@@ -572,7 +523,7 @@ class MujocoSystemDebugViewer:
             self._views_dirty = True
 
     def _sync_base_controls(self) -> None:
-        with self._simulation_lock:
+        with self._target_lock:
             if not self._base_controls_dirty:
                 return
             values = self.base_target_pose_rpy.copy()
@@ -585,7 +536,7 @@ class MujocoSystemDebugViewer:
         self._apply_widget_updates(updates)
 
     def _sync_curvature_control(self) -> None:
-        with self._simulation_lock:
+        with self._target_lock:
             if not self._curvature_control_dirty:
                 return
             value = self.curvature_step_1_per_m
@@ -622,7 +573,7 @@ class MujocoSystemDebugViewer:
         self.curvature_step_input.on_submit(self._set_curvature_step)
 
     def _set_curvature_step(self, text: str) -> None:
-        with self._simulation_lock:
+        with self._target_lock:
             try:
                 value = float(text)
             except (TypeError, ValueError):
@@ -656,7 +607,7 @@ class MujocoSystemDebugViewer:
             if timing is None
             else timing.measure("input.callback")
         ):
-            with self._simulation_lock:
+            with self._target_lock:
                 if timing is not None:
                     component = "kx" if component_index == 0 else "ky"
                     sign = "+" if direction > 0.0 else "-"
@@ -693,13 +644,14 @@ class MujocoSystemDebugViewer:
             if timing is None
             else timing.measure("input.callback")
         ):
-            with self._simulation_lock:
+            with self._target_lock:
                 if timing is not None:
                     timing.mark_input(f"{arm_name}:T{tendon_index + 1}:slider")
                 self.targets[arm_name][tendon_index] = 0.001 * float(value_mm)
                 self._dirty_target_arms.add(arm_name)
                 self._views_dirty = True
                 self._project_targets_if_compatible(arm_name)
+                self._publish_targets_locked()
 
     def _on_target_input(
         self,
@@ -716,7 +668,7 @@ class MujocoSystemDebugViewer:
             if timing is None
             else timing.measure("input.callback")
         ):
-            with self._simulation_lock:
+            with self._target_lock:
                 if timing is not None:
                     timing.mark_input(f"{arm_name}:T{tendon_index + 1}:text")
                 current_mm = 1000.0 * self.targets[arm_name][tendon_index]
@@ -730,6 +682,7 @@ class MujocoSystemDebugViewer:
                 self._dirty_target_arms.add(arm_name)
                 self._views_dirty = True
                 self._project_targets_if_compatible(arm_name)
+                self._publish_targets_locked()
 
     def _project_targets_if_compatible(self, arm_name: str) -> None:
         if self.control_space != "bending_compatible":
@@ -742,15 +695,18 @@ class MujocoSystemDebugViewer:
     def reset(self) -> RobotSystemState:
         self.pause()
         with self._simulation_lock:
-            self.state = self.backend.reset_system()
+            state = self.backend.reset_system()
+        self.state = state
+        self._state_slot.publish(state)
+        with self._target_lock:
             self.base_target_pose_rpy = _pose_xyz_rpy(self.state.base.pose)
             self.base_initial_pose_rpy = self.base_target_pose_rpy.copy()
             self._base_controls_dirty = True
-            self.set_targets(
-                {name: np.zeros_like(values) for name, values in self.targets.items()}
-            )
             self._views_dirty = True
-            return self.state
+        self.set_targets(
+            {name: np.zeros_like(values) for name, values in self.targets.items()}
+        )
+        return state
 
     def zero_targets(self) -> None:
         self.set_targets(
@@ -761,7 +717,8 @@ class MujocoSystemDebugViewer:
         unknown = set(targets).difference(self.targets)
         if unknown:
             raise ValueError(f"Unknown target arm names: {sorted(unknown)}.")
-        with self._simulation_lock:
+        with self._target_lock:
+            changed = False
             for arm_name, values in targets.items():
                 array = np.asarray(values, dtype=float)
                 if array.shape != self.targets[arm_name].shape:
@@ -787,9 +744,15 @@ class MujocoSystemDebugViewer:
                 self.targets[arm_name] = normalized
                 self._dirty_target_arms.add(arm_name)
                 self._views_dirty = True
+                changed = True
+            if changed:
+                self._publish_targets_locked()
+
+    def _publish_targets_locked(self) -> None:
+        self._target_slot.publish(_copy_targets(self.targets))
 
     def _sync_target_controls(self) -> None:
-        with self._simulation_lock:
+        with self._target_lock:
             dirty_arms = tuple(self._dirty_target_arms)
             target_values = {
                 arm_name: self.targets[arm_name].copy()
@@ -848,63 +811,69 @@ class MujocoSystemDebugViewer:
         )
         if not self._running:
             return self.step()
-        with self._simulation_lock:
-            return self.state
+        return self._state_slot.snapshot()[0]
 
     def _step_once(self) -> RobotSystemState:
         if self._running:
-            with self._simulation_lock:
-                return self.state
+            return self._state_slot.snapshot()[0]
         return self.step()
 
     def step(self) -> RobotSystemState:
         timing = self.runtime_timing
         try:
-            with self._simulation_lock:
-                if timing is not None:
-                    timing.start_cycle()
-                with (
-                    nullcontext()
-                    if timing is None
-                    else timing.measure("control.command")
-                ):
-                    commands: dict[str, ArmTendonRateCommand] = {}
-                    arms_by_name = {
-                        arm.name: arm for arm in self.backend.assembly.enabled_arms
-                    }
-                    for arm_name, arm_state in self.state.arms.items():
-                        max_rate = arms_by_name[
-                            arm_name
-                        ].spatial_arm.limits.max_tendon_rate_mps
-                        target = self.targets[arm_name]
-                        model = self.backend.layout.bending_models[arm_name]
-                        if self.control_space == "bending_compatible":
-                            target = model.project(target)
-                            requested = (
-                                target
-                                - np.asarray(arm_state.tendon_target_m, dtype=float)
-                            ) / self.control_dt_s
-                            requested = model.project(requested)
-                            ratios = np.divide(
-                                max_rate,
-                                np.abs(requested),
-                                out=np.full_like(max_rate, np.inf),
-                                where=np.abs(requested) > 0.0,
-                            )
-                            rates = min(1.0, float(np.min(ratios))) * requested
-                        else:
-                            rates = target_rates(
-                                target,
-                                np.asarray(arm_state.tendon_target_m, dtype=float),
-                                max_rate,
-                                dt=self.control_dt_s,
-                            )
-                        commands[arm_name] = ArmTendonRateCommand(
-                            rates,
-                            control_space=self.control_space,
+            if timing is not None:
+                timing.start_cycle()
+            state = self._state_slot.snapshot()[0]
+            targets = self._target_slot.snapshot()[0]
+            with self._target_lock:
+                control_space = self.control_space
+                base_target_pose_rpy = self.base_target_pose_rpy.copy()
+            with (
+                nullcontext()
+                if timing is None
+                else timing.measure("control.command")
+            ):
+                commands: dict[str, ArmTendonRateCommand] = {}
+                arms_by_name = {
+                    arm.name: arm for arm in self.backend.assembly.enabled_arms
+                }
+                for arm_name, arm_state in state.arms.items():
+                    max_rate = arms_by_name[
+                        arm_name
+                    ].spatial_arm.limits.max_tendon_rate_mps
+                    target = targets[arm_name]
+                    model = self.backend.layout.bending_models[arm_name]
+                    if control_space == "bending_compatible":
+                        target = model.project(target)
+                        requested = (
+                            target
+                            - np.asarray(arm_state.tendon_target_m, dtype=float)
+                        ) / self.control_dt_s
+                        requested = model.project(requested)
+                        ratios = np.divide(
+                            max_rate,
+                            np.abs(requested),
+                            out=np.full_like(max_rate, np.inf),
+                            where=np.abs(requested) > 0.0,
                         )
-                    base_twist = self._base_target_twist()
-                self.state = self.backend.step_system(
+                        rates = min(1.0, float(np.min(ratios))) * requested
+                    else:
+                        rates = target_rates(
+                            target,
+                            np.asarray(arm_state.tendon_target_m, dtype=float),
+                            max_rate,
+                            dt=self.control_dt_s,
+                        )
+                    commands[arm_name] = ArmTendonRateCommand(
+                        rates,
+                        control_space=control_space,
+                    )
+                base_twist = self._base_target_twist(
+                    state,
+                    base_target_pose_rpy,
+                )
+            with self._simulation_lock:
+                next_state = self.backend.step_system(
                     RobotSystemCommand(
                         base_twist_world=base_twist,
                         arms=commands,
@@ -916,17 +885,24 @@ class MujocoSystemDebugViewer:
                     dt=self.control_dt_s,
                     n_substeps=self.n_substeps,
                 )
+            self.state = next_state
+            self._state_slot.publish(next_state)
+            with self._target_lock:
                 self._views_dirty = True
-                return self.state
+            return next_state
         finally:
             if timing is not None:
                 timing.finish_cycle()
 
-    def _base_target_twist(self) -> np.ndarray:
+    def _base_target_twist(
+        self,
+        state: RobotSystemState,
+        base_target_pose_rpy: np.ndarray,
+    ) -> np.ndarray:
         if not self.base_control_enabled:
             return np.zeros(6, dtype=float)
-        actual = _pose_xyz_rpy(self.state.base.pose)
-        error = self.base_target_pose_rpy - actual
+        actual = _pose_xyz_rpy(state.base.pose)
+        error = base_target_pose_rpy - actual
         error[3:] = _wrap_angles(error[3:])
         twist = error / self.control_dt_s
         base = self.backend.assembly.base
@@ -943,7 +919,7 @@ class MujocoSystemDebugViewer:
         return twist
 
     def _set_control_mode(self, label: str) -> None:
-        with self._simulation_lock:
+        with self._target_lock:
             self.control_space = (
                 "bending_compatible" if label == "compatible" else "raw_tendon_debug"
             )
@@ -1006,13 +982,13 @@ class MujocoSystemDebugViewer:
         self._running = False
 
     def _update_views(self, *, force: bool = False) -> None:
-        with self._simulation_lock:
+        with self._target_lock:
             update_panel = force or self._views_dirty or bool(
                 self._dirty_target_arms
             ) or self._base_controls_dirty or self._curvature_control_dirty
-            state = self.state
             if update_panel:
                 self._views_dirty = False
+        state = self._state_slot.snapshot()[0]
         if update_panel:
             self._sync_target_controls()
             self._sync_base_controls()
@@ -1038,8 +1014,8 @@ class MujocoSystemDebugViewer:
         redraw: bool = True,
         state: RobotSystemState | None = None,
     ) -> None:
-        state = self.state if state is None else state
-        with self._simulation_lock:
+        state = self._state_slot.snapshot()[0] if state is None else state
+        with self._target_lock:
             control_space = self.control_space
             curvature_step = self.curvature_step_1_per_m
             base_target = self.base_target_pose_rpy.copy()
@@ -1076,7 +1052,7 @@ class MujocoSystemDebugViewer:
         base_target_pose_rpy: np.ndarray | None = None,
         targets: Mapping[str, np.ndarray] | None = None,
     ) -> str:
-        state = self.state if state is None else state
+        state = self._state_slot.snapshot()[0] if state is None else state
         control_space = self.control_space if control_space is None else control_space
         curvature_step_1_per_m = (
             self.curvature_step_1_per_m
@@ -1131,11 +1107,21 @@ class MujocoSystemDebugViewer:
 
     def _notify_state_updated(self, state: RobotSystemState | None = None) -> None:
         if self.state_update_callback is not None:
-            self.state_update_callback(self.state if state is None else state)
+            latest = self._state_slot.snapshot()[0] if state is None else state
+            self.state_update_callback(latest)
 
 
 def _format_target_mm(value_mm: float) -> str:
     return f"{float(value_mm):.3f}"
+
+
+def _copy_targets(
+    targets: Mapping[str, np.ndarray],
+) -> dict[str, np.ndarray]:
+    return {
+        arm_name: np.asarray(values, dtype=float).copy()
+        for arm_name, values in targets.items()
+    }
 
 
 def _format_base_target(value: float, component_index: int) -> str:

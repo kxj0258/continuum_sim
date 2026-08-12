@@ -10,6 +10,7 @@ import numpy as np
 
 from continuum_sim.model.base_pose import Pose6D
 from continuum_sim.runtime.hook_utils import metadata_point as _metadata_point
+from continuum_sim.runtime.mujoco_state_copy import copy_mujoco_dynamic_state
 from continuum_sim.runtime.video_utils import (
     normalise_output_paths as _normalise_output_paths,
     open_video_writer as _open_video_writer,
@@ -236,21 +237,37 @@ class MujocoObserverCameraFeedbackHook:
         lock = self.data_lock
         with lock:
             destination = self._render_data
-            destination.time = source.time
-            for name in (
-                "qpos",
-                "qvel",
-                "act",
-                "ctrl",
-                "mocap_pos",
-                "mocap_quat",
-                "userdata",
-            ):
-                destination_values = getattr(destination, name, None)
-                source_values = getattr(source, name, None)
-                if destination_values is not None and source_values is not None:
-                    destination_values[...] = source_values
+            copy_mujoco_dynamic_state(source, destination)
         return destination
+
+    def render_frame(self, state: RobotSystemState) -> np.ndarray:
+        """Render one copied state without invoking any GUI presentation API."""
+
+        if self._mujoco is None or self._renderer is None:
+            raise RuntimeError("observer camera renderer is not available.")
+        model = self.backend.physics.model
+        data = self._camera_data_snapshot()
+        with (
+            nullcontext()
+            if self.runtime_timing is None
+            else self.runtime_timing.measure("camera.forward")
+        ):
+            self._mujoco.mj_forward(model, data)
+        target = self._target_world
+        if target is not None:
+            camera_pose = self._camera_pose_world(model, data)
+            self.last_feedback = project_roi_to_camera_feedback(
+                target,
+                camera_pose,
+                self.intrinsics,
+                timestamp_s=state.time_s,
+            )
+        with (
+            nullcontext()
+            if self.runtime_timing is None
+            else self.runtime_timing.measure("camera.render")
+        ):
+            return self._draw_roi_overlay(self._render_frame(data))
 
     def _display_due(self, time_s: float) -> bool:
         if self.display_interval_s is None:

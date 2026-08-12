@@ -1,0 +1,42 @@
+schema_version: 1
+scenario:
+  name: mujoco_manual_control
+  arm_mode: dual
+  low_level_control_path: ../control/mujoco_tracking_low_level.yaml
+  assembly_config_path: ../robots/assemblies/dual_spatial_mobile.yaml
+  backend:
+    type: mujoco
+    kinematics_mode: discrete_hinge
+    mujoco_config_path: ../mujoco_dual.yaml
+    source_xml_path: ../../assets/mujoco/dual_three_segment_arm_tendon_with_visuals_mobile_base.xml
+    generated_xml_path: ../../output/generated/scenario_dual_manual_control.xml
+    viewer:
+      camera:
+        lookat: [0.03, 0.0, 0.12]
+        distance: 0.32
+        azimuth: 300.0
+        elevation: -18.0
+        follow: none
+  scene:
+    engine_config_path: ../scenes/engine_scene.yaml
+  task:
+    type: idle
+  runtime:
+    controller_dt_s: 0.02
+    n_substeps: 20
+    max_steps: 1000000
+  hooks:
+    recorder: false
+    tendon_debug: false
+    show_live_tendon_panel: false
+    show_live_force_panel: false
+    show_live_diagnostics_panel: false
+    show_observer_camera: false
+    viewer: none
+    keep_viewer_open: false
+  artifacts:
+    enabled: false
+    save_npz: false
+    save_plots: false
+    save_gif: false
+    save_mp4: false

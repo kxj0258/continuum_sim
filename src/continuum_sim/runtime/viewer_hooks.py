@@ -114,6 +114,17 @@ def _configure_mujoco_viewer(viewer, config) -> None:
         opt.geomgroup[config.visuals.collision_geom_group] = int(
             config.viewer.show_collision_geoms
         )
+    # Engine work is observed from both outside and inside the closed CAD
+    # shell. Rendering back faces prevents interior surfaces disappearing.
+    scene = getattr(viewer, "user_scn", None)
+    flags = getattr(scene, "flags", None)
+    if flags is not None:
+        try:
+            import mujoco
+
+            flags[int(mujoco.mjtRndFlag.mjRND_CULL_FACE)] = 0
+        except (ImportError, IndexError, TypeError):
+            pass
 
 
 def _sleep_until_simulation_time(

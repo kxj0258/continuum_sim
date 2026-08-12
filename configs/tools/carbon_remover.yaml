@@ -4,20 +4,40 @@ tool:
   enabled: true
 
   tip_to_attachment:
-    position: [0.0, 0.0, 0.02]
+    # Sensor frame origin is at the centre of the 15 x 15 x 8 mm package.
+    position: [0.0, 0.0, 0.004]
     quat: [1.0, 0.0, 0.0, 0.0]
 
   tcp_pose:
-    position: [0.0, 0.0, 0.045]
+    # Sensor-relative front pole; 18 mm from the bare arm tip.
+    position: [0.0, 0.0, 0.014]
     quat: [1.0, 0.0, 0.0, 0.0]
 
   visual_mesh_path: assets/placeholders/carbon_removal_tool.obj
 
   collision:
     type: sphere
-    radius_m: 0.018
+    radius_m: 0.009
+    # Sphere back pole (-4 mm) is tangent to the sensor back face.
+    position: [0.0, 0.0, 0.005]
+    rgba: [0.20, 0.22, 0.24, 1.0]
+    friction: [0.8, 0.02, 0.005]
+    contype: 1
+    conaffinity: 1
 
-  mass_kg: 0.05
+  mass_kg: 0.01
+
+  force_torque_sensor:
+    size_m: [0.015, 0.015, 0.008]
+    mass_kg: 0.03
+    rgba: [0.16, 0.17, 0.18, 1.0]
+    force_limit_n: 10.0
+    torque_limit_nm: 0.25
+    filter_cutoff_hz: 15.0
+    tare_on_reset: true
+    gravity_compensation: true
+    # MuJoCo reports the child-to-parent wrench. -1 exposes force on the tool.
+    output_sign: -1.0
 
   contact:
     target_normal_force_n: 1.0

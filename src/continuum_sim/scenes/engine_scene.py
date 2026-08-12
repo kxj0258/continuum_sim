@@ -105,10 +105,21 @@ class ExplorationStartConfig:
 
 
 @dataclass(frozen=True)
+class VisualMaterialConfig:
+    """Native MuJoCo material parameters for the engine visual mesh."""
+
+    name: str = "engine_silver"
+    emission: float = 0.0
+    specular: float = 0.72
+    shininess: float = 0.48
+
+
+@dataclass(frozen=True)
 class PreviewVisualizationConfig:
     """Preview-only style settings loaded from the engine scene YAML."""
 
-    visual_mesh_rgba: tuple[float, float, float, float] = (0.72, 0.76, 0.80, 0.45)
+    visual_mesh_rgba: tuple[float, float, float, float] = (0.66, 0.68, 0.71, 1.0)
+    visual_material: VisualMaterialConfig | None = None
     collision_mesh_rgba: tuple[float, float, float, float] = (0.9, 0.2, 0.15, 0.28)
     bbox_rgba: tuple[float, float, float, float] = (1.0, 1.0, 0.0, 0.85)
     bbox_edge_radius_m: float | None = None
@@ -410,8 +421,11 @@ def _load_preview_visualization_config(raw_value: object) -> PreviewVisualizatio
             )
     return PreviewVisualizationConfig(
         visual_mesh_rgba=_rgba_tuple(
-            raw_value.get("visual_mesh_rgba", (0.72, 0.76, 0.80, 0.45)),
+            raw_value.get("visual_mesh_rgba", (0.66, 0.68, 0.71, 1.0)),
             "preview_visualization.visual_mesh_rgba",
+        ),
+        visual_material=_load_visual_material_config(
+            raw_value.get("visual_material", _MISSING)
         ),
         collision_mesh_rgba=_rgba_tuple(
             raw_value.get("collision_mesh_rgba", (0.9, 0.2, 0.15, 0.28)),
@@ -489,6 +503,29 @@ def _load_preview_visualization_config(raw_value: object) -> PreviewVisualizatio
         )
         or 0,
     )
+
+
+def _load_visual_material_config(raw_value: object) -> VisualMaterialConfig | None:
+    if raw_value is _MISSING or raw_value is None:
+        return None
+    if not isinstance(raw_value, dict):
+        raise ValueError("preview_visualization.visual_material must be a mapping.")
+    name = str(raw_value.get("name", "engine_silver")).strip()
+    if not name:
+        raise ValueError("preview_visualization.visual_material.name must be non-empty.")
+    values = {
+        key: float(raw_value.get(key, default))
+        for key, default in (
+            ("emission", 0.0),
+            ("specular", 0.72),
+            ("shininess", 0.48),
+        )
+    }
+    if any(not 0.0 <= value <= 1.0 for value in values.values()):
+        raise ValueError(
+            "Engine visual material emission, specular, and shininess must be in [0, 1]."
+        )
+    return VisualMaterialConfig(name=name, **values)
 
 
 def _reject_legacy_pose_fields(pose: dict[object, object]) -> None:

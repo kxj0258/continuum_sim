@@ -33,7 +33,7 @@ def test_engine_navigation_scenario_loads_named_engine_plan() -> None:
     assert config.task.engine_navigation.entry_region == "entry_port"
     assert config.task.engine_navigation.insertion_path == "nozzle_axis_entry"
     assert config.task.engine_navigation.local_path_axial_retraction_m == pytest.approx(
-        0.045
+        0.025
     )
     assert [
         path.path_type
@@ -50,9 +50,9 @@ def test_engine_navigation_scenario_loads_named_engine_plan() -> None:
     )
     assert (
         config.task.engine_navigation.local_tracking.max_steps_per_waypoint
-        == 25
+        == 500
     )
-    assert config.task.engine_navigation.local_tracking.transition_samples == 20
+    assert config.task.engine_navigation.local_tracking.transition_samples == 5
     observer = config.task.engine_navigation.observer_control
     assert observer.inter_arm_influence_distance_m == pytest.approx(0.018)
     assert observer.inter_arm_safe_distance_m == pytest.approx(0.014)
@@ -158,21 +158,21 @@ def test_engine_navigation_plan_resolves_three_retracted_local_paths() -> None:
         path.insertion_index for path in plan.local_path_plans
     )
     assert [path.waypoints_world.shape[0] for path in plan.local_path_plans] == [
-        60,
-        75,
-        60,
+        20,
+        20,
+        20,
     ]
     for path in plan.local_path_plans:
         expected_center = (
             path.insertion_target_world
-            - 0.045 * plan.insertion_direction_world
+            - 0.025 * plan.insertion_direction_world
         )
         np.testing.assert_allclose(path.center_world, expected_center)
         np.testing.assert_allclose(
             path.waypoints_world[0],
             path.waypoints_world[-1],
         )
-        assert path.transition_waypoints_world.shape == (20, 3)
+        assert path.transition_waypoints_world.shape == (5, 3)
         np.testing.assert_allclose(
             path.transition_waypoints_world[0],
             path.insertion_target_world,

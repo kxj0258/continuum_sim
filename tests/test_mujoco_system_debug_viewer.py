@@ -4,6 +4,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 
 from continuum_sim.visualization.mujoco_system_debug_viewer import (
+    bounded_compatible_target,
     named_system_target,
     normalize_target_mm,
     target_rates,
@@ -67,3 +68,14 @@ def test_raw_debug_command_requires_explicit_mode() -> None:
 
     assert compatible.control_space == "bending_compatible"
     assert raw.control_space == "raw_tendon_debug"
+
+
+def test_bounded_compatible_target_scales_whole_delta_without_component_clipping() -> None:
+    current = np.zeros(3, dtype=float)
+    candidate = np.array([2.0, -1.0, 0.5], dtype=float)
+    lower = np.array([-0.4, -0.4, -0.4], dtype=float)
+    upper = np.array([0.8, 0.8, 0.8], dtype=float)
+
+    result = bounded_compatible_target(current, candidate, lower, upper)
+
+    assert_allclose(result, [0.8, -0.4, 0.2])

@@ -241,6 +241,22 @@ class MujocoBackend:
             return np.zeros((0,), dtype=float)
         return np.asarray(values, dtype=float).copy()
 
+    def get_sensor_data(self, name: str) -> np.ndarray | None:
+        """Return one named MuJoCo sensor slice, or ``None`` when absent."""
+
+        sensor_object = getattr(self._mujoco.mjtObj, "mjOBJ_SENSOR", None)
+        if sensor_object is None:
+            return None
+        sensor_id = self._mujoco.mj_name2id(self.model, sensor_object, name)
+        if sensor_id < 0:
+            return None
+        address = int(self.model.sensor_adr[int(sensor_id)])
+        dimension = int(self.model.sensor_dim[int(sensor_id)])
+        return np.asarray(
+            self.data.sensordata[address : address + dimension],
+            dtype=float,
+        ).copy()
+
     def _site_pose(self, site_id: int) -> np.ndarray:
         pose = np.eye(4, dtype=float)
         pose[:3, :3] = self.data.site_xmat[site_id].reshape(3, 3).copy()

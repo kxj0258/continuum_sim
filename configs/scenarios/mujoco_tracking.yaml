@@ -48,7 +48,7 @@ scenario:
         side_length_m: 0.040
   runtime:
     controller_dt_s: 0.02
-    n_substeps: 10
+    n_substeps: 20
     max_steps: 10000
   hooks:
     recorder: true

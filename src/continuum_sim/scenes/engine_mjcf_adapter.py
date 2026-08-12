@@ -98,14 +98,16 @@ def inject_engine_scene(
     overrides = mesh_overrides or {}
     visual_mesh = overrides.get("visual_mesh", assets.visual_mesh)
     collision_mesh = overrides.get("collision_mesh", assets.collision_mesh)
+    visual_meshes = (visual_mesh,)
+    collision_meshes = () if collision_mesh is None else (collision_mesh,)
     if output is not None:
-        visual_mesh = prepare_mujoco_stl(
+        visual_meshes = prepare_mujoco_stl_parts(
             visual_mesh,
             output,
             "engine_visual_mujoco",
         )
         if collision_mesh is not None:
-            collision_mesh = prepare_mujoco_stl(
+            collision_meshes = prepare_mujoco_stl_parts(
                 collision_mesh,
                 output,
                 "engine_collision_mujoco",
@@ -118,25 +120,39 @@ def inject_engine_scene(
         worldbody = ET.SubElement(root, "worldbody")
     scale = _vec((config.engine.scale,) * 3)
     if include_visual_mesh:
-        ET.SubElement(
+        visual_mesh_names = _add_mesh_assets(
             asset,
-            "mesh",
-            {
-                "name": "engine_visual_mesh",
-                "file": _relative_path(visual_mesh, output),
-                "scale": scale,
-            },
+            base_name="engine_visual_mesh",
+            paths=visual_meshes,
+            output_dir=output,
+            scale=scale,
         )
-    if include_collision_mesh and collision_mesh is not None:
-        ET.SubElement(
+        material = config.preview_visualization.visual_material
+        if material is not None:
+            _remove_named_asset(asset, "material", material.name)
+            ET.SubElement(
+                asset,
+                "material",
+                {
+                    "name": material.name,
+                    "rgba": _vec(config.preview_visualization.visual_mesh_rgba),
+                    "emission": f"{material.emission:g}",
+                    "specular": f"{material.specular:g}",
+                    "shininess": f"{material.shininess:g}",
+                },
+            )
+    else:
+        visual_mesh_names = ()
+    if include_collision_mesh and collision_meshes:
+        collision_mesh_names = _add_mesh_assets(
             asset,
-            "mesh",
-            {
-                "name": "engine_collision_mesh",
-                "file": _relative_path(collision_mesh, output),
-                "scale": scale,
-            },
+            base_name="engine_collision_mesh",
+            paths=collision_meshes,
+            output_dir=output,
+            scale=scale,
         )
+    else:
+        collision_mesh_names = ()
     engine_body = ET.SubElement(
         worldbody,
         "body",
@@ -147,29 +163,37 @@ def inject_engine_scene(
         },
     )
     if include_visual_mesh:
-        ET.SubElement(
-            engine_body,
-            "geom",
-            {
-                "name": "engine_visual",
+        material = config.preview_visualization.visual_material
+        for index, mesh_name in enumerate(visual_mesh_names):
+            visual_attrs = {
+                "name": _part_name("engine_visual", index, len(visual_mesh_names)),
                 "type": "mesh",
-                "mesh": "engine_visual_mesh",
+                "mesh": mesh_name,
                 "contype": "0",
                 "conaffinity": "0",
                 "group": "1",
+                # Explicit RGBA prevents the robot model's blue default geom
+                # color from overriding the engine material.
                 "rgba": _vec(config.preview_visualization.visual_mesh_rgba),
-            },
-        )
-    if include_collision_mesh and collision_mesh is not None:
-        attrs = {
-            "name": "engine_collision_mesh_geom",
-            "type": "mesh",
-            "mesh": "engine_collision_mesh",
-            "group": "0",
-        }
-        if config.engine.assets.collision_mesh_offset_m is not None:
-            attrs["pos"] = _vec(config.engine.assets.collision_mesh_offset_m)
-        ET.SubElement(engine_body, "geom", attrs)
+            }
+            if material is not None:
+                visual_attrs["material"] = material.name
+            ET.SubElement(engine_body, "geom", visual_attrs)
+    if include_collision_mesh and collision_mesh_names:
+        for index, mesh_name in enumerate(collision_mesh_names):
+            attrs = {
+                "name": _part_name(
+                    "engine_collision_mesh_geom",
+                    index,
+                    len(collision_mesh_names),
+                ),
+                "type": "mesh",
+                "mesh": mesh_name,
+                "group": "0",
+            }
+            if config.engine.assets.collision_mesh_offset_m is not None:
+                attrs["pos"] = _vec(config.engine.assets.collision_mesh_offset_m)
+            ET.SubElement(engine_body, "geom", attrs)
     if include_control_primitives:
         for geom in config.primitive_collision_geoms:
             if geom.enabled:
@@ -180,6 +204,12 @@ def inject_engine_scene(
                     collision_enabled=primitive_collision_enabled,
                 )
     return root
+
+
+def _remove_named_asset(parent: ET.Element, tag: str, name: str) -> None:
+    for child in list(parent):
+        if child.tag == tag and child.get("name") == name:
+            parent.remove(child)
 
 
 def rebase_mjcf_file_assets(
@@ -201,37 +231,71 @@ def rebase_mjcf_file_assets(
     return root
 
 
-def prepare_mujoco_stl(
+def prepare_mujoco_stl_parts(
     path: str | Path,
     output_dir: str | Path,
     stem: str,
     *,
     max_faces: int = 200_000,
-) -> Path:
-    """Return a MuJoCo-loadable binary STL, limiting face count when needed."""
+) -> tuple[Path, ...]:
+    """Return lossless STL parts whose individual face counts fit MuJoCo."""
+
+    if max_faces <= 0:
+        raise ValueError("max_faces must be positive.")
 
     source = Path(path).resolve()
     if source.suffix.lower() != ".stl":
-        return source
+        return (source,)
     data = source.read_bytes()
     if len(data) < 84:
-        return source
+        return (source,)
     triangle_count = struct.unpack("<I", data[80:84])[0]
     if len(data) != 84 + triangle_count * 50:
-        return source
+        return (source,)
     if triangle_count <= max_faces:
-        return source
+        return (source,)
     target_dir = Path(output_dir).resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / f"{stem}_max_{max_faces}.stl"
-    with target.open("wb") as stream:
-        stream.write(data[:80])
-        stream.write(struct.pack("<I", max_faces))
-        for index in range(max_faces):
-            source_index = int(index * triangle_count / max_faces)
-            start = 84 + source_index * 50
-            stream.write(data[start : start + 50])
-    return target
+    part_count = (triangle_count + max_faces - 1) // max_faces
+    targets: list[Path] = []
+    for part_index in range(part_count):
+        first_face = part_index * max_faces
+        face_count = min(max_faces, triangle_count - first_face)
+        target = target_dir / f"{stem}_part_{part_index + 1:02d}.stl"
+        start = 84 + first_face * 50
+        stop = start + face_count * 50
+        with target.open("wb") as stream:
+            stream.write(data[:80])
+            stream.write(struct.pack("<I", face_count))
+            stream.write(data[start:stop])
+        targets.append(target)
+    return tuple(targets)
+
+
+def _add_mesh_assets(
+    asset: ET.Element,
+    *,
+    base_name: str,
+    paths: tuple[Path, ...],
+    output_dir: Path | None,
+    scale: str,
+) -> tuple[str, ...]:
+    names = tuple(_part_name(base_name, index, len(paths)) for index in range(len(paths)))
+    for name, path in zip(names, paths, strict=True):
+        ET.SubElement(
+            asset,
+            "mesh",
+            {
+                "name": name,
+                "file": _relative_path(path, output_dir),
+                "scale": scale,
+            },
+        )
+    return names
+
+
+def _part_name(base_name: str, index: int, count: int) -> str:
+    return base_name if count == 1 else f"{base_name}_part_{index + 1}"
 
 
 def _add_primitive(

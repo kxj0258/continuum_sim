@@ -72,7 +72,7 @@ scenario:
     contact_tolerance_m: 0.002
     target_normal_force_n: 1.5
     normal_force_gain: 0.04
-    force_feedback_mode: proxy_distance
+    force_feedback_mode: tool_wrench_sensor
     force_proxy_stiffness_n_m: 600.0
     max_normal_velocity_m_s: 0.03
     force_control_weight: 80.0
@@ -103,7 +103,7 @@ scenario:
       contact_offset_m: -0.0025
   runtime:
     controller_dt_s: 0.02
-    n_substeps: 10
+    n_substeps: 20
     max_steps: 10000
   hooks:
     recorder: true

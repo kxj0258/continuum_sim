@@ -31,7 +31,7 @@ from continuum_sim.scenes.scene_config import (
 from continuum_sim.scenes.engine_mjcf_adapter import (
     build_engine_mujoco_scene_xml,
     inject_engine_scene,
-    prepare_mujoco_stl,
+    prepare_mujoco_stl_parts,
     rebase_mjcf_file_assets,
     retain_spatial_arm,
 )
@@ -64,7 +64,7 @@ __all__ = [
     "nearest_clearance",
     "build_engine_mujoco_scene_xml",
     "inject_engine_scene",
-    "prepare_mujoco_stl",
+    "prepare_mujoco_stl_parts",
     "rebase_mjcf_file_assets",
     "retain_spatial_arm",
     "EnginePrimitiveSceneQuery",

@@ -19,6 +19,7 @@ OBSERVER_CONTROL_MODES = (
 CONTACT_FORCE_FEEDBACK_MODES = (
     "proxy_distance",
     "measured_contact_force",
+    "tool_wrench_sensor",
     "external",
 )
 

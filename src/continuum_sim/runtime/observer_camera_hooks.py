@@ -246,6 +246,15 @@ class MujocoObserverCameraFeedbackHook:
         if self._renderer is None:
             raise RuntimeError("observer camera renderer is not available.")
         self._renderer.update_scene(data, camera=self.camera_name)
+        scene = getattr(self._renderer, "scene", None)
+        flags = getattr(scene, "flags", None)
+        rnd_flags = getattr(self._mujoco, "mjtRndFlag", None)
+        cull_face = getattr(rnd_flags, "mjRND_CULL_FACE", None)
+        if flags is not None and cull_face is not None:
+            try:
+                flags[int(cull_face)] = 0
+            except (IndexError, TypeError):
+                pass
         return self._renderer.render().copy()
 
     def _show_frame(self, frame: np.ndarray) -> None:

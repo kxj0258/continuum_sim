@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from continuum_sim.runtime.completion_hooks import ControllerCompletionHook
 from continuum_sim.runtime.diagnostic_hooks import TendonDiagnosticHook
 from continuum_sim.runtime.live_panel_hooks import (
@@ -23,7 +21,7 @@ from continuum_sim.runtime.viewer_hooks import (
     MatplotlibSystemViewerHook,
     MujocoViewerHook,
 )
-from continuum_sim.tools.attachments import load_attachment_config
+from continuum_sim.tools.attachments import attachment_config_path, load_attachment_config
 
 
 def build_runtime_hooks(
@@ -129,7 +127,7 @@ def observer_camera_attachment_config(assembly):
     observer_arms = [arm for arm in assembly.enabled_arms if arm.role == "observer"]
     if len(observer_arms) != 1 or observer_arms[0].attachment is None:
         return None
-    path = _attachment_config_path(assembly.path, observer_arms[0].attachment)
+    path = attachment_config_path(assembly.path, observer_arms[0].attachment)
     if path is None:
         return None
     config = load_attachment_config(path)
@@ -176,11 +174,3 @@ def _video_suffixes(config) -> list[str]:
     if config.artifacts.save_mp4:
         suffixes.append("mp4")
     return suffixes
-
-
-def _attachment_config_path(assembly_path: Path, attachment_name: str) -> Path | None:
-    for parent in (assembly_path.parent, *assembly_path.parents):
-        candidate = parent / "tools" / f"{attachment_name}.yaml"
-        if candidate.is_file():
-            return candidate
-    return None

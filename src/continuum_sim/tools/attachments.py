@@ -1,10 +1,4 @@
-"""Tool/camera attachment configuration scaffold.
-
-This module only loads attachment metadata and fixed coordinate transforms.
-It does not implement a MuJoCo renderer, visual recognition, contact control,
-or collision avoidance. Later M5/M6/M7/M8 work can build behavior on top of
-these data structures.
-"""
+"""Tool and camera attachment configuration."""
 
 from __future__ import annotations
 
@@ -36,10 +30,48 @@ COLLISION_TYPES: tuple[str, ...] = ("sphere",)
 
 @dataclass(frozen=True)
 class CollisionGeometryConfig:
-    """Simple collision geometry placeholder for an attachment."""
+    """Simple collision geometry for a tip attachment."""
 
     type: str
     radius_m: float | None = None
+    position: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=float))
+    rgba: tuple[float, float, float, float] = (0.2, 0.22, 0.24, 1.0)
+    friction: tuple[float, float, float] = (0.8, 0.02, 0.005)
+    contype: int = 1
+    conaffinity: int = 1
+
+
+@dataclass(frozen=True)
+class ForceTorqueSensorConfig:
+    """Six-axis force/torque package mounted between the arm and tool."""
+
+    size_m: np.ndarray
+    mass_kg: float
+    rgba: tuple[float, float, float, float]
+    force_limit_n: float
+    torque_limit_nm: float
+    filter_cutoff_hz: float
+    tare_on_reset: bool = True
+    gravity_compensation: bool = True
+    output_sign: float = -1.0
+
+    def __post_init__(self) -> None:
+        size = np.asarray(self.size_m, dtype=float)
+        if size.shape != (3,) or not np.all(np.isfinite(size)) or np.any(size <= 0.0):
+            raise ValueError("force_torque_sensor.size_m must be a positive 3-vector.")
+        object.__setattr__(self, "size_m", size.copy())
+
+
+@dataclass(frozen=True)
+class CameraVisualConfig:
+    """Visible dome and lens mounted around an observer camera."""
+
+    shape: str
+    radius_m: float
+    rgba: tuple[float, float, float, float]
+    lens_radius_m: float
+    lens_depth_m: float
+    lens_rgba: tuple[float, float, float, float]
 
 
 @dataclass(frozen=True)
@@ -74,8 +106,10 @@ class AttachmentConfig:
     tcp_pose: Pose6D | None = None
     contact: ContactToolConfig | None = None
     camera: CameraConfig | None = None
+    camera_visual: CameraVisualConfig | None = None
     nozzle_pose: Pose6D | None = None
     airgun: AirgunConfig | None = None
+    force_torque_sensor: ForceTorqueSensorConfig | None = None
 
 
 def load_attachment_config(path: str | Path, *, strict_assets: bool = False) -> AttachmentConfig:
@@ -98,8 +132,12 @@ def load_attachment_config(path: str | Path, *, strict_assets: bool = False) -> 
         tcp_pose=_load_optional_pose(tool_raw, "tcp_pose", "tool.tcp_pose"),
         contact=_load_contact(tool_raw.get("contact")),
         camera=_load_camera(tool_raw.get("camera")),
+        camera_visual=_load_camera_visual(tool_raw.get("camera")),
         nozzle_pose=_load_optional_pose(tool_raw, "nozzle_pose", "tool.nozzle_pose"),
         airgun=_load_airgun(tool_raw.get("airgun")),
+        force_torque_sensor=_load_force_torque_sensor(
+            tool_raw.get("force_torque_sensor")
+        ),
     )
     _validate_attachment_fields(config)
     if strict_assets:
@@ -183,6 +221,36 @@ def get_attachment(
         raise KeyError(f"Unknown attachment {name!r}.") from exc
 
 
+def attachment_config_path(
+    assembly_path: str | Path,
+    attachment_name: str,
+) -> Path | None:
+    """Resolve one named tool config relative to an assembly configuration."""
+
+    resolved = Path(assembly_path).resolve()
+    for parent in (resolved.parent, *resolved.parents):
+        candidate = parent / "tools" / f"{attachment_name}.yaml"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def load_assembly_attachment_configs(assembly) -> dict[str, AttachmentConfig]:
+    """Load enabled arm attachments keyed by arm name."""
+
+    result: dict[str, AttachmentConfig] = {}
+    for arm in assembly.enabled_arms:
+        if arm.attachment is None:
+            continue
+        path = attachment_config_path(assembly.path, arm.attachment)
+        if path is None:
+            raise FileNotFoundError(
+                f"Attachment config {arm.attachment!r} for arm {arm.name!r} was not found."
+            )
+        result[arm.name] = load_attachment_config(path)
+    return result
+
+
 def _load_collision(raw_value: object) -> CollisionGeometryConfig | None:
     if raw_value is None:
         return None
@@ -190,7 +258,30 @@ def _load_collision(raw_value: object) -> CollisionGeometryConfig | None:
         raise ValueError("tool.collision must be a mapping.")
     collision_type = _choice_value(_required(raw_value, "type"), "tool.collision.type", COLLISION_TYPES)
     radius_m = _optional_positive_float(raw_value.get("radius_m"), "tool.collision.radius_m")
-    return CollisionGeometryConfig(type=collision_type, radius_m=radius_m)
+    position = np.asarray(raw_value.get("position", (0.0, 0.0, 0.0)), dtype=float)
+    if position.shape != (3,) or not np.all(np.isfinite(position)):
+        raise ValueError("tool.collision.position must be a finite 3-vector.")
+    rgba = _rgba_tuple(raw_value.get("rgba", (0.2, 0.22, 0.24, 1.0)), "tool.collision.rgba")
+    friction_values = np.asarray(
+        raw_value.get("friction", (0.8, 0.02, 0.005)), dtype=float
+    )
+    if (
+        friction_values.shape != (3,)
+        or not np.all(np.isfinite(friction_values))
+        or np.any(friction_values < 0.0)
+    ):
+        raise ValueError("tool.collision.friction must be a nonnegative 3-vector.")
+    return CollisionGeometryConfig(
+        type=collision_type,
+        radius_m=radius_m,
+        position=position,
+        rgba=rgba,
+        friction=tuple(float(value) for value in friction_values),
+        contype=_nonnegative_int(raw_value.get("contype", 1), "tool.collision.contype"),
+        conaffinity=_nonnegative_int(
+            raw_value.get("conaffinity", 1), "tool.collision.conaffinity"
+        ),
+    )
 
 
 def _load_contact(raw_value: object) -> ContactToolConfig | None:
@@ -233,6 +324,44 @@ def _load_camera(raw_value: object) -> CameraConfig | None:
     )
 
 
+def _load_camera_visual(raw_value: object) -> CameraVisualConfig | None:
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, dict):
+        raise ValueError("tool.camera must be a mapping.")
+    visual = raw_value.get("visual")
+    if visual is None:
+        return None
+    if not isinstance(visual, dict):
+        raise ValueError("tool.camera.visual must be a mapping.")
+    shape = str(visual.get("shape", "hemisphere"))
+    if shape != "hemisphere":
+        raise ValueError("tool.camera.visual.shape must be 'hemisphere'.")
+    return CameraVisualConfig(
+        shape=shape,
+        radius_m=_positive_float_value(
+            visual.get("radius_m", 0.00375),
+            "tool.camera.visual.radius_m",
+        ),
+        rgba=_rgba_tuple(
+            visual.get("rgba", (0.08, 0.09, 0.11, 1.0)),
+            "tool.camera.visual.rgba",
+        ),
+        lens_radius_m=_positive_float_value(
+            visual.get("lens_radius_m", 0.0015),
+            "tool.camera.visual.lens_radius_m",
+        ),
+        lens_depth_m=_positive_float_value(
+            visual.get("lens_depth_m", 0.0008),
+            "tool.camera.visual.lens_depth_m",
+        ),
+        lens_rgba=_rgba_tuple(
+            visual.get("lens_rgba", (0.08, 0.25, 0.50, 1.0)),
+            "tool.camera.visual.lens_rgba",
+        ),
+    )
+
+
 def _load_airgun(raw_value: object) -> AirgunConfig | None:
     if raw_value is None:
         return None
@@ -243,6 +372,44 @@ def _load_airgun(raw_value: object) -> AirgunConfig | None:
             _required(raw_value, "standoff_distance_m"),
             "tool.airgun.standoff_distance_m",
         )
+    )
+
+
+def _load_force_torque_sensor(raw_value: object) -> ForceTorqueSensorConfig | None:
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, dict):
+        raise ValueError("tool.force_torque_sensor must be a mapping.")
+    return ForceTorqueSensorConfig(
+        size_m=np.asarray(
+            _required(raw_value, "size_m"),
+            dtype=float,
+        ),
+        mass_kg=_positive_float_value(
+            _required(raw_value, "mass_kg"),
+            "tool.force_torque_sensor.mass_kg",
+        ),
+        rgba=_rgba_tuple(
+            raw_value.get("rgba", (0.16, 0.17, 0.18, 1.0)),
+            "tool.force_torque_sensor.rgba",
+        ),
+        force_limit_n=_positive_float_value(
+            raw_value.get("force_limit_n", 10.0),
+            "tool.force_torque_sensor.force_limit_n",
+        ),
+        torque_limit_nm=_positive_float_value(
+            raw_value.get("torque_limit_nm", 0.25),
+            "tool.force_torque_sensor.torque_limit_nm",
+        ),
+        filter_cutoff_hz=_positive_float_value(
+            raw_value.get("filter_cutoff_hz", 15.0),
+            "tool.force_torque_sensor.filter_cutoff_hz",
+        ),
+        tare_on_reset=_bool_field(raw_value, "tare_on_reset", default=True),
+        gravity_compensation=_bool_field(
+            raw_value, "gravity_compensation", default=True
+        ),
+        output_sign=_wrench_output_sign(raw_value.get("output_sign", -1.0)),
     )
 
 
@@ -280,3 +447,29 @@ def _optional_positive_float(raw_value: object, name: str) -> float | None:
     if raw_value is None:
         return None
     return _positive_float_value(raw_value, name)
+
+
+def _rgba_tuple(raw_value: object, name: str) -> tuple[float, float, float, float]:
+    values = np.asarray(raw_value, dtype=float)
+    if (
+        values.shape != (4,)
+        or not np.all(np.isfinite(values))
+        or np.any(values < 0.0)
+        or np.any(values > 1.0)
+    ):
+        raise ValueError(f"{name} must contain four values in [0, 1].")
+    return tuple(float(value) for value in values)
+
+
+def _nonnegative_int(raw_value: object, name: str) -> int:
+    value = int(raw_value)
+    if value < 0:
+        raise ValueError(f"{name} must be nonnegative.")
+    return value
+
+
+def _wrench_output_sign(raw_value: object) -> float:
+    value = float(raw_value)
+    if value not in (-1.0, 1.0):
+        raise ValueError("tool.force_torque_sensor.output_sign must be -1 or 1.")
+    return value

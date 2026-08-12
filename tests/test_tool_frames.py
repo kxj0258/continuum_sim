@@ -25,7 +25,7 @@ def test_compute_tool_tcp_pose_identity_tip_returns_expected_tcp() -> None:
 
     world_tcp = compute_tool_tcp_pose(Pose6D.identity(), tool)
 
-    assert_allclose(world_tcp.position, [0.0, 0.0, 0.065])
+    assert_allclose(world_tcp.position, [0.0, 0.0, 0.018])
 
 
 def test_compute_tool_tcp_pose_translates_with_world_tip() -> None:
@@ -39,7 +39,7 @@ def test_compute_tool_tcp_pose_translates_with_world_tip() -> None:
 
     world_tcp = compute_tool_tcp_pose(world_tip, tool)
 
-    assert_allclose(world_tcp.position, [0.3, -0.2, 0.465])
+    assert_allclose(world_tcp.position, [0.3, -0.2, 0.418])
 
 
 def test_compute_camera_and_nozzle_pose_compose_from_tip_frame() -> None:
@@ -54,7 +54,7 @@ def test_compute_camera_and_nozzle_pose_compose_from_tip_frame() -> None:
     world_camera = compute_camera_pose(world_tip, camera_airgun)
     world_nozzle = compute_nozzle_pose(world_tip, camera_airgun)
 
-    assert_allclose(world_camera.position, [0.1, 0.2, 0.34])
+    assert_allclose(world_camera.position, [0.1, 0.2, 0.304])
     assert_allclose(world_nozzle.position, [0.1, 0.215, 0.345])
 
 
@@ -66,11 +66,11 @@ def test_compute_all_attachment_frames_returns_supported_frames() -> None:
     camera_frames = compute_all_attachment_frames(Pose6D.identity(), camera_airgun)
 
     assert set(tool_frames) == {"attachment", "tcp"}
-    assert_allclose(tool_frames["attachment"].position, [0.0, 0.0, 0.02])
-    assert_allclose(tool_frames["tcp"].position, [0.0, 0.0, 0.065])
+    assert_allclose(tool_frames["attachment"].position, [0.0, 0.0, 0.004])
+    assert_allclose(tool_frames["tcp"].position, [0.0, 0.0, 0.018])
     assert set(camera_frames) == {"attachment", "camera", "nozzle"}
-    assert_allclose(camera_frames["attachment"].position, [0.0, 0.0, 0.025])
-    assert_allclose(camera_frames["camera"].position, [0.0, 0.0, 0.04])
+    assert_allclose(camera_frames["attachment"].position, [0.0, 0.0, 0.0])
+    assert_allclose(camera_frames["camera"].position, [0.0, 0.0, 0.004])
     assert_allclose(camera_frames["nozzle"].position, [0.0, 0.015, 0.045])
 
 
@@ -79,4 +79,4 @@ def test_compute_attachment_pose_uses_tip_to_attachment_transform() -> None:
 
     attachment_pose = compute_attachment_pose(Pose6D.identity(), camera_airgun)
 
-    assert_allclose(attachment_pose.position, [0.0, 0.0, 0.025])
+    assert_allclose(attachment_pose.position, [0.0, 0.0, 0.0])

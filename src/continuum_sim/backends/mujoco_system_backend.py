@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from collections.abc import Mapping
 
 import numpy as np
 
@@ -30,7 +31,9 @@ from continuum_sim.system.types import (
     BaseSystemState,
     RobotSystemCommand,
     RobotSystemState,
+    ToolWrenchState,
 )
+from continuum_sim.tools.attachments import AttachmentConfig
 
 
 class MujocoSystemBackend:
@@ -44,6 +47,7 @@ class MujocoSystemBackend:
         xml_path: str | Path | None = None,
         tendon_rate_servo_config: BendingRateServoConfig | None = None,
         kinematics_mode: PCCKinematicsMode = DEFAULT_PCC_KINEMATICS_MODE,
+        attachment_configs: Mapping[str, AttachmentConfig] | None = None,
     ) -> None:
         if len(assembly.enabled_arms) == 1 and mujoco_config.tendon_model.count != 9:
             arm = assembly.enabled_arms[0]
@@ -68,6 +72,7 @@ class MujocoSystemBackend:
         self.config = mujoco_config
         self.assembly = assembly
         self.kinematics_mode = kinematics_mode
+        self.attachment_configs = dict(attachment_configs or {})
         self.layout = ControlLayout.from_assembly(assembly)
         if self.layout.tendon_size != mujoco_config.tendon_model.count:
             raise ValueError(
@@ -95,6 +100,9 @@ class MujocoSystemBackend:
             pose=assembly.base.initial_pose,
             locked=assembly.base.control_mode == "fixed",
         )
+        self._tool_wrench_bias: dict[str, np.ndarray] = {}
+        self._tool_wrench_filtered: dict[str, np.ndarray] = {}
+        self._tool_wrench_time_s: dict[str, float] = {}
 
     @classmethod
     def from_config(
@@ -132,6 +140,7 @@ class MujocoSystemBackend:
             pose=self.assembly.base.initial_pose,
             locked=self.assembly.base.control_mode == "fixed",
         )
+        self._reset_tool_wrench_state()
         return self.get_system_state()
 
     def step_system(
@@ -221,6 +230,14 @@ class MujocoSystemBackend:
             tendon_slice = self.layout.tendon_slice(arm.name)
             tip_name, segment_names = self._site_names(arm.name, dual=dual)
             tip_pose_matrix = self._site_pose(tip_name)
+            tool_pose_matrix = self.physics.get_site_pose(f"{arm.name}_tool_tcp")
+            sensor_pose_matrix = self.physics.get_site_pose(
+                f"{arm.name}_ft_sensor_site"
+            )
+            tool_wrench = self._tool_wrench_state(
+                arm.name,
+                sensor_pose_matrix=sensor_pose_matrix,
+            )
             segment_pose_matrices = np.asarray(
                 [self._site_pose(name) for name in segment_names],
                 dtype=float,
@@ -253,6 +270,12 @@ class MujocoSystemBackend:
                     else np.zeros_like(tendon_displacement[tendon_slice])
                 ),
                 centerline_world=centerline_world,
+                tool_pose_world=(
+                    None
+                    if tool_pose_matrix is None
+                    else Pose6D.from_matrix(tool_pose_matrix)
+                ),
+                tool_wrench=tool_wrench,
                 metadata={
                     "attachment": arm.attachment,
                     "bending": self.layout.bending_models[arm.name].estimate(
@@ -265,6 +288,7 @@ class MujocoSystemBackend:
                         arm.name
                     ].residual_norm(tendon_displacement[tendon_slice]),
                     "kinematics_mode": self.kinematics_mode,
+                    "arm_tip_pose_world": tip_pose_matrix.copy(),
                 },
             )
         return RobotSystemState(
@@ -296,6 +320,114 @@ class MujocoSystemBackend:
     def _site_pose(self, name: str) -> np.ndarray:
         site_id = self.physics._site_id(name)
         return self.physics._site_pose(site_id)
+
+    def _reset_tool_wrench_state(self) -> None:
+        self._tool_wrench_bias.clear()
+        self._tool_wrench_filtered.clear()
+        self._tool_wrench_time_s.clear()
+        for arm_name, attachment in self.attachment_configs.items():
+            sensor_config = attachment.force_torque_sensor
+            if sensor_config is None:
+                continue
+            raw = self._raw_tool_wrench(arm_name)
+            sensor_pose = self.physics.get_site_pose(f"{arm_name}_ft_sensor_site")
+            if raw is None or sensor_pose is None:
+                continue
+            gravity = self._expected_gravity_wrench_raw(
+                attachment,
+                sensor_pose,
+            )
+            self._tool_wrench_bias[arm_name] = (
+                raw - gravity if sensor_config.tare_on_reset else np.zeros(6)
+            )
+            self._tool_wrench_filtered[arm_name] = np.zeros(6, dtype=float)
+            self._tool_wrench_time_s[arm_name] = float(self.physics.data.time)
+
+    def _tool_wrench_state(
+        self,
+        arm_name: str,
+        *,
+        sensor_pose_matrix: np.ndarray | None,
+    ) -> ToolWrenchState | None:
+        attachment = self.attachment_configs.get(arm_name)
+        if attachment is None or attachment.force_torque_sensor is None:
+            return None
+        raw = self._raw_tool_wrench(arm_name)
+        if raw is None or sensor_pose_matrix is None:
+            return None
+        sensor_config = attachment.force_torque_sensor
+        gravity = self._expected_gravity_wrench_raw(
+            attachment,
+            sensor_pose_matrix,
+        )
+        bias = self._tool_wrench_bias.get(arm_name, np.zeros(6, dtype=float))
+        corrected = sensor_config.output_sign * (raw - bias - gravity)
+        now = float(self.physics.data.time)
+        previous_time = self._tool_wrench_time_s.get(arm_name, now)
+        dt = max(0.0, now - previous_time)
+        previous = self._tool_wrench_filtered.get(arm_name)
+        if previous is None or dt <= 0.0:
+            filtered = corrected
+        else:
+            alpha = 1.0 - np.exp(-2.0 * np.pi * sensor_config.filter_cutoff_hz * dt)
+            filtered = previous + alpha * (corrected - previous)
+        self._tool_wrench_filtered[arm_name] = filtered.copy()
+        self._tool_wrench_time_s[arm_name] = now
+
+        rotation = np.asarray(sensor_pose_matrix[:3, :3], dtype=float)
+        force_world = rotation @ filtered[:3]
+        torque_world = rotation @ filtered[3:]
+        saturated = bool(
+            np.linalg.norm(filtered[:3]) > sensor_config.force_limit_n
+            or np.linalg.norm(filtered[3:]) > sensor_config.torque_limit_nm
+        )
+        return ToolWrenchState(
+            raw_force_sensor_n=raw[:3],
+            raw_torque_sensor_nm=raw[3:],
+            force_sensor_n=filtered[:3],
+            torque_sensor_nm=filtered[3:],
+            force_world_n=force_world,
+            torque_world_nm=torque_world,
+            sensor_pose_world=Pose6D.from_matrix(sensor_pose_matrix),
+            tared=sensor_config.tare_on_reset,
+            saturated=saturated,
+        )
+
+    def _raw_tool_wrench(self, arm_name: str) -> np.ndarray | None:
+        force = self.physics.get_sensor_data(f"{arm_name}_ft_force")
+        torque = self.physics.get_sensor_data(f"{arm_name}_ft_torque")
+        if force is None or torque is None or force.shape != (3,) or torque.shape != (3,):
+            return None
+        return np.concatenate((force, torque))
+
+    def _expected_gravity_wrench_raw(
+        self,
+        attachment: AttachmentConfig,
+        sensor_pose_matrix: np.ndarray,
+    ) -> np.ndarray:
+        sensor_config = attachment.force_torque_sensor
+        collision = attachment.collision
+        if (
+            sensor_config is None
+            or not sensor_config.gravity_compensation
+            or collision is None
+        ):
+            return np.zeros(6, dtype=float)
+        rotation = np.asarray(sensor_pose_matrix[:3, :3], dtype=float)
+        gravity_world = np.asarray(self.physics.model.opt.gravity, dtype=float)
+        sensor_force_world = sensor_config.mass_kg * gravity_world
+        tool_mass = float(attachment.mass_kg or 0.0)
+        tool_force_world = tool_mass * gravity_world
+        tool_offset_world = rotation @ np.asarray(collision.position, dtype=float)
+        gravity_force_world = sensor_force_world + tool_force_world
+        gravity_torque_world = np.cross(tool_offset_world, tool_force_world)
+        inverse_sign = 1.0 / sensor_config.output_sign
+        return inverse_sign * np.concatenate(
+            (
+                rotation.T @ gravity_force_world,
+                rotation.T @ gravity_torque_world,
+            )
+        )
 
 
 def _pose_to_xyz_rpy(pose: Pose6D) -> np.ndarray:

@@ -3,7 +3,7 @@
   <option timestep="0.001" integrator="implicitfast" iterations="50" gravity="0 0 0" />
   <visual>
     <global azimuth="210" elevation="-45" offwidth="1080" offheight="720" />
-    <headlight ambient="0.35 0.35 0.35" diffuse="0.75 0.75 0.75" specular="0.2 0.2 0.2" />
+    <headlight ambient="0.32 0.32 0.32" diffuse="0.78 0.78 0.78" specular="0.45 0.45 0.45" />
     <map znear="0.001" zfar="2" />
     <quality shadowsize="2048" />
   </visual>
@@ -35,7 +35,9 @@
     <mesh name="observer_segment_3_link_2_visual_mesh" file="../../assets/meshes/dual_arm/observer/segment_3_link_2_visual.stl" scale="0.001 0.001 0.001" />
     <mesh name="observer_segment_3_link_3_visual_mesh" file="../../assets/meshes/dual_arm/observer/segment_3_link_3_visual.stl" scale="0.001 0.001 0.001" />
     <mesh name="observer_segment_3_link_4_visual_mesh" file="../../assets/meshes/dual_arm/observer/segment_3_link_4_visual.stl" scale="0.001 0.001 0.001" />
-    <mesh name="engine_visual_mesh" file="engine_visual_mujoco_max_200000.stl" scale="0.001 0.001 0.001" />
+    <mesh name="engine_visual_mesh_part_1" file="engine_visual_mujoco_part_01.stl" scale="0.001 0.001 0.001" />
+    <mesh name="engine_visual_mesh_part_2" file="engine_visual_mujoco_part_02.stl" scale="0.001 0.001 0.001" />
+    <material name="engine_silver" rgba="0.66 0.68 0.71 1" emission="0" specular="0.72" shininess="0.48" />
   </asset>
   <default>
     <joint damping="0.1" armature="0.0001" limited="true" range="-0.261799387799 0.261799387799" stiffness="0.01" springref="0" />
@@ -268,6 +270,15 @@
                                   <site name="executor_segment_3_link_4_hole_04_out" pos="0 0.005 0.0065" size="0.0006" rgba="0.1 0.4 1 1" />
                                   <site name="executor_segment_3_link_4_hole_08_out" pos="-0.00433013 -0.0025 0.0065" size="0.0006" rgba="0.1 0.4 1 1" />
                                   <site name="executor_segment_3_link_4_hole_12_out" pos="0.00433013 -0.0025 0.0065" size="0.0006" rgba="0.1 0.4 1 1" />
+                                  <body name="executor_ft_sensor_body" pos="0 0 0.014" quat="1 0 0 0">
+                                    <geom name="executor_ft_sensor_visual" type="box" size="0.0075 0.0075 0.004" mass="0.03" rgba="0.16 0.17 0.18 1" contype="0" conaffinity="0" group="1" />
+                                    <site name="executor_ft_sensor_site" type="sphere" pos="0 0 0" size="0.001" rgba="0.95 0.75 0.1 0.9" group="2" />
+                                    <geom name="executor_tool_connector_visual" type="cylinder" fromto="0 0 0.004 0 0 0.005" size="0.003" mass="0.0001" rgba="0.12 0.13 0.14 1" contype="0" conaffinity="0" group="1" />
+                                    <body name="executor_wiping_tool_body" pos="0 0 0.023">
+                                      <geom name="executor_wiping_sphere" type="sphere" size="0.018" mass="0.02" rgba="0.2 0.22 0.24 1" friction="0.8 0.02 0.005" contype="1" conaffinity="1" group="1" />
+                                      <site name="executor_tool_tcp" type="sphere" pos="0 0 0.018" quat="1 0 0 0" size="0.0015" rgba="0.1 0.95 0.2 0.95" group="2" />
+                                    </body>
+                                  </body>
                                 </body>
                               </body>
                             </body>
@@ -521,11 +532,14 @@
     <site name="world_y_axis" type="cylinder" fromto="0 0 0 0 0.1 0" size="0.0015" rgba="0 1 0 1" group="2" />
     <site name="world_z_axis" type="cylinder" fromto="0 0 0 0 0 0.1" size="0.0015" rgba="0 0 1 1" group="2" />
     <body name="engine" pos="-0.5 -2.5 -1.75" quat="1 0 0 0">
-      <geom name="engine_visual" type="mesh" mesh="engine_visual_mesh" contype="0" conaffinity="0" group="1" rgba="0.72 0.76 0.8 0.45" />
+      <geom name="engine_visual_part_1" type="mesh" mesh="engine_visual_mesh_part_1" contype="0" conaffinity="0" group="1" rgba="0.66 0.68 0.71 1" material="engine_silver" />
+      <geom name="engine_visual_part_2" type="mesh" mesh="engine_visual_mesh_part_2" contype="0" conaffinity="0" group="1" rgba="0.66 0.68 0.71 1" material="engine_silver" />
     </body>
     <body name="engine_primitive_body_debug_box_1" pos="0.114155 0.530382 0.01" quat="1 0 0 0">
       <geom name="engine_primitive_debug_box_1" type="box" group="0" contype="1" conaffinity="1" rgba="1 0.2 0.2 0.6" size="0.01 0.01 0.01" />
     </body>
+    <light name="engine_key_light" directional="true" pos="1 -1 2" dir="-0.4 0.4 -1" diffuse="0.85 0.85 0.85" specular="0.55 0.55 0.55" />
+    <light name="engine_fill_light" directional="true" pos="-1 1 1" dir="0.5 -0.4 -1" diffuse="0.3 0.3 0.3" specular="0.15 0.15 0.15" />
   </worldbody>
   <tendon>
     <spatial name="executor_tendon_1" damping="0" stiffness="0" width="0.0002" rgba="0.92 0.2 0.16 1">
@@ -964,5 +978,7 @@
     <tendonpos name="sensor_observer_tendon_9_length" tendon="observer_tendon_9" />
     <tendonvel name="sensor_observer_tendon_9_velocity" tendon="observer_tendon_9" />
     <actuatorfrc name="sensor_observer_tendon_9_actuator_force" actuator="act_observer_tendon_9" />
+    <force name="executor_ft_force" site="executor_ft_sensor_site" />
+    <torque name="executor_ft_torque" site="executor_ft_sensor_site" />
   </sensor>
 </mujoco>

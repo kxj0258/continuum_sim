@@ -372,8 +372,9 @@ def inject_tip_camera(
     camera_name: str,
     tip_to_camera: Pose6D,
     fovy_deg: float,
+    camera_visual=None,
 ) -> None:
-    """Insert a MuJoCo camera mounted to the body that owns a tip site."""
+    """Insert an observer camera and its optional tip-mounted dome."""
 
     tip_body, tip_site = _find_site_parent_body_and_site(root, tip_site_name)
     if tip_body is None or tip_site is None:
@@ -395,6 +396,44 @@ def inject_tip_camera(
             "quat": tip_site_quat,
         },
     )
+    if camera_visual is not None:
+        radius = float(camera_visual.radius_m)
+        lens_depth = float(camera_visual.lens_depth_m)
+        ET.SubElement(
+            mount_body,
+            "geom",
+            {
+                "name": f"{camera_name}_dome_visual",
+                "type": "sphere",
+                # The sphere centre lies on the arm end plane. Its rear half is
+                # embedded in the opaque terminal link, leaving a hemisphere.
+                "pos": "0 0 0",
+                "size": _format_float(radius),
+                "rgba": _format_tuple(camera_visual.rgba),
+                "contype": "0",
+                "conaffinity": "0",
+                "density": "0",
+                "group": "1",
+            },
+        )
+        ET.SubElement(
+            mount_body,
+            "geom",
+            {
+                "name": f"{camera_name}_lens_visual",
+                "type": "cylinder",
+                "fromto": (
+                    f"0 0 {_format_float(radius - 0.5 * lens_depth)} "
+                    f"0 0 {_format_float(radius + 0.5 * lens_depth)}"
+                ),
+                "size": _format_float(float(camera_visual.lens_radius_m)),
+                "rgba": _format_tuple(camera_visual.lens_rgba),
+                "contype": "0",
+                "conaffinity": "0",
+                "density": "0",
+                "group": "1",
+            },
+        )
     ET.SubElement(
         mount_body,
         "camera",

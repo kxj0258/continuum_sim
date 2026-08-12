@@ -4,7 +4,7 @@ tool:
   enabled: true
 
   tip_to_attachment:
-    position: [0.0, 0.0, 0.025]
+    position: [0.0, 0.0, 0.0]
     quat: [1.0, 0.0, 0.0, 0.0]
 
   camera:
@@ -16,8 +16,15 @@ tool:
       near: 0.02
       far: 2.0
     tip_to_camera:
-      position: [0.0, 0.0, 0.04]
+      position: [0.0, 0.0, 0.004]
       quat: [1.0, 0.0, 0.0, 0.0]
+    visual:
+      shape: hemisphere
+      radius_m: 0.00375
+      rgba: [0.08, 0.09, 0.11, 1.0]
+      lens_radius_m: 0.0015
+      lens_depth_m: 0.0008
+      lens_rgba: [0.08, 0.25, 0.50, 1.0]
 
   nozzle_pose:
     position: [0.0, 0.015, 0.045]

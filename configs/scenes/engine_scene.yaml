@@ -23,7 +23,12 @@ engine:
     quat_wxyz: [1.0, 0.0, 0.0, 0.0]
 
 preview_visualization:
-  visual_mesh_rgba: [0.72, 0.76, 0.80, 0.45]
+  visual_mesh_rgba: [0.66, 0.68, 0.71, 1.0]
+  visual_material:
+    name: engine_silver
+    emission: 0.0
+    specular: 0.72
+    shininess: 0.48
   collision_mesh_rgba: [0.90, 0.20, 0.15, 0.28]
   bbox_rgba: [1.0, 1.0, 0.0, 0.85]
   bbox_edge_radius_m: 0.002

@@ -1071,6 +1071,20 @@ class NavigationController:
         return None if best is None else best[1]
 
 
+def _state_with_executor_tool_tcp(state: RobotSystemState) -> RobotSystemState:
+    """Expose the mounted tool TCP as the executor task point when available."""
+
+    arms = state.arms
+    changed = False
+    updated = dict(arms)
+    for name, arm in arms.items():
+        if arm.role != "executor" or arm.tool_pose_world is None:
+            continue
+        updated[name] = replace(arm, tip_pose_world=arm.tool_pose_world)
+        changed = True
+    return state if not changed else replace(state, arms=updated)
+
+
 class WipingController:
     """Direct-tendon wiping path with normal-distance contact regulation."""
 
@@ -1204,8 +1218,11 @@ class WipingController:
         return self._tracking.terminal_reason
 
     def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
-        self._ensure_runtime_approach(state)
-        executor = next(arm for arm in state.arms.values() if arm.role == "executor")
+        control_state = _state_with_executor_tool_tcp(state)
+        self._ensure_runtime_approach(control_state)
+        executor = next(
+            arm for arm in control_state.arms.values() if arm.role == "executor"
+        )
         distance = float("nan")
         query = None
         if self.surface_point_world is not None:
@@ -1231,22 +1248,29 @@ class WipingController:
             if not np.isfinite(distance)
             else self.target_contact_distance_m - distance
         )
-        estimated_force = (
+        proxy_force = (
             float("nan")
             if not np.isfinite(distance)
             else max(0.0, -distance * self.force_proxy_stiffness_n_m)
         )
+        contact_normal = self.surface_normal_world if query is None else query.normal
+        measured_force, force_source = self._normal_force_feedback(
+            state,
+            executor_name=executor.name,
+            contact_normal_world=contact_normal,
+            proxy_force_n=proxy_force,
+        )
         self.force_limit_exceeded = bool(
             self.max_contact_force_n is not None
-            and np.isfinite(estimated_force)
-            and estimated_force > self.max_contact_force_n
+            and np.isfinite(measured_force)
+            and measured_force > self.max_contact_force_n
         )
         waypoint_index = self._tracking.active_index
         target_force = float(self.target_force_n[waypoint_index])
         force_error = (
             float("nan")
-            if not np.isfinite(estimated_force)
-            else target_force - estimated_force
+            if not np.isfinite(measured_force)
+            else target_force - measured_force
         )
         strategy_result = self.force_strategy.compute(
             WipingForceContext(
@@ -1257,7 +1281,7 @@ class WipingController:
                 surface_normal_world=self.surface_normal_world,
                 query_normal_world=None if query is None else query.normal,
                 contact_error_m=contact_error,
-                estimated_force_n=estimated_force,
+                estimated_force_n=measured_force,
                 target_force_n=target_force,
                 normal_force_gain=self.normal_force_gain,
                 force_proxy_stiffness_n_m=self.force_proxy_stiffness_n_m,
@@ -1277,13 +1301,13 @@ class WipingController:
         )
         contact_intent = ContactTaskIntent(
             surface_normal_world=(
-                self.surface_normal_world if query is None else query.normal
+                contact_normal
             ),
             target_normal_force_n=target_force,
             target_contact_distance_m=self.target_contact_distance_m,
             contact_distance_m=(distance if np.isfinite(distance) else None),
             measured_normal_force_n=(
-                estimated_force if np.isfinite(estimated_force) else None
+                measured_force if np.isfinite(measured_force) else None
             ),
             force_feedback_mode=self.force_feedback_mode,
             force_proxy_stiffness_n_m=self.force_proxy_stiffness_n_m,
@@ -1303,12 +1327,12 @@ class WipingController:
         try:
             if self._tracking_mode == "time":
                 command = self._tracking.compute_command(
-                    state,
+                    control_state,
                     contact=contact_intent,
                 )
             else:
                 command = self._tracking.compute_command(
-                    state,
+                    control_state,
                     advance=not strategy_result.controls_waypoint_advance,
                     contact=contact_intent,
                 )
@@ -1324,7 +1348,9 @@ class WipingController:
                 "wiping_phase": self.phase,
                 "wiping_control_type": self.control_type,
                 "target_normal_force_n": float(self.target_force_n[waypoint_index]),
-                "estimated_normal_force_n": estimated_force,
+                "estimated_normal_force_n": measured_force,
+                "measured_normal_force_n": measured_force,
+                "normal_force_source": force_source,
                 "force_error_n": force_error,
                 "normal_force_gain": self.normal_force_gain,
                 "force_proxy_stiffness_n_m": self.force_proxy_stiffness_n_m,
@@ -1347,6 +1373,31 @@ class WipingController:
                 ),
             },
         )
+
+    def _normal_force_feedback(
+        self,
+        state: RobotSystemState,
+        *,
+        executor_name: str,
+        contact_normal_world: np.ndarray,
+        proxy_force_n: float,
+    ) -> tuple[float, str]:
+        if self.force_feedback_mode == "tool_wrench_sensor":
+            arm = state.arms[executor_name]
+            wrench = arm.tool_wrench
+            if wrench is not None:
+                force = max(
+                    0.0,
+                    float(np.dot(wrench.force_world_n, contact_normal_world)),
+                )
+                return force, "tool_wrench_sensor"
+            return proxy_force_n, "proxy_distance_fallback"
+        if self.force_feedback_mode in ("measured_contact_force", "external"):
+            external = state.metadata.get("measured_normal_force_n")
+            if external is not None and np.isfinite(float(external)):
+                return max(0.0, float(external)), self.force_feedback_mode
+            return proxy_force_n, "proxy_distance_fallback"
+        return proxy_force_n, "proxy_distance"
 
     def _force_control_velocity_mps(
         self,

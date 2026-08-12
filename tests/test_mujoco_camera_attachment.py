@@ -4,6 +4,7 @@ from xml.etree import ElementTree as ET
 
 from continuum_sim.model.base_pose import Pose6D
 from continuum_sim.scenes.scene_builder import inject_tip_camera
+from continuum_sim.tools.attachments import CameraVisualConfig
 
 
 def test_inject_tip_camera_mounts_camera_on_tip_site_parent_body() -> None:
@@ -29,6 +30,14 @@ def test_inject_tip_camera_mounts_camera_on_tip_site_parent_body() -> None:
             {"position": [0.0, 0.0, 0.04], "quat": [1.0, 0.0, 0.0, 0.0]}
         ),
         fovy_deg=60.0,
+        camera_visual=CameraVisualConfig(
+            shape="hemisphere",
+            radius_m=0.00375,
+            rgba=(0.08, 0.09, 0.11, 1.0),
+            lens_radius_m=0.0015,
+            lens_depth_m=0.0008,
+            lens_rgba=(0.08, 0.25, 0.50, 1.0),
+        ),
     )
 
     camera = root.find(".//camera[@name='observer_eye_camera']")
@@ -37,3 +46,8 @@ def test_inject_tip_camera_mounts_camera_on_tip_site_parent_body() -> None:
     assert camera.get("pos") == "0 0 0.04"
     assert camera.get("quat") == "0 1 0 0"
     assert camera.get("fovy") == "60"
+    dome = root.find(".//geom[@name='observer_eye_camera_dome_visual']")
+    lens = root.find(".//geom[@name='observer_eye_camera_lens_visual']")
+    assert dome is not None and dome.get("size") == "0.00375"
+    assert dome.get("contype") == "0"
+    assert lens is not None and lens.get("size") == "0.0015"

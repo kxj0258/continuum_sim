@@ -1,8 +1,19 @@
-# 主场景说明
+# 场景说明
 
-当前项目只维护 `configs/scenarios/` 下的 5 个主场景。所有主场景都通过 `scripts/run_scenario.py` 进入 `SimulationApplication`，不再使用旧的 `configs/tasks/*.yaml` 任务配置。
+项目在 `configs/scenarios/` 中提供 6 个可运行场景。自动任务由 `scripts/run_scenario.py` 启动，手动控制由 `scripts/run_manual_control.py` 启动。
 
-## 统一运行入口
+## 场景列表
+
+| 场景文件 | 任务类型 | 默认模式 | 基座 | 主要能力 |
+| --- | --- | --- | --- | --- |
+| `mujoco_manual_control.yaml` | `idle` | `dual` | 移动 | 双臂局部曲率、肌腱和基座六自由度手动控制、三窗口显示 |
+| `mujoco_tracking.yaml` | `tracking` | `dual` | 固定 | 方形轨迹跟踪、observer 协同、实时诊断 |
+| `mujoco_point_servo.yaml` | `tracking` | `single` | 固定 | 单点伺服和低层控制调试 |
+| `mujoco_navigation.yaml` | `navigation` | `dual` | 移动 | 基座阶段化接近、结构化场景避障、observer 相机 |
+| `engine_navigation.yaml` | `engine_navigation` | `dual` | 移动 | 发动机入口定位、轴向插入和内部探索路径 |
+| `mujoco_wiping.yaml` | `wiping` | `dual` | 固定 | 球形工具擦拭、六维力反馈、力/位混合控制 |
+
+## 运行命令
 
 ```powershell
 python scripts/run_scenario.py configs/scenarios/mujoco_tracking.yaml
@@ -10,9 +21,10 @@ python scripts/run_scenario.py configs/scenarios/mujoco_navigation.yaml
 python scripts/run_scenario.py configs/scenarios/engine_navigation.yaml
 python scripts/run_scenario.py configs/scenarios/mujoco_wiping.yaml
 python scripts/run_scenario.py configs/scenarios/mujoco_point_servo.yaml
+python scripts/run_manual_control.py
 ```
 
-批量运行当前主场景：
+批量运行非空闲任务：
 
 ```powershell
 python scripts/run_all_scenarios.py
@@ -20,42 +32,36 @@ python scripts/run_all_scenarios.py
 
 ## 单臂和双臂
 
-每个场景通过 `scenario.arm_mode` 选择装配：
+场景通过 `scenario.arm_mode` 选择装配：
 
 ```yaml
 scenario:
-  arm_mode: dual   # dual 或 single
+  arm_mode: dual
 ```
 
-- `dual`：启用 executor 和 observer 两条臂。
-- `single`：只保留 executor，适合点伺服、基础跟踪和快速调参。
-- 移动基座任务会自动选择 mobile assembly；固定基座任务选择 fixed assembly。
+- `dual`：启用 `executor` 和 `observer`。
+- `single`：启用 `executor`。
+- `manual_control`、`navigation` 和 `engine_navigation` 选择移动基座装配。
+- 轨迹跟踪、点伺服和擦拭任务选择固定基座装配。
 
-## 场景列表
+## 配置职责
 
-| 场景文件 | 任务类型 | 默认模式 | 主要能力 |
-| --- | --- | --- | --- |
-| `mujoco_tracking.yaml` | `tracking` | `dual` | 方形轨迹跟踪、observer 避碰、live diagnostics |
-| `mujoco_navigation.yaml` | `navigation` | `dual` | 移动基座阶段化接近、结构化场景避障、observer 相机 |
-| `engine_navigation.yaml` | `engine_navigation` | `dual` | 发动机入口定位、轴向插入、中途局部路径和端点局部路径 |
-| `mujoco_wiping.yaml` | `wiping` | `dual` | 黑板接触擦拭、力/位混合控制、接触力监控 |
-| `mujoco_point_servo.yaml` | `tracking` | `single` | 单点伺服和底层链路调试 |
+- 任务目标与任务模式：`configs/scenarios/*.yaml` 的 `task`。
+- 控制器增益、优先级和执行层：`configs/control/mujoco_tracking_low_level.yaml`。
+- 机械臂和装配：`configs/robots/`。
+- 环境、擦拭板和发动机：`configs/scenes/`。
+- 末端工具和相机：`configs/tools/`。
+- 实时窗口：场景的 `hooks`。
+- 运行数据和图像：场景的 `artifacts`。
 
-## 推荐改动位置
+## 时间设置
 
-- 调整任务目标：优先改 `configs/scenarios/*.yaml` 的 `task` 段。
-- 调整低层执行：改 `configs/control/mujoco_tracking_low_level.yaml`。
-- 调整机器人装配：改 `configs/robots/assemblies/*.yaml` 或对应 arm 配置。
-- 调整场景：改 `configs/scenes/*.yaml`。
-- 调整输出：改 `scenario.artifacts`。
-- 调整实时窗口：改 `scenario.hooks`。
+所有 MuJoCo 场景使用：
 
-## 不再维护的入口
+```yaml
+runtime:
+  controller_dt_s: 0.02
+  n_substeps: 20
+```
 
-以下旧入口已经从当前主线清理：
-
-- 旧 `dual_*` / `single_*` 场景副本。
-- 旧 `*_analytic_*` 场景。
-- `configs/tasks/*.yaml` 任务配置。
-- engine cleaning 专用控制器、任务配置和 surface path 接口。
-- 旧 runtime hook 兼容导出层。
+配合 `0.001 s` MuJoCo timestep，每个控制周期推进 `0.02 s` 物理时间。场景构建时会验证这个等式。

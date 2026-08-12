@@ -7,6 +7,8 @@ from collections.abc import Callable, Mapping
 import numpy as np
 
 from continuum_sim.backends.mujoco_system_backend import MujocoSystemBackend
+from continuum_sim.model.base_pose import quaternion_wxyz_to_rotation_matrix
+from continuum_sim.model.mount_frame import load_mobile_base_mount_config
 from continuum_sim.system.types import (
     ArmTendonRateCommand,
     RobotSystemCommand,
@@ -102,6 +104,36 @@ def available_named_targets(arm_names: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(commands)
 
 
+def bounded_compatible_target(
+    current_m: np.ndarray,
+    candidate_m: np.ndarray,
+    lower_m: np.ndarray,
+    upper_m: np.ndarray,
+) -> np.ndarray:
+    """Move toward a compatible candidate without breaking tendon bounds."""
+
+    current = np.asarray(current_m, dtype=float)
+    candidate = np.asarray(candidate_m, dtype=float)
+    lower = np.asarray(lower_m, dtype=float)
+    upper = np.asarray(upper_m, dtype=float)
+    if not (
+        current.shape == candidate.shape == lower.shape == upper.shape
+        and current.ndim == 1
+    ):
+        raise ValueError("Compatible target arrays must be matching 1D vectors.")
+    current = np.clip(current, lower, upper)
+    delta = candidate - current
+    scale = 1.0
+    for value, change, minimum, maximum in zip(
+        current, delta, lower, upper, strict=True
+    ):
+        if change > 0.0:
+            scale = min(scale, float((maximum - value) / change))
+        elif change < 0.0:
+            scale = min(scale, float((minimum - value) / change))
+    return current + np.clip(scale, 0.0, 1.0) * delta
+
+
 class MujocoSystemDebugViewer:
     """Matplotlib controls and diagnostics for a composed MuJoCo system backend."""
 
@@ -115,6 +147,7 @@ class MujocoSystemDebugViewer:
         diagnostic_text_provider: (
             Callable[[RobotSystemState, str], str] | None
         ) = None,
+        curvature_step_1_per_m: float = 0.5,
     ) -> None:
         from matplotlib.widgets import Button, RadioButtons, Slider, TextBox
 
@@ -124,6 +157,8 @@ class MujocoSystemDebugViewer:
             raise ValueError("n_substeps must be positive.")
         if len(backend.assembly.enabled_arms) > 2:
             raise ValueError("The debug viewer supports at most two enabled arms.")
+        if not np.isfinite(curvature_step_1_per_m) or curvature_step_1_per_m <= 0.0:
+            raise ValueError("curvature_step_1_per_m must be positive and finite.")
 
         self.backend = backend
         self.control_dt_s = float(control_dt_s)
@@ -139,12 +174,16 @@ class MujocoSystemDebugViewer:
         self._running = False
         self._updating_controls = False
         self.control_space = "bending_compatible"
+        self.curvature_step_1_per_m = float(curvature_step_1_per_m)
 
         self.panel = SystemTendonMonitorPanel(
             title="continuum_sim MuJoCo system tendon debug"
         )
-        self.panel.info_ax.set_position((0.68, 0.31, 0.29, 0.20))
-        self.panel._info_text.set_fontsize(7.5)
+        self.panel.fig.set_size_inches(18.0, 10.0, forward=True)
+        self.panel.length_ax.set_position((0.04, 0.72, 0.58, 0.24))
+        self.panel.force_ax.set_position((0.67, 0.72, 0.29, 0.24))
+        self.panel.info_ax.set_position((0.68, 0.11, 0.28, 0.20))
+        self.panel._info_text.set_fontsize(6.2)
 
         self.sliders: dict[str, list[Slider]] = {}
         self.target_inputs: dict[str, list[TextBox]] = {}
@@ -160,39 +199,67 @@ class MujocoSystemDebugViewer:
             self.sliders[arm.name] = sliders
             self.target_inputs[arm.name] = target_inputs
 
+        self.segment_buttons: dict[str, list[tuple[Button, Button, Button, Button]]] = {}
+        for arm_index, arm_name in enumerate(self.arm_names):
+            self.segment_buttons[arm_name] = self._build_segment_controls(
+                Button,
+                arm_index,
+                arm_name,
+            )
+
+        self._configure_base_controls()
+        self.base_buttons, self.base_target_inputs = self._build_base_controls(
+            Button,
+            TextBox,
+        )
+
         self.reset_button = Button(
-            self.panel.fig.add_axes((0.06, 0.07, 0.10, 0.04)),
+            self.panel.fig.add_axes((0.04, 0.045, 0.08, 0.04)),
             "Reset",
             **_disable_widget_blit(Button),
         )
         self.zero_button = Button(
-            self.panel.fig.add_axes((0.18, 0.07, 0.10, 0.04)),
-            "Zero",
+            self.panel.fig.add_axes((0.13, 0.045, 0.08, 0.04)),
+            "Zero arms",
+            **_disable_widget_blit(Button),
+        )
+        self.zero_base_button = Button(
+            self.panel.fig.add_axes((0.22, 0.045, 0.08, 0.04)),
+            "Zero base",
             **_disable_widget_blit(Button),
         )
         self.step_button = Button(
-            self.panel.fig.add_axes((0.30, 0.07, 0.10, 0.04)),
+            self.panel.fig.add_axes((0.31, 0.045, 0.08, 0.04)),
             "Step",
             **_disable_widget_blit(Button),
         )
         self.run_button = Button(
-            self.panel.fig.add_axes((0.42, 0.07, 0.10, 0.04)),
+            self.panel.fig.add_axes((0.40, 0.045, 0.08, 0.04)),
             "Run",
             **_disable_widget_blit(Button),
         )
         self.named_targets = available_named_targets(self.arm_names)
         self.radio = RadioButtons(
-            self.panel.fig.add_axes((0.68, 0.07, 0.29, 0.19)),
+            self.panel.fig.add_axes((0.79, 0.025, 0.17, 0.09)),
             self.named_targets,
             active=0,
             **_disable_widget_blit(RadioButtons),
         )
         self.mode_radio = RadioButtons(
-            self.panel.fig.add_axes((0.54, 0.07, 0.12, 0.10)),
+            self.panel.fig.add_axes((0.50, 0.025, 0.11, 0.09)),
             ("compatible", "raw tendon"),
             active=0,
             **_disable_widget_blit(RadioButtons),
         )
+        self.panel.fig.text(0.625, 0.084, "curvature step [1/m]", fontsize=8)
+        self.curvature_step_input = TextBox(
+            self.panel.fig.add_axes((0.66, 0.045, 0.08, 0.035)),
+            "",
+            initial=f"{self.curvature_step_1_per_m:g}",
+            textalignment="center",
+            **_disable_widget_blit(TextBox),
+        )
+        _disconnect_textbox_resize(self.curvature_step_input)
         self.timer = self.panel.fig.canvas.new_timer(
             interval=max(1, round(1000.0 * self.control_dt_s))
         )
@@ -212,18 +279,18 @@ class MujocoSystemDebugViewer:
     ) -> tuple[list, list]:
         sliders = []
         target_inputs = []
-        x0 = 0.06 + 0.30 * arm_index
-        y0 = 0.49
+        x0 = 0.04 + 0.31 * arm_index
+        y0 = 0.44
         for tendon_index, (minimum, maximum) in enumerate(
             zip(lower, upper, strict=True)
         ):
             y = y0 - 0.040 * tendon_index
             slider_axis = self.panel.fig.add_axes(
-                (x0, y, 0.20, 0.018)
+                (x0, y, 0.205, 0.018)
             )
             slider = slider_type(
                 ax=slider_axis,
-                label=f"{arm_name}:{tendon_index + 1} [mm]",
+                label=f"S{tendon_index // 3 + 1}-T{tendon_index % 3 + 1}",
                 valmin=1000.0 * float(minimum),
                 valmax=1000.0 * float(maximum),
                 valinit=0.0,
@@ -232,7 +299,7 @@ class MujocoSystemDebugViewer:
             )
             slider.valtext.set_visible(False)
             input_axis = self.panel.fig.add_axes(
-                (x0 + 0.215, y - 0.003, 0.07, 0.025)
+                (x0 + 0.22, y - 0.003, 0.065, 0.025)
             )
             target_input = text_box_type(
                 input_axis,
@@ -245,6 +312,195 @@ class MujocoSystemDebugViewer:
             sliders.append(slider)
             target_inputs.append(target_input)
         return sliders, target_inputs
+
+    def _build_segment_controls(
+        self,
+        button_type,
+        arm_index: int,
+        arm_name: str,
+    ) -> list[tuple]:
+        controls = []
+        x0 = 0.04 + 0.31 * arm_index
+        role = "MAIN / EXECUTOR" if arm_name == "executor" else "CAMERA / OBSERVER"
+        self.panel.fig.text(x0, 0.625, role, fontsize=10, weight="bold")
+        self.panel.fig.text(x0, 0.603, "segment-local curvature [1/m]", fontsize=8)
+        for segment_index in range(3):
+            y = 0.565 - 0.034 * segment_index
+            self.panel.fig.text(x0, y + 0.004, f"S{segment_index + 1}", fontsize=8)
+            buttons = []
+            for button_index, (label, axis, direction) in enumerate(
+                (
+                    ("+kx", 0, 1.0),
+                    ("-kx", 0, -1.0),
+                    ("+ky", 1, 1.0),
+                    ("-ky", 1, -1.0),
+                )
+            ):
+                button = button_type(
+                    self.panel.fig.add_axes(
+                        (x0 + 0.040 + 0.058 * button_index, y, 0.052, 0.025)
+                    ),
+                    label,
+                    **_disable_widget_blit(button_type),
+                )
+                button.on_clicked(
+                    lambda _event, name=arm_name, segment=segment_index,
+                    component=axis, sign=direction: self.adjust_segment_bending(
+                        name,
+                        segment,
+                        component,
+                        sign,
+                    )
+                )
+                buttons.append(button)
+            controls.append(tuple(buttons))
+        return controls
+
+    def _configure_base_controls(self) -> None:
+        self.base_control_enabled = self.backend.assembly.base.control_mode != "fixed"
+        self.base_target_pose_rpy = _pose_xyz_rpy(self.state.base.pose)
+        self.base_initial_pose_rpy = self.base_target_pose_rpy.copy()
+        assembly_base = self.backend.assembly.base
+        position_lower = np.asarray(assembly_base.position_min_m, dtype=float)
+        position_upper = np.asarray(assembly_base.position_max_m, dtype=float)
+        rpy_lower = np.full(3, -np.pi, dtype=float)
+        rpy_upper = np.full(3, np.pi, dtype=float)
+        self.base_translation_step_m = 0.01
+        self.base_fine_translation_step_m = 0.002
+        self.base_rotation_step_rad = np.deg2rad(2.0)
+        self.base_fine_rotation_step_rad = np.deg2rad(0.5)
+        path = self.backend.config.mobile_base_config_path
+        if path is not None:
+            mobile = load_mobile_base_mount_config(path).mobile_base
+            position_lower = np.maximum(position_lower, mobile.limits.position_min_m)
+            position_upper = np.minimum(position_upper, mobile.limits.position_max_m)
+            rpy_lower = np.deg2rad(mobile.limits.rpy_min_deg)
+            rpy_upper = np.deg2rad(mobile.limits.rpy_max_deg)
+            manual = mobile.manual_control
+            self.base_translation_step_m = float(manual.translation_step_m)
+            self.base_fine_translation_step_m = float(
+                manual.fine_translation_step_m
+            )
+            self.base_rotation_step_rad = np.deg2rad(manual.rotation_step_deg)
+            self.base_fine_rotation_step_rad = np.deg2rad(
+                manual.fine_rotation_step_deg
+            )
+        self.base_lower_pose_rpy = np.concatenate((position_lower, rpy_lower))
+        self.base_upper_pose_rpy = np.concatenate((position_upper, rpy_upper))
+        self.base_fine_mode = False
+
+    def _build_base_controls(self, button_type, text_box_type):
+        labels = ("X [m]", "Y [m]", "Z [m]", "Roll [deg]", "Pitch [deg]", "Yaw [deg]")
+        self.panel.fig.text(0.68, 0.625, "BASE 6-DOF (world frame)", fontsize=10, weight="bold")
+        self.base_step_button = button_type(
+            self.panel.fig.add_axes((0.885, 0.605, 0.075, 0.032)),
+            "coarse",
+            **_disable_widget_blit(button_type),
+        )
+        self.base_step_button.on_clicked(lambda _event: self._toggle_base_step())
+        buttons = []
+        inputs = []
+        for index, label in enumerate(labels):
+            y = 0.555 - 0.042 * index
+            self.panel.fig.text(0.68, y + 0.006, label, fontsize=8)
+            minus = button_type(
+                self.panel.fig.add_axes((0.755, y, 0.040, 0.028)),
+                "-",
+                **_disable_widget_blit(button_type),
+            )
+            target_input = text_box_type(
+                self.panel.fig.add_axes((0.802, y, 0.090, 0.028)),
+                "",
+                initial=_format_base_target(self.base_target_pose_rpy[index], index),
+                textalignment="center",
+                **_disable_widget_blit(text_box_type),
+            )
+            _disconnect_textbox_resize(target_input)
+            plus = button_type(
+                self.panel.fig.add_axes((0.900, y, 0.040, 0.028)),
+                "+",
+                **_disable_widget_blit(button_type),
+            )
+            minus.on_clicked(
+                lambda _event, axis=index: self.adjust_base_target(axis, -1.0)
+            )
+            plus.on_clicked(
+                lambda _event, axis=index: self.adjust_base_target(axis, 1.0)
+            )
+            target_input.on_submit(
+                lambda text, axis=index: self._on_base_target_input(axis, text)
+            )
+            buttons.append((minus, plus))
+            inputs.append(target_input)
+        return buttons, inputs
+
+    def _toggle_base_step(self) -> None:
+        self.base_fine_mode = not self.base_fine_mode
+        self.base_step_button.label.set_text(
+            "fine" if self.base_fine_mode else "coarse"
+        )
+
+    def adjust_base_target(self, component_index: int, direction: float) -> np.ndarray:
+        if component_index not in range(6):
+            raise ValueError("Base component index must be in 0..5.")
+        if direction not in (-1.0, 1.0):
+            raise ValueError("direction must be -1 or 1.")
+        if not self.base_control_enabled:
+            return self.base_target_pose_rpy.copy()
+        if component_index < 3:
+            step = (
+                self.base_fine_translation_step_m
+                if self.base_fine_mode
+                else self.base_translation_step_m
+            )
+        else:
+            step = (
+                self.base_fine_rotation_step_rad
+                if self.base_fine_mode
+                else self.base_rotation_step_rad
+            )
+        target = self.base_target_pose_rpy.copy()
+        target[component_index] += direction * step
+        self.set_base_target(target)
+        self._update_views()
+        return self.base_target_pose_rpy.copy()
+
+    def _on_base_target_input(self, component_index: int, text: str) -> None:
+        if self._updating_controls or not self.base_control_enabled:
+            return
+        try:
+            value = float(text)
+        except (TypeError, ValueError):
+            value = self.base_target_pose_rpy[component_index]
+        if component_index >= 3:
+            value = np.deg2rad(value)
+        target = self.base_target_pose_rpy.copy()
+        target[component_index] = value
+        self.set_base_target(target)
+
+    def set_base_target(self, target_pose_rpy: np.ndarray) -> None:
+        values = np.asarray(target_pose_rpy, dtype=float)
+        if values.shape != (6,) or not np.all(np.isfinite(values)):
+            raise ValueError("Base target must be one finite xyz-rpy vector.")
+        self.base_target_pose_rpy = np.clip(
+            values,
+            self.base_lower_pose_rpy,
+            self.base_upper_pose_rpy,
+        )
+        self._sync_base_controls()
+
+    def _sync_base_controls(self) -> None:
+        self._updating_controls = True
+        try:
+            for index, target_input in enumerate(self.base_target_inputs):
+                target_input.set_val(
+                    _format_base_target(self.base_target_pose_rpy[index], index)
+                )
+        finally:
+            self._updating_controls = False
+
+    def zero_base_target(self) -> None:
+        self.set_base_target(self.base_initial_pose_rpy)
 
     def _connect_controls(self) -> None:
         for arm_name, sliders in self.sliders.items():
@@ -263,10 +519,62 @@ class MujocoSystemDebugViewer:
                 )
         self.reset_button.on_clicked(lambda _event: self.reset())
         self.zero_button.on_clicked(lambda _event: self.zero_targets())
+        self.zero_base_button.on_clicked(lambda _event: self.zero_base_target())
         self.step_button.on_clicked(lambda _event: self.step())
         self.run_button.on_clicked(lambda _event: self.toggle_run())
         self.radio.on_clicked(self.apply_named_target)
         self.mode_radio.on_clicked(self._set_control_mode)
+        self.curvature_step_input.on_submit(self._set_curvature_step)
+
+    def _set_curvature_step(self, text: str) -> None:
+        try:
+            value = float(text)
+        except (TypeError, ValueError):
+            value = self.curvature_step_1_per_m
+        if not np.isfinite(value) or value <= 0.0:
+            value = self.curvature_step_1_per_m
+        self.curvature_step_1_per_m = float(value)
+        if self.curvature_step_input.text != f"{value:g}":
+            self.curvature_step_input.set_val(f"{value:g}")
+
+    def adjust_segment_bending(
+        self,
+        arm_name: str,
+        segment_index: int,
+        component_index: int,
+        direction: float,
+    ) -> np.ndarray:
+        """Increment one segment-local kx/ky component and update tendon targets."""
+
+        if arm_name not in self.targets:
+            raise KeyError(f"Unknown arm {arm_name!r}.")
+        if segment_index not in range(3):
+            raise ValueError("segment_index must be 0, 1, or 2.")
+        if component_index not in (0, 1):
+            raise ValueError("component_index must be 0 (kx) or 1 (ky).")
+        if direction not in (-1.0, 1.0):
+            raise ValueError("direction must be -1 or 1.")
+        model = self.backend.layout.bending_models[arm_name]
+        current = model.project(self.targets[arm_name])
+        bending = model.estimate(current)
+        bending[2 * segment_index + component_index] += (
+            direction * self.curvature_step_1_per_m
+        )
+        candidate = model.to_tendon(bending)
+        arm = next(
+            item for item in self.backend.assembly.enabled_arms if item.name == arm_name
+        )
+        bounded = bounded_compatible_target(
+            current,
+            candidate,
+            arm.spatial_arm.limits.tendon_displacement_min_m,
+            arm.spatial_arm.limits.tendon_displacement_max_m,
+        )
+        updated = {name: values.copy() for name, values in self.targets.items()}
+        updated[arm_name] = bounded
+        self.set_targets(updated)
+        self._update_views()
+        return model.estimate(bounded)
 
     def _on_slider(self, arm_name: str, tendon_index: int, value_mm: float) -> None:
         if self._updating_controls:
@@ -323,6 +631,9 @@ class MujocoSystemDebugViewer:
     def reset(self) -> RobotSystemState:
         self.pause()
         self.state = self.backend.reset_system()
+        self.base_target_pose_rpy = _pose_xyz_rpy(self.state.base.pose)
+        self.base_initial_pose_rpy = self.base_target_pose_rpy.copy()
+        self._sync_base_controls()
         self.set_targets(
             {name: np.zeros_like(values) for name, values in self.targets.items()}
         )
@@ -413,17 +724,41 @@ class MujocoSystemDebugViewer:
                 rates,
                 control_space=self.control_space,
             )
+        base_twist = self._base_target_twist()
         self.state = self.backend.step_system(
             RobotSystemCommand(
-                base_twist_world=np.zeros(6, dtype=float),
+                base_twist_world=base_twist,
                 arms=commands,
-                metadata={"source": "mujoco_system_debug_viewer"},
+                metadata={
+                    "source": "mujoco_system_debug_viewer",
+                    "enforce_backend_base_speed_limits": True,
+                },
             ),
             dt=self.control_dt_s,
             n_substeps=self.n_substeps,
         )
         self._update_views()
         return self.state
+
+    def _base_target_twist(self) -> np.ndarray:
+        if not self.base_control_enabled:
+            return np.zeros(6, dtype=float)
+        actual = _pose_xyz_rpy(self.state.base.pose)
+        error = self.base_target_pose_rpy - actual
+        error[3:] = _wrap_angles(error[3:])
+        twist = error / self.control_dt_s
+        base = self.backend.assembly.base
+        twist[:3] = np.clip(
+            twist[:3],
+            -float(base.max_linear_speed_mps),
+            float(base.max_linear_speed_mps),
+        )
+        twist[3:] = np.clip(
+            twist[3:],
+            -float(base.max_angular_speed_rad_s),
+            float(base.max_angular_speed_rad_s),
+        )
+        return twist
 
     def _set_control_mode(self, label: str) -> None:
         self.control_space = (
@@ -475,17 +810,60 @@ class MujocoSystemDebugViewer:
         self._notify_state_updated()
 
     def _update_panel(self, *, redraw: bool = True) -> None:
-        info_text = None
+        info_text = self._manual_diagnostic_text()
         if self.diagnostic_text_provider is not None:
-            info_text = self.diagnostic_text_provider(
+            extra = self.diagnostic_text_provider(
                 self.state,
                 self.control_space,
             )
+            if extra:
+                info_text = f"{info_text}\n\n{extra}"
         self.panel.update(
             self.state,
             redraw=redraw,
             info_text=info_text,
         )
+
+    def _manual_diagnostic_text(self) -> str:
+        base_actual = _pose_xyz_rpy(self.state.base.pose)
+        lines = [
+            f"time: {self.state.time_s:.3f} s",
+            f"mode: {self.control_space}",
+            f"curvature step: {self.curvature_step_1_per_m:g} 1/m",
+            "base target xyz: "
+            + " ".join(f"{value:+.3f}" for value in self.base_target_pose_rpy[:3]),
+            "base actual xyz: "
+            + " ".join(f"{value:+.3f}" for value in base_actual[:3]),
+            "base target rpy: "
+            + " ".join(f"{value:+.1f}" for value in np.rad2deg(self.base_target_pose_rpy[3:])),
+            "base actual rpy: "
+            + " ".join(f"{value:+.1f}" for value in np.rad2deg(base_actual[3:])),
+        ]
+        for arm_name, arm in self.state.arms.items():
+            model = self.backend.layout.bending_models[arm_name]
+            target_bending = model.estimate(model.project(self.targets[arm_name]))
+            actual_bending = model.estimate(arm.tendon_displacement_m)
+            lines.append(arm_name)
+            for index, pose in enumerate(arm.segment_poses_world):
+                position = pose[:3, 3]
+                lines.append(
+                    f" S{index + 1} k=({target_bending[2*index]:+.3f},"
+                    f"{target_bending[2*index+1]:+.3f}) "
+                    f"act=({actual_bending[2*index]:+.3f},"
+                    f"{actual_bending[2*index+1]:+.3f}) "
+                    f"pW=({position[0]:+.4f},{position[1]:+.4f},"
+                    f"{position[2]:+.4f}) m"
+                )
+            if arm.tool_wrench is not None:
+                force = arm.tool_wrench.force_sensor_n
+                torque = arm.tool_wrench.torque_sensor_nm
+                lines.append(
+                    f" F=({force[0]:+.3f},{force[1]:+.3f},{force[2]:+.3f}) N "
+                    f"M=({torque[0]:+.4f},{torque[1]:+.4f},"
+                    f"{torque[2]:+.4f}) Nm "
+                    f"{'SATURATED' if arm.tool_wrench.saturated else 'ok'}"
+                )
+        return "\n".join(lines)
 
     def _notify_state_updated(self) -> None:
         if self.state_update_callback is not None:
@@ -494,6 +872,30 @@ class MujocoSystemDebugViewer:
 
 def _format_target_mm(value_mm: float) -> str:
     return f"{float(value_mm):.3f}"
+
+
+def _format_base_target(value: float, component_index: int) -> str:
+    displayed = np.rad2deg(value) if component_index >= 3 else value
+    return f"{float(displayed):.3f}"
+
+
+def _pose_xyz_rpy(pose) -> np.ndarray:
+    rotation = quaternion_wxyz_to_rotation_matrix(pose.quat)
+    pitch = np.arcsin(np.clip(-rotation[2, 0], -1.0, 1.0))
+    if abs(np.cos(pitch)) > 1.0e-8:
+        roll = np.arctan2(rotation[2, 1], rotation[2, 2])
+        yaw = np.arctan2(rotation[1, 0], rotation[0, 0])
+    else:
+        roll = np.arctan2(-rotation[1, 2], rotation[1, 1])
+        yaw = 0.0
+    return np.concatenate(
+        (np.asarray(pose.position, dtype=float), np.array([roll, pitch, yaw]))
+    )
+
+
+def _wrap_angles(values: np.ndarray) -> np.ndarray:
+    angles = np.asarray(values, dtype=float)
+    return (angles + np.pi) % (2.0 * np.pi) - np.pi
 
 
 def _disable_widget_blit(widget_type) -> dict[str, bool]:
@@ -525,6 +927,7 @@ def _disconnect_textbox_resize(text_box) -> None:
 __all__ = [
     "MujocoSystemDebugViewer",
     "available_named_targets",
+    "bounded_compatible_target",
     "named_system_target",
     "normalize_target_mm",
     "target_rates",

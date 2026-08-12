@@ -24,6 +24,32 @@ class BaseSystemState:
 
 
 @dataclass(frozen=True)
+class ToolWrenchState:
+    """Filtered six-axis tool wrench reported at a force-sensor site."""
+
+    raw_force_sensor_n: np.ndarray
+    raw_torque_sensor_nm: np.ndarray
+    force_sensor_n: np.ndarray
+    torque_sensor_nm: np.ndarray
+    force_world_n: np.ndarray
+    torque_world_nm: np.ndarray
+    sensor_pose_world: Pose6D
+    tared: bool = False
+    saturated: bool = False
+
+    def __post_init__(self) -> None:
+        for name in (
+            "raw_force_sensor_n",
+            "raw_torque_sensor_nm",
+            "force_sensor_n",
+            "torque_sensor_nm",
+            "force_world_n",
+            "torque_world_nm",
+        ):
+            object.__setattr__(self, name, _vector(getattr(self, name), 3, name))
+
+
+@dataclass(frozen=True)
 class ArmSystemState:
     """Observed state of one named direct-tendon spatial arm."""
 
@@ -36,6 +62,8 @@ class ArmSystemState:
     tendon_target_m: np.ndarray | None = None
     actuator_force_n: np.ndarray | None = None
     centerline_world: np.ndarray | None = None
+    tool_pose_world: Pose6D | None = None
+    tool_wrench: ToolWrenchState | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

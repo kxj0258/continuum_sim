@@ -29,14 +29,19 @@ def test_load_carbon_remover_reads_contact_tool_fields() -> None:
     assert config.name == "carbon_removal_tool"
     assert config.type == "contact_sphere_tool"
     assert config.enabled is True
-    assert_allclose(config.tip_to_attachment.position, [0.0, 0.0, 0.02])
-    assert_allclose(config.tcp_pose.position, [0.0, 0.0, 0.045])
+    assert_allclose(config.tip_to_attachment.position, [0.0, 0.0, 0.004])
+    assert_allclose(config.tcp_pose.position, [0.0, 0.0, 0.014])
     assert config.collision.type == "sphere"
-    assert config.collision.radius_m == pytest.approx(0.018)
+    assert config.collision.radius_m == pytest.approx(0.009)
+    assert_allclose(config.collision.position, [0.0, 0.0, 0.005])
     assert config.contact.target_normal_force_n == pytest.approx(1.0)
     assert config.contact.max_normal_force_n == pytest.approx(3.0)
     assert config.contact.standoff_distance_m == pytest.approx(0.02)
-    assert config.mass_kg == pytest.approx(0.05)
+    assert config.mass_kg == pytest.approx(0.01)
+    assert config.force_torque_sensor is not None
+    assert_allclose(config.force_torque_sensor.size_m, [0.015, 0.015, 0.008])
+    assert config.force_torque_sensor.mass_kg == pytest.approx(0.03)
+    assert config.force_torque_sensor.filter_cutoff_hz == pytest.approx(15.0)
 
 
 def test_load_eye_camera_air_gun_reads_camera_nozzle_and_airgun_fields() -> None:
@@ -47,7 +52,11 @@ def test_load_eye_camera_air_gun_reads_camera_nozzle_and_airgun_fields() -> None
     assert config.camera.name == "observer_eye_camera"
     assert config.camera.intrinsics.width == 640
     assert config.camera.intrinsics.height == 480
-    assert_allclose(config.camera.tip_to_camera.position, [0.0, 0.0, 0.04])
+    assert_allclose(config.camera.tip_to_camera.position, [0.0, 0.0, 0.004])
+    assert config.camera_visual is not None
+    assert config.camera_visual.shape == "hemisphere"
+    assert config.camera_visual.radius_m == pytest.approx(0.00375)
+    assert config.camera_visual.lens_radius_m == pytest.approx(0.0015)
     assert_allclose(config.nozzle_pose.position, [0.0, 0.015, 0.045])
     assert config.airgun.standoff_distance_m == pytest.approx(0.05)
 

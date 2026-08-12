@@ -28,6 +28,7 @@ from continuum_sim.kinematics.pcc import (
     PCCKinematicsMode,
     forward_kinematics,
 )
+from continuum_sim.utils.math_utils import skew
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
 from continuum_sim.model.base_pose import (
     look_rotation_quaternion_wxyz,
@@ -1182,6 +1183,34 @@ class CoordinatedTrackingController:
             jacobian_local,
             world_mount.as_matrix()[:3, :3],
         )
+        if (
+            arm_state.tool_pose_world is not None
+            and np.allclose(
+                arm_state.tip_pose_world.position,
+                arm_state.tool_pose_world.position,
+                rtol=0.0,
+                atol=1.0e-12,
+            )
+        ):
+            raw_tip_pose = np.asarray(
+                arm_state.metadata.get("arm_tip_pose_world", np.eye(4)),
+                dtype=float,
+            )
+            if raw_tip_pose.shape == (4, 4):
+                offset_world = (
+                    arm_state.tool_pose_world.position - raw_tip_pose[:3, 3]
+                )
+                angular_local = bending_orientation_jacobian(
+                    q,
+                    arm_config.spatial_arm.params,
+                    arm_config.spatial_arm.tendons,
+                    kinematics_mode=self.solver.config.kinematics_mode,
+                )
+                angular_world = rotate_angular_jacobian_to_world(
+                    angular_local,
+                    world_mount.as_matrix()[:3, :3],
+                )
+                jacobian_world = jacobian_world - skew(offset_world) @ angular_world
         base_jacobian = base_point_jacobian_world(
             arm_state.tip_pose_world.position,
             state.base.pose.position,

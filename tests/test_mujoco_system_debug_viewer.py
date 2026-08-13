@@ -11,6 +11,7 @@ from continuum_sim.visualization.mujoco_system_debug_viewer import (
     MujocoSystemDebugViewer,
     bounded_compatible_target,
     named_system_target,
+    normalize_curvature_target,
     normalize_target_mm,
     target_rates,
 )
@@ -63,6 +64,18 @@ def test_normalize_target_mm_restores_fallback_for_invalid_values() -> None:
     assert normalize_target_mm("not-a-number", -20.0, 20.0, 3.25) == 3.25
     assert normalize_target_mm("nan", -20.0, 20.0, 3.25) == 3.25
     assert normalize_target_mm("inf", -20.0, 20.0, 3.25) == 3.25
+
+
+def test_normalize_curvature_target_accepts_and_clips_finite_values() -> None:
+    assert normalize_curvature_target("12.5", 0.0) == 12.5
+    assert normalize_curvature_target("40", 0.0) == 30.0
+    assert normalize_curvature_target("-40", 0.0) == -30.0
+
+
+def test_normalize_curvature_target_restores_fallback_for_invalid_values() -> None:
+    assert normalize_curvature_target("not-a-number", 3.25) == 3.25
+    assert normalize_curvature_target("nan", 3.25) == 3.25
+    assert normalize_curvature_target("inf", 3.25) == 3.25
 
 
 def test_raw_debug_command_requires_explicit_mode() -> None:
@@ -145,18 +158,27 @@ def test_raw_slider_change_marks_views_dirty() -> None:
     assert viewer._views_dirty is True
 
 
-def test_curvature_button_marks_input_for_latency_timing() -> None:
+def test_curvature_slider_defers_widget_sync_and_marks_latency_input() -> None:
     viewer = MujocoSystemDebugViewer.__new__(MujocoSystemDebugViewer)
     viewer.targets = {"executor": np.zeros(6, dtype=float)}
-    viewer.sliders = {"executor": [_Slider() for _ in range(6)]}
-    viewer.target_inputs = {"executor": [_TextBox() for _ in range(6)]}
+    viewer.sliders = {}
+    viewer.target_inputs = {}
+    viewer.curvature_sliders = {"executor": [_Slider() for _ in range(6)]}
+    viewer.curvature_inputs = {"executor": [_TextBox() for _ in range(6)]}
     viewer._updating_controls = False
     viewer._views_dirty = False
     viewer._dirty_target_arms = set()
+    viewer._dirty_curvature_components = {}
     viewer._target_lock = RLock()
     viewer._target_slot = LatestValueSlot(_copy_targets(viewer.targets))
+    viewer._target_limits = {
+        "executor": (
+            np.full(6, -20.0, dtype=float),
+            np.full(6, 20.0, dtype=float),
+        )
+    }
     viewer._simulation_lock = _ForbiddenLock()
-    viewer.curvature_step_1_per_m = 0.5
+    viewer.control_mode = "curvature"
     viewer.runtime_timing = _Timing()
     model = _IdentityBendingModel()
     arm = SimpleNamespace(
@@ -173,12 +195,22 @@ def test_curvature_button_marks_input_for_latency_timing() -> None:
         assembly=SimpleNamespace(enabled_arms=(arm,)),
     )
 
-    viewer.adjust_segment_bending("executor", 0, 0, 1.0)
+    viewer._on_curvature_slider("executor", 0, 12.5)
 
-    assert viewer.runtime_timing.input_labels == ["executor:S1:+kx"]
-    assert sum(item.set_calls for item in viewer.sliders["executor"]) == 0
-    assert sum(item.set_calls for item in viewer.target_inputs["executor"]) == 0
+    assert viewer.runtime_timing.input_labels == ["executor:S1:kx:slider"]
+    assert sum(item.set_calls for item in viewer.curvature_sliders["executor"]) == 0
+    assert sum(item.set_calls for item in viewer.curvature_inputs["executor"]) == 0
     assert viewer._dirty_target_arms == {"executor"}
+    assert viewer._dirty_curvature_components == {"executor": {0}}
+
+    viewer._sync_curvature_controls()
+
+    assert viewer.curvature_sliders["executor"][0].set_calls == 1
+    assert viewer.curvature_inputs["executor"][0].set_calls == 1
+    assert viewer.curvature_sliders["executor"][0].set_states == [(False, False)]
+    assert viewer.curvature_inputs["executor"][0].set_states == [(False, False)]
+    assert sum(item.set_calls for item in viewer.curvature_sliders["executor"][1:]) == 0
+    assert sum(item.set_calls for item in viewer.curvature_inputs["executor"][1:]) == 0
 
 
 def test_set_targets_uses_backend_limits_without_tendon_widgets() -> None:

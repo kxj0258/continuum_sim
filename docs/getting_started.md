@@ -159,7 +159,7 @@ MuJoCo 系统后端读取关节、肌腱、执行器、site、相机和传感器
 
 ### 手动控制
 
-`mujoco_manual_control.yaml` 使用 `idle` 任务和不含发动机的轻量空场景。两个手动程序分别提供曲率和拉线控制，并独立显示控制窗口、状态窗口和 MuJoCo viewer；手动路径不启动 observer 相机图像。详见 [双臂手动控制](manual_control.md)。
+`mujoco_manual_control.yaml` 使用 `idle` 任务和不含发动机的轻量空场景。两个手动程序分别提供曲率和拉线控制，并独立显示控制窗口、状态窗口和 MuJoCo 三维窗口；手动路径不启动观测臂相机图像。详见 [双臂手动控制](manual_control.md)。
 
 ### 轨迹跟踪与点伺服
 
@@ -201,7 +201,7 @@ MuJoCo 系统后端读取关节、肌腱、执行器、site、相机和传感器
 
 手动控制由 `scripts/run_manual_curvature_control.py` 和 `scripts/run_manual_tendon_control.py` 两个独立入口启动。控制窗口与只读状态窗口分离，拉线长度/拉力窗口默认关闭，observer 相机图像不启动。
 
-曲率入口只创建每段 `+kx/-kx/+ky/-ky` 控件；拉线入口只创建九根肌腱 Slider/TextBox。实时状态窗口显示目标/实际曲率、三段末端世界位置和执行臂六维力。需要拉线长度与拉力图时使用 `--show-tendon-monitor` 显式开启独立窗口。
+曲率入口为每段局部 `kx/ky` 创建 `-30～+30 1/m` 的滑块和数值输入框；拉线入口只创建九根肌腱滑块和数值输入框。拖动曲率滑块可连续控制，输入数值并按回车键可精确设置目标。实时状态窗口显示目标/实际曲率、三段末端世界位置和执行臂六维力。需要拉线长度与拉力图时使用 `--show-tendon-monitor` 显式开启独立窗口。
 
 ## 仿真时钟
 

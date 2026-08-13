@@ -99,7 +99,6 @@ def run_manual_curvature_control(
     panel_fps: float = 15.0,
     status_fps: float = 5.0,
     viewer_fps: float = 15.0,
-    curvature_step_1_per_m: float = 0.5,
     show_tendon_monitor: bool = False,
 ) -> None:
     """Run the curvature-only manual-control interface."""
@@ -110,7 +109,6 @@ def run_manual_curvature_control(
         panel_fps=panel_fps,
         status_fps=status_fps,
         viewer_fps=viewer_fps,
-        curvature_step_1_per_m=curvature_step_1_per_m,
         show_tendon_monitor=show_tendon_monitor,
     )
 
@@ -131,7 +129,6 @@ def run_manual_tendon_control(
         panel_fps=panel_fps,
         status_fps=status_fps,
         viewer_fps=viewer_fps,
-        curvature_step_1_per_m=0.5,
         show_tendon_monitor=show_tendon_monitor,
     )
 
@@ -143,7 +140,6 @@ def _run_manual_control(
     panel_fps: float,
     status_fps: float,
     viewer_fps: float,
-    curvature_step_1_per_m: float,
     show_tendon_monitor: bool,
 ) -> None:
     application = SimulationApplication.from_yaml(scenario_path)
@@ -166,7 +162,6 @@ def _run_manual_control(
         n_substeps=application.config.runtime.n_substeps,
         state_update_callback=windows.update,
         control_mode=control_mode,
-        curvature_step_1_per_m=curvature_step_1_per_m,
         panel_fps=panel_fps,
         status_fps=status_fps,
         show_tendon_monitor=show_tendon_monitor,

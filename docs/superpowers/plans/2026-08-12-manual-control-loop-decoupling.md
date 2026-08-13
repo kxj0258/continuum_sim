@@ -1,30 +1,24 @@
-# Manual Control Loop Decoupling Plan
+# 手动控制循环解耦计划
 
-**Goal:** Keep MuJoCo control at 50 Hz while preventing Matplotlib controls,
-the passive viewer, and observer-camera presentation from blocking it.
+**目标：** 保持 MuJoCo 控制目标频率为 `50 Hz`，避免 Matplotlib 控件、被动三维窗口和观测臂相机显示阻塞控制循环。
 
-## Design
+## 设计
 
-- Run `step()` from a monotonic fixed-rate worker thread; keep Matplotlib calls
-  exclusively on the GUI thread.
-- Protect live MuJoCo data and target/state handoff with one shared re-entrant
-  lock. The UI consumes the latest completed state rather than every state.
-- Make target callbacks data-only. Synchronize dirty widgets during the panel
-  refresh with widget drawing and events disabled, then issue one panel redraw.
-- Schedule panel, passive viewer, and camera by independent wall-clock
-  deadlines (defaults: 15/15/10 Hz).
-- Render camera frames from a copied `MjData` snapshot so the live-data lock is
-  held only while copying dynamic arrays. Reuse one Matplotlib `AxesImage` and
-  request asynchronous drawing without clearing axes or flushing events.
+- 由基于单调时钟的固定频率工作线程调用 `step()`；所有 Matplotlib 调用仅在图形界面主线程执行。
+- 使用共享可重入锁保护实时 MuJoCo 数据，并通过最新值邮箱交接目标和状态。界面只消费最新完成状态，不逐帧排队。
+- 目标回调只处理数据。曲率滑块和数值输入框直接设置 `-30～+30 1/m` 范围内的绝对目标，不在回调中调用任何控件数值回写方法。
+- 面板刷新时只同步待更新的机械臂和曲率分量。同步期间关闭控件绘制与事件，最后只请求一次面板重绘。
+- 控制面板、被动三维窗口和相机分别采用独立的墙钟截止时间调度，默认目标刷新率分别为 `15/15/10 Hz`。
+- 相机使用复制的 `MjData` 状态快照渲染，使实时数据锁只覆盖动态数组复制。Matplotlib 相机窗口复用同一个 `AxesImage`，通过 `set_data()` 更新，不清空坐标轴，也不主动刷新事件队列。
+- 后续手动控制界面拆分后，相机显示路径从手动控制程序中完全移除，但上述相机解耦原则仍适用于自动场景。
 
-## Regression coverage
+## 回归覆盖
 
-- Target updates do not call widget `set_val()` before UI synchronization.
-- Batched widget updates run with `drawon=False` and `eventson=False`.
-- Camera Matplotlib fallback creates one image artist and later calls
-  `set_data()`.
-- Viewer and camera wall-clock deadlines advance independently.
-- Runtime timing remains safe when control and UI stages record concurrently.
+- 界面低频同步前，目标更新不调用控件的 `set_val()`。
+- 批量控件更新期间使用 `drawon=False` 和 `eventson=False`。
+- 曲率滑块和数值输入框均能设置绝对目标，越界输入被限制，非法输入恢复最近有效值。
+- Matplotlib 相机回退路径只创建一个图像绘图对象，后续调用 `set_data()`。
+- 三维窗口和相机的墙钟截止时间彼此独立推进。
+- 控制线程和界面线程并发记录时，运行计时保持线程安全。
 
-Per repository policy, tests and the interactive simulation are not run unless
-the user explicitly authorizes those operations.
+按照仓库策略，只有用户明确授权后才能运行测试或交互式仿真。

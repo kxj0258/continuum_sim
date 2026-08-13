@@ -2,15 +2,11 @@
 
 项目在 `configs/scenarios/` 中提供 6 个可运行场景。自动任务由 `scripts/run_scenario.py` 启动，手动控制分别由曲率和拉线控制入口启动。
 
-## Runtime scheduling
+## 运行时调度
 
-Control-critical hooks (`enrich_state`, completion and safety checks) remain
-synchronous with the controller. Presentation work is scheduled separately:
-live Matplotlib panels consume latest-value state/command mailboxes on the main
-GUI thread, while the passive MuJoCo viewer, observer rendering and live video
-use independent `MjData` copies and worker threads. Display updates may skip
-stale frames; video uses a bounded FIFO and records backpressure in
-`video_error.txt`. Real-time pacing is independent from viewer refresh rate.
+控制关键钩子（`enrich_state`、完成条件和安全检查）仍与控制器同步执行。展示任务单独调度：实时 Matplotlib 面板在图形界面主线程消费最新的状态/命令邮箱，被动 MuJoCo 三维窗口、观测臂渲染和实时视频则使用独立的 `MjData` 副本与工作线程。显示更新可以跳过过期帧；视频使用有界先进先出队列，并将背压错误记录到 `video_error.txt`。实时限速与三维窗口刷新率相互独立。
+
+手动控制是上述自动场景管线的特例：它不启动观测臂相机渲染或视觉反馈图像窗口，只保留控制窗口、只读状态窗口、MuJoCo 三维窗口和默认关闭的拉线监测窗口。曲率控制使用滑块和数值输入框，范围为 `-30～+30 1/m`。
 
 ## 场景列表
 

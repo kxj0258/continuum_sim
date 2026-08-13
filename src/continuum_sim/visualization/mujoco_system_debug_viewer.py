@@ -1,4 +1,4 @@
-"""Interactive tendon target controls for the scenario-based MuJoCo system."""
+"""Interactive curvature and tendon controls for the MuJoCo system."""
 
 from __future__ import annotations
 
@@ -27,6 +27,10 @@ from continuum_sim.visualization.system_tendon_debug import (
     SystemStatusPanel,
     SystemTendonMonitorPanel,
 )
+
+
+CURVATURE_MIN_1_PER_M = -30.0
+CURVATURE_MAX_1_PER_M = 30.0
 
 
 class _ManualControlPanel:
@@ -87,6 +91,20 @@ def normalize_target_mm(
     if not np.isfinite(parsed):
         parsed = float(fallback_mm)
     return float(np.clip(parsed, minimum_mm, maximum_mm))
+
+
+def normalize_curvature_target(value: object, fallback: float) -> float:
+    """Parse and clip one finite curvature target expressed in 1/m."""
+
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = float(fallback)
+    if not np.isfinite(parsed):
+        parsed = float(fallback)
+    return float(
+        np.clip(parsed, CURVATURE_MIN_1_PER_M, CURVATURE_MAX_1_PER_M)
+    )
 
 
 def named_system_target(
@@ -182,7 +200,6 @@ class MujocoSystemDebugViewer:
             Callable[[RobotSystemState, str], str] | None
         ) = None,
         control_mode: str = "curvature",
-        curvature_step_1_per_m: float = 0.5,
         panel_fps: float = 15.0,
         status_fps: float = 5.0,
         show_tendon_monitor: bool = False,
@@ -200,8 +217,6 @@ class MujocoSystemDebugViewer:
             raise ValueError("The debug viewer supports at most two enabled arms.")
         if control_mode not in {"curvature", "tendon"}:
             raise ValueError("control_mode must be 'curvature' or 'tendon'.")
-        if not np.isfinite(curvature_step_1_per_m) or curvature_step_1_per_m <= 0.0:
-            raise ValueError("curvature_step_1_per_m must be positive and finite.")
         if not np.isfinite(panel_fps) or panel_fps <= 0.0:
             raise ValueError("panel_fps must be positive and finite.")
         if not np.isfinite(status_fps) or status_fps <= 0.0:
@@ -247,8 +262,8 @@ class MujocoSystemDebugViewer:
         self._updating_controls = False
         self._views_dirty = False
         self._dirty_target_arms: set[str] = set()
+        self._dirty_curvature_components: dict[str, set[int]] = {}
         self._base_controls_dirty = False
-        self._curvature_control_dirty = False
         self._worker_error: BaseException | None = None
         self._worker_error_reported = False
         self.control_space = (
@@ -256,8 +271,6 @@ class MujocoSystemDebugViewer:
             if self.control_mode == "curvature"
             else "raw_tendon_debug"
         )
-        self.curvature_step_1_per_m = float(curvature_step_1_per_m)
-
         self.panel = _ManualControlPanel(
             title=(
                 "continuum_sim curvature control"
@@ -296,14 +309,18 @@ class MujocoSystemDebugViewer:
                 self.sliders[arm.name] = sliders
                 self.target_inputs[arm.name] = target_inputs
 
-        self.segment_buttons: dict[str, list[tuple[Button, Button, Button, Button]]] = {}
+        self.curvature_sliders: dict[str, list[Slider]] = {}
+        self.curvature_inputs: dict[str, list[TextBox]] = {}
         if self.control_mode == "curvature":
             for arm_index, arm_name in enumerate(self.arm_names):
-                self.segment_buttons[arm_name] = self._build_segment_controls(
-                    Button,
+                sliders, inputs = self._build_curvature_controls(
+                    Slider,
+                    TextBox,
                     arm_index,
                     arm_name,
                 )
+                self.curvature_sliders[arm_name] = sliders
+                self.curvature_inputs[arm_name] = inputs
 
         self._configure_base_controls()
         self.base_buttons, self.base_target_inputs = self._build_base_controls(
@@ -345,17 +362,6 @@ class MujocoSystemDebugViewer:
                 active=0,
                 **_disable_widget_blit(RadioButtons),
             )
-        self.curvature_step_input = None
-        if self.control_mode == "curvature":
-            self.panel.fig.text(0.50, 0.105, "curvature step [1/m]", fontsize=8)
-            self.curvature_step_input = TextBox(
-                self.panel.fig.add_axes((0.58, 0.070, 0.08, 0.035)),
-                "",
-                initial=f"{self.curvature_step_1_per_m:g}",
-                textalignment="center",
-                **_disable_widget_blit(TextBox),
-            )
-            _disconnect_textbox_resize(self.curvature_step_input)
         self._control_worker = MonotonicRateRunner(
             self.control_dt_s,
             self.step,
@@ -425,48 +431,47 @@ class MujocoSystemDebugViewer:
             target_inputs.append(target_input)
         return sliders, target_inputs
 
-    def _build_segment_controls(
+    def _build_curvature_controls(
         self,
-        button_type,
+        slider_type,
+        text_box_type,
         arm_index: int,
         arm_name: str,
-    ) -> list[tuple]:
-        controls = []
+    ) -> tuple[list, list]:
+        sliders = []
+        inputs = []
         x0 = 0.04 + 0.31 * arm_index
         role = "MAIN / EXECUTOR" if arm_name == "executor" else "OBSERVER"
         self.panel.fig.text(x0, 0.625, role, fontsize=10, weight="bold")
         self.panel.fig.text(x0, 0.603, "segment-local curvature [1/m]", fontsize=8)
-        for segment_index in range(3):
-            y = 0.565 - 0.034 * segment_index
-            self.panel.fig.text(x0, y + 0.004, f"S{segment_index + 1}", fontsize=8)
-            buttons = []
-            for button_index, (label, axis, direction) in enumerate(
-                (
-                    ("+kx", 0, 1.0),
-                    ("-kx", 0, -1.0),
-                    ("+ky", 1, 1.0),
-                    ("-ky", 1, -1.0),
-                )
-            ):
-                button = button_type(
-                    self.panel.fig.add_axes(
-                        (x0 + 0.040 + 0.058 * button_index, y, 0.052, 0.025)
-                    ),
-                    label,
-                    **_disable_widget_blit(button_type),
-                )
-                button.on_clicked(
-                    lambda _event, name=arm_name, segment=segment_index,
-                    component=axis, sign=direction: self.adjust_segment_bending(
-                        name,
-                        segment,
-                        component,
-                        sign,
-                    )
-                )
-                buttons.append(button)
-            controls.append(tuple(buttons))
-        return controls
+        model = self.backend.layout.bending_models[arm_name]
+        bending = model.estimate(model.project(self.targets[arm_name]))
+        for component_index, value in enumerate(bending):
+            segment_index = component_index // 2
+            component_name = "kx" if component_index % 2 == 0 else "ky"
+            y = 0.555 - 0.050 * component_index
+            slider = slider_type(
+                ax=self.panel.fig.add_axes((x0, y, 0.205, 0.020)),
+                label=f"S{segment_index + 1}-{component_name}",
+                valmin=CURVATURE_MIN_1_PER_M,
+                valmax=CURVATURE_MAX_1_PER_M,
+                valinit=float(value),
+                valfmt="% .3f",
+                **_disable_widget_blit(slider_type),
+            )
+            slider.valtext.set_visible(False)
+            slider.drawon = False
+            target_input = text_box_type(
+                self.panel.fig.add_axes((x0 + 0.22, y - 0.003, 0.065, 0.026)),
+                "",
+                initial=_format_curvature_target(value),
+                textalignment="center",
+                **_disable_widget_blit(text_box_type),
+            )
+            _disconnect_textbox_resize(target_input)
+            sliders.append(slider)
+            inputs.append(target_input)
+        return sliders, inputs
 
     def _configure_base_controls(self) -> None:
         self.base_control_enabled = self.backend.assembly.base.control_mode != "fixed"
@@ -618,18 +623,39 @@ class MujocoSystemDebugViewer:
                 updates.append((target_input, formatted))
         self._apply_widget_updates(updates)
 
-    def _sync_curvature_control(self) -> None:
+    def _sync_curvature_controls(self) -> None:
         with self._target_lock:
-            if not self._curvature_control_dirty:
+            dirty_components = {
+                arm_name: tuple(sorted(component_indices))
+                for arm_name, component_indices in (
+                    self._dirty_curvature_components.items()
+                )
+                if component_indices
+            }
+            if not dirty_components:
                 return
-            value = self.curvature_step_1_per_m
-            self._curvature_control_dirty = False
-        formatted = f"{value:g}"
-        if (
-            self.curvature_step_input is not None
-            and self.curvature_step_input.text != formatted
-        ):
-            self._apply_widget_updates([(self.curvature_step_input, formatted)])
+            values_by_arm = {
+                arm_name: self.backend.layout.bending_models[arm_name].estimate(
+                    self.backend.layout.bending_models[arm_name].project(
+                        self.targets[arm_name]
+                    )
+                )
+                for arm_name in dirty_components
+            }
+            self._dirty_curvature_components.clear()
+        updates = []
+        for arm_name, values in values_by_arm.items():
+            for component_index in dirty_components[arm_name]:
+                slider = self.curvature_sliders[arm_name][component_index]
+                target_input = self.curvature_inputs[arm_name][component_index]
+                value = values[component_index]
+                value = float(value)
+                if float(slider.val) != value:
+                    updates.append((slider, value))
+                formatted = _format_curvature_target(value)
+                if target_input.text != formatted:
+                    updates.append((target_input, formatted))
+        self._apply_widget_updates(updates)
 
     def zero_base_target(self) -> None:
         self.set_base_target(self.base_initial_pose_rpy)
@@ -649,6 +675,20 @@ class MujocoSystemDebugViewer:
                         self._on_target_input(name, index, text)
                     )
                 )
+        for arm_name, sliders in self.curvature_sliders.items():
+            for component_index, (slider, target_input) in enumerate(
+                zip(sliders, self.curvature_inputs[arm_name], strict=True)
+            ):
+                slider.on_changed(
+                    lambda value, name=arm_name, index=component_index: (
+                        self._on_curvature_slider(name, index, value)
+                    )
+                )
+                target_input.on_submit(
+                    lambda text, name=arm_name, index=component_index: (
+                        self._on_curvature_input(name, index, text)
+                    )
+                )
         self.reset_button.on_clicked(lambda _event: self.reset())
         self.zero_button.on_clicked(lambda _event: self.zero_targets())
         self.zero_base_button.on_clicked(lambda _event: self.zero_base_target())
@@ -656,38 +696,58 @@ class MujocoSystemDebugViewer:
         self.run_button.on_clicked(lambda _event: self.toggle_run())
         if self.radio is not None:
             self.radio.on_clicked(self.apply_named_target)
-        if self.curvature_step_input is not None:
-            self.curvature_step_input.on_submit(self._set_curvature_step)
 
-    def _set_curvature_step(self, text: str) -> None:
-        with self._target_lock:
-            try:
-                value = float(text)
-            except (TypeError, ValueError):
-                value = self.curvature_step_1_per_m
-            if not np.isfinite(value) or value <= 0.0:
-                value = self.curvature_step_1_per_m
-            self.curvature_step_1_per_m = float(value)
-            self._curvature_control_dirty = True
-            self._views_dirty = True
-
-    def adjust_segment_bending(
+    def _on_curvature_slider(
         self,
         arm_name: str,
-        segment_index: int,
         component_index: int,
-        direction: float,
+        value_1_per_m: float,
+    ) -> None:
+        if self._updating_controls:
+            return
+        self.set_curvature_component(
+            arm_name,
+            component_index,
+            value_1_per_m,
+            input_source="slider",
+        )
+
+    def _on_curvature_input(
+        self,
+        arm_name: str,
+        component_index: int,
+        text: str,
+    ) -> None:
+        if self._updating_controls:
+            return
+        with self._target_lock:
+            current = self.backend.layout.bending_models[arm_name].estimate(
+                self.backend.layout.bending_models[arm_name].project(
+                    self.targets[arm_name]
+                )
+            )
+            value = normalize_curvature_target(text, current[component_index])
+        self.set_curvature_component(
+            arm_name,
+            component_index,
+            value,
+            input_source="text",
+        )
+
+    def set_curvature_component(
+        self,
+        arm_name: str,
+        component_index: int,
+        value_1_per_m: float,
+        *,
+        input_source: str = "api",
     ) -> np.ndarray:
-        """Increment one segment-local kx/ky component and update tendon targets."""
+        """Set one absolute segment-local kx/ky target and publish tendons."""
 
         if arm_name not in self.targets:
             raise KeyError(f"Unknown arm {arm_name!r}.")
-        if segment_index not in range(3):
-            raise ValueError("segment_index must be 0, 1, or 2.")
-        if component_index not in (0, 1):
-            raise ValueError("component_index must be 0 (kx) or 1 (ky).")
-        if direction not in (-1.0, 1.0):
-            raise ValueError("direction must be -1 or 1.")
+        if component_index not in range(6):
+            raise ValueError("component_index must be in 0..5.")
         timing = getattr(self, "runtime_timing", None)
         with (
             nullcontext()
@@ -696,17 +756,19 @@ class MujocoSystemDebugViewer:
         ):
             with self._target_lock:
                 if timing is not None:
-                    component = "kx" if component_index == 0 else "ky"
-                    sign = "+" if direction > 0.0 else "-"
+                    segment_index = component_index // 2
+                    component = "kx" if component_index % 2 == 0 else "ky"
                     timing.mark_input(
-                        f"{arm_name}:S{segment_index + 1}:{sign}{component}"
+                        f"{arm_name}:S{segment_index + 1}:{component}:{input_source}"
                     )
                 model = self.backend.layout.bending_models[arm_name]
                 current = model.project(self.targets[arm_name])
                 bending = model.estimate(current)
-                bending[2 * segment_index + component_index] += (
-                    direction * self.curvature_step_1_per_m
+                value = normalize_curvature_target(
+                    value_1_per_m,
+                    bending[component_index],
                 )
+                bending[component_index] = value
                 candidate = model.to_tendon(bending)
                 arm = next(
                     item
@@ -720,6 +782,10 @@ class MujocoSystemDebugViewer:
                     arm.spatial_arm.limits.tendon_displacement_max_m,
                 )
                 self.set_targets({arm_name: bounded})
+                self._dirty_curvature_components.setdefault(arm_name, set()).add(
+                    component_index
+                )
+                self._views_dirty = True
                 return model.estimate(bounded)
 
     def _on_slider(self, arm_name: str, tendon_index: int, value_mm: float) -> None:
@@ -817,10 +883,26 @@ class MujocoSystemDebugViewer:
                 normalized = np.clip(array, lower, upper)
                 if np.array_equal(normalized, self.targets[arm_name]):
                     continue
+                previous = self.targets[arm_name]
                 self.targets[arm_name] = normalized
                 self._dirty_target_arms.add(arm_name)
-                if getattr(self, "control_mode", "tendon") == "tendon":
-                    self._views_dirty = True
+                if getattr(self, "control_mode", "tendon") == "curvature":
+                    model = self.backend.layout.bending_models[arm_name]
+                    previous_bending = model.estimate(model.project(previous))
+                    normalized_bending = model.estimate(model.project(normalized))
+                    changed_components = np.flatnonzero(
+                        ~np.isclose(
+                            previous_bending,
+                            normalized_bending,
+                            rtol=1.0e-12,
+                            atol=1.0e-12,
+                        )
+                    )
+                    self._dirty_curvature_components.setdefault(
+                        arm_name,
+                        set(),
+                    ).update(int(index) for index in changed_components)
+                self._views_dirty = True
                 changed = True
             if changed:
                 self._publish_targets_locked()
@@ -1082,7 +1164,7 @@ class MujocoSystemDebugViewer:
                 force
                 or self._views_dirty
                 or self._base_controls_dirty
-                or self._curvature_control_dirty
+                or bool(self._dirty_curvature_components)
             )
             if update_controls:
                 self._views_dirty = False
@@ -1092,7 +1174,7 @@ class MujocoSystemDebugViewer:
             self._sync_target_controls()
         if update_controls:
             self._sync_base_controls()
-            self._sync_curvature_control()
+            self._sync_curvature_controls()
             with (
                 nullcontext()
                 if timing is None
@@ -1131,7 +1213,6 @@ class MujocoSystemDebugViewer:
         state = self._state_slot.snapshot()[0] if state is None else state
         with self._target_lock:
             control_space = self.control_space
-            curvature_step = self.curvature_step_1_per_m
             base_target = self.base_target_pose_rpy.copy()
             targets = {
                 arm_name: values.copy()
@@ -1140,7 +1221,6 @@ class MujocoSystemDebugViewer:
         info_text = self._manual_diagnostic_text(
             state,
             control_space=control_space,
-            curvature_step_1_per_m=curvature_step,
             base_target_pose_rpy=base_target,
             targets=targets,
         )
@@ -1159,17 +1239,11 @@ class MujocoSystemDebugViewer:
         state: RobotSystemState | None = None,
         *,
         control_space: str | None = None,
-        curvature_step_1_per_m: float | None = None,
         base_target_pose_rpy: np.ndarray | None = None,
         targets: Mapping[str, np.ndarray] | None = None,
     ) -> str:
         state = self._state_slot.snapshot()[0] if state is None else state
         control_space = self.control_space if control_space is None else control_space
-        curvature_step_1_per_m = (
-            self.curvature_step_1_per_m
-            if curvature_step_1_per_m is None
-            else curvature_step_1_per_m
-        )
         base_target_pose_rpy = (
             self.base_target_pose_rpy
             if base_target_pose_rpy is None
@@ -1189,8 +1263,6 @@ class MujocoSystemDebugViewer:
             "base actual rpy: "
             + " ".join(f"{value:+.1f}" for value in np.rad2deg(base_actual[3:])),
         ]
-        if control_space == "bending_compatible":
-            lines.insert(2, f"curvature step: {curvature_step_1_per_m:g} 1/m")
         for arm_name, arm in state.arms.items():
             model = self.backend.layout.bending_models[arm_name]
             target_bending = model.estimate(model.project(targets[arm_name]))
@@ -1225,6 +1297,10 @@ class MujocoSystemDebugViewer:
 
 def _format_target_mm(value_mm: float) -> str:
     return f"{float(value_mm):.3f}"
+
+
+def _format_curvature_target(value_1_per_m: float) -> str:
+    return f"{float(value_1_per_m):.3f}"
 
 
 def _copy_targets(
@@ -1291,6 +1367,7 @@ __all__ = [
     "available_named_targets",
     "bounded_compatible_target",
     "named_system_target",
+    "normalize_curvature_target",
     "normalize_target_mm",
     "target_rates",
 ]

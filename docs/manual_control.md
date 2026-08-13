@@ -38,7 +38,7 @@ python scripts/run_manual_tendon_control.py configs/scenarios/mujoco_wiping.yaml
 
 ```powershell
 python scripts/run_manual_curvature_control.py `
-  --panel-fps 15 --status-fps 5 --viewer-fps 15 --curvature-step 0.5
+  --panel-fps 15 --status-fps 5 --viewer-fps 15
 
 python scripts/run_manual_tendon_control.py `
   --panel-fps 15 --status-fps 5 --viewer-fps 15
@@ -47,29 +47,27 @@ python scripts/run_manual_tendon_control.py `
 - `--panel-fps`：控制窗口的目标刷新率，默认 `15 Hz`。
 - `--status-fps`：只读状态及可选拉线监测窗口的目标刷新率，默认 `5 Hz`。
 - `--viewer-fps`：MuJoCo 三维窗口的目标刷新率，默认 `15 Hz`。
-- `--curvature-step`：曲率程序每次按钮操作的增量，单位 `1/m`。
 - `--show-tendon-monitor`：额外打开拉线长度和拉力图，默认不打开。
 
-两个入口都会每 `0.5 s` 在终端输出一次时序统计。50 Hz 控制线程使用独立单调时钟，不依赖 Matplotlib 定时器；控制窗口、状态窗口、可选拉线监测窗口和 MuJoCo viewer 只消费最新状态，显示较慢时不会积压历史帧。
+两个入口都会每 `0.5 s` 在终端输出一次时序统计。`50 Hz` 控制线程使用独立单调时钟，不依赖 Matplotlib 定时器；控制窗口、状态窗口、可选拉线监测窗口和 MuJoCo 三维窗口只消费最新状态，显示较慢时不会积压历史帧。
 
 ## 曲率控制程序
 
-两条机械臂的每一段均提供四个按钮：
+两条机械臂的每一段均提供 `kx`、`ky` 两个滑块和对应的数值输入框，单位为 `1/m`，取值范围固定为 `-30～+30 1/m`：
 
-```text
-+kx：kx += Δκ
--kx：kx -= Δκ
-+ky：ky += Δκ
--ky：ky -= Δκ
-```
+- 拖动滑块可连续、快速地改变绝对曲率目标。
+- 在输入框中填写目标值并按回车键，可精确设置曲率目标。
+- 超出范围的输入会限制到 `-30～+30 1/m`；非法输入会恢复为当前有效值。
 
-`kx/ky` 是机械臂分段局部弯曲坐标。回调只更新目标值和 dirty 标记；弯曲模型将六维分段曲率转换为九维拉线目标，并统一缩放到拉线行程范围内。控制窗口不创建任何拉线 Slider/TextBox。
+`kx/ky` 是机械臂分段局部弯曲坐标。回调只更新目标值和待刷新标记；弯曲模型将六维分段曲率转换为九维拉线目标，并统一缩放到拉线行程范围内。控件回写集中到低频界面刷新阶段执行，因此被拉线行程进一步限制后的实际有效目标会统一同步到滑块和输入框。每次只同步发生变化的机械臂及曲率分量，回调期间不会调用任何控件数值回写方法。控制窗口不创建任何拉线控制控件。
 
-`curvature step` 文本框可在运行时修改 `Δκ`。该程序固定使用 `bending_compatible` 控制空间，不提供模式切换。
+曲率滑块关闭自身的主动绘制请求，拖动产生的新目标由回调立即发布，滑块外观和输入框文本则由控制面板按 `--panel-fps` 指定的频率统一重绘一次。这种显示降频不会降低独立控制线程的目标频率。
+
+该程序固定使用 `bending_compatible` 控制空间，不提供模式切换。
 
 ## 拉线控制程序
 
-每条机械臂提供九个拉线 Slider 和数值输入框，单位为 `mm`。该程序固定使用 `raw_tendon_debug` 控制空间，不创建曲率按钮，也不把独立拉线目标投影回弯曲子空间。
+每条机械臂提供九个拉线滑块和数值输入框，单位为 `mm`。该程序固定使用 `raw_tendon_debug` 控制空间，不创建曲率控件，也不把独立拉线目标投影回弯曲子空间。
 
 命名预设可发送单根拉线、第一段三根拉线或全部拉线的调试目标。
 
@@ -106,7 +104,7 @@ python scripts/run_manual_curvature_control.py --show-tendon-monitor
 python scripts/run_manual_tendon_control.py --show-tendon-monitor
 ```
 
-该窗口只创建一次柱状图 Artist，后续更新柱高和纵轴范围，不清空坐标轴，也不重建图例和刻度。默认不创建该窗口，因此常规手动控制不承担这部分计算和重绘开销。
+该窗口只创建一次柱状图绘图对象，后续更新柱高和纵轴范围，不清空坐标轴，也不重建图例或刻度。默认不创建该窗口，因此常规手动控制不承担这部分计算和重绘开销。
 
 ## 仿真时钟
 

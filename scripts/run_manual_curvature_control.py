@@ -29,7 +29,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--panel-fps", type=float, default=15.0)
     parser.add_argument("--status-fps", type=float, default=5.0)
     parser.add_argument("--viewer-fps", type=float, default=15.0)
-    parser.add_argument("--curvature-step", type=float, default=0.5, metavar="1/M")
     parser.add_argument("--show-tendon-monitor", action="store_true")
     args = parser.parse_args(argv)
     run_manual_curvature_control(
@@ -37,7 +36,6 @@ def main(argv: list[str] | None = None) -> int:
         panel_fps=args.panel_fps,
         status_fps=args.status_fps,
         viewer_fps=args.viewer_fps,
-        curvature_step_1_per_m=args.curvature_step,
         show_tendon_monitor=args.show_tendon_monitor,
     )
     return 0

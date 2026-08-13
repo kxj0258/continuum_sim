@@ -12,7 +12,7 @@
 - 发动机使用不透明灰银色材质、镜面高光和中性补光；MuJoCo 主窗口与观测臂相机使用同一套场景材质和灯光。
 - 执行臂末端装配 `15 × 15 × 8 mm` 六维力传感器和直径 `18 mm` 的包覆式球形擦拭工具。
 - 擦拭控制直接读取 MuJoCo `force`/`torque` 传感器，提供置零、低通滤波、坐标变换、限幅和重力补偿。
-- 提供三窗口手动控制工具：控制面板、MuJoCo 三维窗口、观测臂相机窗口。
+- 提供独立的曲率/拉线手动控制入口、只读状态窗口和可选拉线监测窗口；手动控制不启动观测臂相机图像。
 - 提供单姿态 64 角点最坏情况分析和 10,000 姿态工作空间编码器精度统计，可导出 CSV、NPZ 与 TCP 误差热力图。
 - 控制周期为 `0.02 s`，MuJoCo 步长为 `0.001 s`，每周期执行 20 个物理子步；启动时会检查两套时钟是否一致。
 
@@ -35,7 +35,8 @@ python -m pip install -e ".[mujoco,dev]"
 启动双臂手动控制：
 
 ```powershell
-python scripts/run_manual_control.py
+python scripts/run_manual_curvature_control.py
+python scripts/run_manual_tendon_control.py
 ```
 
 运行编码器精度分析：
@@ -63,7 +64,7 @@ python scripts/run_all_scenarios.py
 
 | 场景 | 任务 | 默认装配 | 主要用途 |
 | --- | --- | --- | --- |
-| `mujoco_manual_control.yaml` | `idle` | 双臂六自由度移动基座 | 无发动机轻量场景、三窗口手动控制与基座调姿 |
+| `mujoco_manual_control.yaml` | `idle` | 双臂六自由度移动基座 | 无发动机轻量场景、独立曲率/拉线控制与基座调姿 |
 | `mujoco_tracking.yaml` | `tracking` | 双臂固定基座 | 方形轨迹跟踪、双臂协同和实时诊断 |
 | `mujoco_point_servo.yaml` | `tracking` | 单臂固定基座 | 单点伺服和控制链调试 |
 | `mujoco_navigation.yaml` | `navigation` | 双臂移动基座 | 结构化场景导航、避障和相机观察 |
@@ -79,7 +80,8 @@ python scripts/run_scenario.py <场景 YAML>
 手动控制场景使用：
 
 ```powershell
-python scripts/run_manual_control.py [场景 YAML]
+python scripts/run_manual_curvature_control.py [场景 YAML]
+python scripts/run_manual_tendon_control.py [场景 YAML]
 ```
 
 ## 系统链路
@@ -105,13 +107,15 @@ configs/control/mujoco_tracking_low_level.yaml
 
 ## 手动控制
 
-控制面板同时管理 `executor` 和 `observer`。每一段提供 `+kx/-kx/+ky/-ky` 按钮，方向定义在该段的机械臂局部弯曲坐标中，按钮直接修改对应曲率分量，不执行世界坐标或安装坐标逆解。基座区提供世界坐标中的 `X/Y/Z/Roll/Pitch/Yaw` 目标调节以及粗调、微调切换。
+曲率控制程序同时管理 `executor` 和 `observer`。每一段提供 `+kx/-kx/+ky/-ky` 按钮，方向定义在该段的机械臂局部弯曲坐标中，按钮直接修改对应曲率分量，不执行世界坐标或安装坐标逆解。
 
-面板还提供九根肌腱目标滑块。`compatible` 模式会把滑动结果投影到弯曲子空间并同步关联肌腱；`raw tendon` 模式用于直接设置各肌腱。诊断区实时显示：
+拉线控制程序为每条臂提供九根肌腱目标 Slider/TextBox，并固定使用原始拉线调试模式。两个程序都提供基座 `X/Y/Z/Roll/Pitch/Yaw` 调节和独立状态窗口。状态窗口实时显示：
 
 - 每段目标和实际 `kx、ky`，单位 `1/m`。
 - 每段末端在 MuJoCo 世界坐标系中的实际位置，单位 `m`。
 - 执行臂三轴力、三轴力矩和传感器饱和状态。
+
+拉线长度和拉力图默认关闭，可通过 `--show-tendon-monitor` 在独立窗口中显示。手动控制不启动 observer 相机渲染或视觉反馈图像窗口。
 
 详细操作见 [双臂手动控制](docs/manual_control.md)。
 

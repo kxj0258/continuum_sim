@@ -7,6 +7,7 @@ import pytest
 from continuum_sim.model.base_pose import Pose6D
 from continuum_sim.system.types import ArmSystemState, BaseSystemState, RobotSystemState
 from continuum_sim.visualization.system_tendon_debug import (
+    SystemStatusPanel,
     SystemTendonMonitorPanel,
     system_tendon_view_data,
 )
@@ -121,6 +122,27 @@ def test_monitor_panel_reuses_bar_artists_between_updates() -> None:
         assert_allclose([bar.get_height() for bar in target_bars], [3.0, 4.0])
         assert_allclose([bar.get_height() for bar in actual_bars], [2.5, 3.5])
         assert_allclose([bar.get_height() for bar in force_bars], [3.0, 4.0])
+    finally:
+        panel.close()
+
+
+def test_status_panel_contains_text_without_tendon_axes() -> None:
+    panel = SystemStatusPanel()
+    try:
+        panel.update("time: 0.020 s", redraw=False)
+
+        assert panel._info_text.get_text() == "time: 0.020 s"
+        assert not hasattr(panel, "length_ax")
+        assert not hasattr(panel, "force_ax")
+    finally:
+        panel.close()
+
+
+def test_tendon_monitor_can_hide_embedded_info_panel() -> None:
+    panel = SystemTendonMonitorPanel(show_info=False)
+    try:
+        assert panel.info_ax is None
+        assert panel._info_text is None
     finally:
         panel.close()
 

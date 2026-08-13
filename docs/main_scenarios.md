@@ -1,6 +1,6 @@
 # 场景说明
 
-项目在 `configs/scenarios/` 中提供 6 个可运行场景。自动任务由 `scripts/run_scenario.py` 启动，手动控制由 `scripts/run_manual_control.py` 启动。
+项目在 `configs/scenarios/` 中提供 6 个可运行场景。自动任务由 `scripts/run_scenario.py` 启动，手动控制分别由曲率和拉线控制入口启动。
 
 ## Runtime scheduling
 
@@ -16,7 +16,7 @@ stale frames; video uses a bounded FIFO and records backpressure in
 
 | 场景文件 | 任务类型 | 默认模式 | 基座 | 主要能力 |
 | --- | --- | --- | --- | --- |
-| `mujoco_manual_control.yaml` | `idle` | `dual` | 移动 | 双臂局部曲率、肌腱和基座六自由度手动控制、三窗口显示 |
+| `mujoco_manual_control.yaml` | `idle` | `dual` | 移动 | 独立曲率/拉线控制、基座六自由度控制、独立状态显示 |
 | `mujoco_tracking.yaml` | `tracking` | `dual` | 固定 | 方形轨迹跟踪、observer 协同、实时诊断 |
 | `mujoco_point_servo.yaml` | `tracking` | `single` | 固定 | 单点伺服和低层控制调试 |
 | `mujoco_navigation.yaml` | `navigation` | `dual` | 移动 | 基座阶段化接近、结构化场景避障、observer 相机 |
@@ -31,7 +31,8 @@ python scripts/run_scenario.py configs/scenarios/mujoco_navigation.yaml
 python scripts/run_scenario.py configs/scenarios/engine_navigation.yaml
 python scripts/run_scenario.py configs/scenarios/mujoco_wiping.yaml
 python scripts/run_scenario.py configs/scenarios/mujoco_point_servo.yaml
-python scripts/run_manual_control.py
+python scripts/run_manual_curvature_control.py
+python scripts/run_manual_tendon_control.py
 ```
 
 批量运行非空闲任务：

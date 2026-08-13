@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from contextlib import nullcontext
 from threading import RLock
+from time import perf_counter
 import traceback
 
 import numpy as np
@@ -12,13 +13,42 @@ import numpy as np
 from continuum_sim.backends.mujoco_system_backend import MujocoSystemBackend
 from continuum_sim.model.base_pose import quaternion_wxyz_to_rotation_matrix
 from continuum_sim.model.mount_frame import load_mobile_base_mount_config
-from continuum_sim.runtime.concurrency import LatestValueSlot, MonotonicRateRunner
+from continuum_sim.runtime.concurrency import (
+    LatestValueSlot,
+    MonotonicRateRunner,
+    TimeRateGate,
+)
 from continuum_sim.system.types import (
     ArmTendonRateCommand,
     RobotSystemCommand,
     RobotSystemState,
 )
-from continuum_sim.visualization.system_tendon_debug import SystemTendonMonitorPanel
+from continuum_sim.visualization.system_tendon_debug import (
+    SystemStatusPanel,
+    SystemTendonMonitorPanel,
+)
+
+
+class _ManualControlPanel:
+    """Own only the widgets for one manual-control mode."""
+
+    def __init__(self, *, title: str) -> None:
+        import matplotlib.pyplot as plt
+
+        self._plt = plt
+        self.fig = plt.figure(figsize=(14.0, 8.0))
+        manager = getattr(self.fig.canvas, "manager", None)
+        if manager is not None:
+            manager.set_window_title(title)
+
+    def show(self, *, block: bool = True) -> None:
+        self._plt.show(block=block)
+
+    def is_open(self) -> bool:
+        return bool(self._plt.fignum_exists(self.fig.number))
+
+    def close(self) -> None:
+        self._plt.close(self.fig)
 
 
 def target_rates(
@@ -139,7 +169,7 @@ def bounded_compatible_target(
 
 
 class MujocoSystemDebugViewer:
-    """Matplotlib controls and diagnostics for a composed MuJoCo system backend."""
+    """Mode-specific Matplotlib controls for a composed MuJoCo system backend."""
 
     def __init__(
         self,
@@ -151,10 +181,14 @@ class MujocoSystemDebugViewer:
         diagnostic_text_provider: (
             Callable[[RobotSystemState, str], str] | None
         ) = None,
+        control_mode: str = "curvature",
         curvature_step_1_per_m: float = 0.5,
         panel_fps: float = 15.0,
+        status_fps: float = 5.0,
+        show_tendon_monitor: bool = False,
         simulation_lock=None,
         runtime_timing=None,
+        clock=perf_counter,
     ) -> None:
         from matplotlib.widgets import Button, RadioButtons, Slider, TextBox
 
@@ -164,17 +198,25 @@ class MujocoSystemDebugViewer:
             raise ValueError("n_substeps must be positive.")
         if len(backend.assembly.enabled_arms) > 2:
             raise ValueError("The debug viewer supports at most two enabled arms.")
+        if control_mode not in {"curvature", "tendon"}:
+            raise ValueError("control_mode must be 'curvature' or 'tendon'.")
         if not np.isfinite(curvature_step_1_per_m) or curvature_step_1_per_m <= 0.0:
             raise ValueError("curvature_step_1_per_m must be positive and finite.")
         if not np.isfinite(panel_fps) or panel_fps <= 0.0:
             raise ValueError("panel_fps must be positive and finite.")
+        if not np.isfinite(status_fps) or status_fps <= 0.0:
+            raise ValueError("status_fps must be positive and finite.")
 
         self.backend = backend
         self.control_dt_s = float(control_dt_s)
         self.n_substeps = int(n_substeps)
         self.state_update_callback = state_update_callback
         self.diagnostic_text_provider = diagnostic_text_provider
+        self.control_mode = str(control_mode)
         self.panel_fps = float(panel_fps)
+        self.status_fps = float(status_fps)
+        self.show_tendon_monitor = bool(show_tendon_monitor)
+        self._clock = clock
         self._simulation_lock = RLock() if simulation_lock is None else simulation_lock
         self._target_lock = RLock()
         self.runtime_timing = runtime_timing
@@ -186,6 +228,19 @@ class MujocoSystemDebugViewer:
             name: np.asarray(arm.tendon_target_m, dtype=float).copy()
             for name, arm in self.state.arms.items()
         }
+        self._target_limits = {
+            arm.name: (
+                np.asarray(
+                    arm.spatial_arm.limits.tendon_displacement_min_m,
+                    dtype=float,
+                ).copy(),
+                np.asarray(
+                    arm.spatial_arm.limits.tendon_displacement_max_m,
+                    dtype=float,
+                ).copy(),
+            )
+            for arm in backend.assembly.enabled_arms
+        }
         self._target_slot = LatestValueSlot(_copy_targets(self.targets))
         self._state_slot = LatestValueSlot(self.state)
         self._running = False
@@ -196,39 +251,59 @@ class MujocoSystemDebugViewer:
         self._curvature_control_dirty = False
         self._worker_error: BaseException | None = None
         self._worker_error_reported = False
-        self.control_space = "bending_compatible"
+        self.control_space = (
+            "bending_compatible"
+            if self.control_mode == "curvature"
+            else "raw_tendon_debug"
+        )
         self.curvature_step_1_per_m = float(curvature_step_1_per_m)
 
-        self.panel = SystemTendonMonitorPanel(
-            title="continuum_sim MuJoCo system tendon debug"
+        self.panel = _ManualControlPanel(
+            title=(
+                "continuum_sim curvature control"
+                if self.control_mode == "curvature"
+                else "continuum_sim tendon control"
+            )
         )
-        self.panel.fig.set_size_inches(18.0, 10.0, forward=True)
-        self.panel.length_ax.set_position((0.04, 0.72, 0.58, 0.24))
-        self.panel.force_ax.set_position((0.67, 0.72, 0.29, 0.24))
-        self.panel.info_ax.set_position((0.68, 0.11, 0.28, 0.20))
-        self.panel._info_text.set_fontsize(6.2)
+        self.status_panel = SystemStatusPanel(
+            title="continuum_sim manual control status"
+        )
+        self.tendon_panel = (
+            SystemTendonMonitorPanel(
+                title="continuum_sim tendon length and force",
+                show_info=False,
+            )
+            if self.show_tendon_monitor
+            else None
+        )
+        self._status_gate = TimeRateGate(
+            1.0 / self.status_fps,
+            clock=self._clock,
+        )
 
         self.sliders: dict[str, list[Slider]] = {}
         self.target_inputs: dict[str, list[TextBox]] = {}
-        for arm_index, arm in enumerate(backend.assembly.enabled_arms):
-            sliders, target_inputs = self._build_arm_controls(
-                Slider,
-                TextBox,
-                arm_index,
-                arm.name,
-                arm.spatial_arm.limits.tendon_displacement_min_m,
-                arm.spatial_arm.limits.tendon_displacement_max_m,
-            )
-            self.sliders[arm.name] = sliders
-            self.target_inputs[arm.name] = target_inputs
+        if self.control_mode == "tendon":
+            for arm_index, arm in enumerate(backend.assembly.enabled_arms):
+                sliders, target_inputs = self._build_arm_controls(
+                    Slider,
+                    TextBox,
+                    arm_index,
+                    arm.name,
+                    arm.spatial_arm.limits.tendon_displacement_min_m,
+                    arm.spatial_arm.limits.tendon_displacement_max_m,
+                )
+                self.sliders[arm.name] = sliders
+                self.target_inputs[arm.name] = target_inputs
 
         self.segment_buttons: dict[str, list[tuple[Button, Button, Button, Button]]] = {}
-        for arm_index, arm_name in enumerate(self.arm_names):
-            self.segment_buttons[arm_name] = self._build_segment_controls(
-                Button,
-                arm_index,
-                arm_name,
-            )
+        if self.control_mode == "curvature":
+            for arm_index, arm_name in enumerate(self.arm_names):
+                self.segment_buttons[arm_name] = self._build_segment_controls(
+                    Button,
+                    arm_index,
+                    arm_name,
+                )
 
         self._configure_base_controls()
         self.base_buttons, self.base_target_inputs = self._build_base_controls(
@@ -262,27 +337,25 @@ class MujocoSystemDebugViewer:
             **_disable_widget_blit(Button),
         )
         self.named_targets = available_named_targets(self.arm_names)
-        self.radio = RadioButtons(
-            self.panel.fig.add_axes((0.79, 0.025, 0.17, 0.09)),
-            self.named_targets,
-            active=0,
-            **_disable_widget_blit(RadioButtons),
-        )
-        self.mode_radio = RadioButtons(
-            self.panel.fig.add_axes((0.50, 0.025, 0.11, 0.09)),
-            ("compatible", "raw tendon"),
-            active=0,
-            **_disable_widget_blit(RadioButtons),
-        )
-        self.panel.fig.text(0.625, 0.084, "curvature step [1/m]", fontsize=8)
-        self.curvature_step_input = TextBox(
-            self.panel.fig.add_axes((0.66, 0.045, 0.08, 0.035)),
-            "",
-            initial=f"{self.curvature_step_1_per_m:g}",
-            textalignment="center",
-            **_disable_widget_blit(TextBox),
-        )
-        _disconnect_textbox_resize(self.curvature_step_input)
+        self.radio = None
+        if self.control_mode == "tendon":
+            self.radio = RadioButtons(
+                self.panel.fig.add_axes((0.79, 0.025, 0.17, 0.12)),
+                self.named_targets,
+                active=0,
+                **_disable_widget_blit(RadioButtons),
+            )
+        self.curvature_step_input = None
+        if self.control_mode == "curvature":
+            self.panel.fig.text(0.50, 0.105, "curvature step [1/m]", fontsize=8)
+            self.curvature_step_input = TextBox(
+                self.panel.fig.add_axes((0.58, 0.070, 0.08, 0.035)),
+                "",
+                initial=f"{self.curvature_step_1_per_m:g}",
+                textalignment="center",
+                **_disable_widget_blit(TextBox),
+            )
+            _disconnect_textbox_resize(self.curvature_step_input)
         self._control_worker = MonotonicRateRunner(
             self.control_dt_s,
             self.step,
@@ -293,8 +366,15 @@ class MujocoSystemDebugViewer:
             interval=max(1, round(1000.0 / self.panel_fps))
         )
         self.timer.add_callback(self._on_timer)
+        self._closed = False
+        self._close_cid = self.panel.fig.canvas.mpl_connect(
+            "close_event",
+            self._on_control_window_closed,
+        )
         self._connect_controls()
-        self._update_panel(redraw=False)
+        self._update_status(redraw=False)
+        if self.tendon_panel is not None:
+            self.tendon_panel.update(self.state, redraw=False)
         self._notify_state_updated()
 
     def _build_arm_controls(
@@ -310,6 +390,9 @@ class MujocoSystemDebugViewer:
         target_inputs = []
         x0 = 0.04 + 0.31 * arm_index
         y0 = 0.44
+        role = "MAIN / EXECUTOR" if arm_name == "executor" else "OBSERVER"
+        self.panel.fig.text(x0, y0 + 0.065, role, fontsize=10, weight="bold")
+        self.panel.fig.text(x0, y0 + 0.043, "tendon target [mm]", fontsize=8)
         for tendon_index, (minimum, maximum) in enumerate(
             zip(lower, upper, strict=True)
         ):
@@ -350,7 +433,7 @@ class MujocoSystemDebugViewer:
     ) -> list[tuple]:
         controls = []
         x0 = 0.04 + 0.31 * arm_index
-        role = "MAIN / EXECUTOR" if arm_name == "executor" else "CAMERA / OBSERVER"
+        role = "MAIN / EXECUTOR" if arm_name == "executor" else "OBSERVER"
         self.panel.fig.text(x0, 0.625, role, fontsize=10, weight="bold")
         self.panel.fig.text(x0, 0.603, "segment-local curvature [1/m]", fontsize=8)
         for segment_index in range(3):
@@ -542,7 +625,10 @@ class MujocoSystemDebugViewer:
             value = self.curvature_step_1_per_m
             self._curvature_control_dirty = False
         formatted = f"{value:g}"
-        if self.curvature_step_input.text != formatted:
+        if (
+            self.curvature_step_input is not None
+            and self.curvature_step_input.text != formatted
+        ):
             self._apply_widget_updates([(self.curvature_step_input, formatted)])
 
     def zero_base_target(self) -> None:
@@ -568,9 +654,10 @@ class MujocoSystemDebugViewer:
         self.zero_base_button.on_clicked(lambda _event: self.zero_base_target())
         self.step_button.on_clicked(lambda _event: self._step_once())
         self.run_button.on_clicked(lambda _event: self.toggle_run())
-        self.radio.on_clicked(self.apply_named_target)
-        self.mode_radio.on_clicked(self._set_control_mode)
-        self.curvature_step_input.on_submit(self._set_curvature_step)
+        if self.radio is not None:
+            self.radio.on_clicked(self.apply_named_target)
+        if self.curvature_step_input is not None:
+            self.curvature_step_input.on_submit(self._set_curvature_step)
 
     def _set_curvature_step(self, text: str) -> None:
         with self._target_lock:
@@ -726,30 +813,30 @@ class MujocoSystemDebugViewer:
                         f"Target for arm {arm_name!r} has shape {array.shape}, "
                         f"expected {self.targets[arm_name].shape}."
                     )
-                normalized = np.empty_like(array)
-                for index, (slider, value_m) in enumerate(zip(
-                    self.sliders[arm_name],
-                    array,
-                    strict=True,
-                )):
-                    value_mm = normalize_target_mm(
-                        1000.0 * float(value_m),
-                        float(slider.valmin),
-                        float(slider.valmax),
-                        1000.0 * self.targets[arm_name][index],
-                    )
-                    normalized[index] = 0.001 * value_mm
+                lower, upper = self._target_limits_for(arm_name)
+                normalized = np.clip(array, lower, upper)
                 if np.array_equal(normalized, self.targets[arm_name]):
                     continue
                 self.targets[arm_name] = normalized
                 self._dirty_target_arms.add(arm_name)
-                self._views_dirty = True
+                if getattr(self, "control_mode", "tendon") == "tendon":
+                    self._views_dirty = True
                 changed = True
             if changed:
                 self._publish_targets_locked()
 
     def _publish_targets_locked(self) -> None:
         self._target_slot.publish(_copy_targets(self.targets))
+
+    def _target_limits_for(self, arm_name: str) -> tuple[np.ndarray, np.ndarray]:
+        limits = getattr(self, "_target_limits", None)
+        if limits is not None:
+            return limits[arm_name]
+        sliders = self.sliders[arm_name]
+        return (
+            0.001 * np.asarray([slider.valmin for slider in sliders], dtype=float),
+            0.001 * np.asarray([slider.valmax for slider in sliders], dtype=float),
+        )
 
     def _sync_target_controls(self) -> None:
         with self._target_lock:
@@ -761,6 +848,8 @@ class MujocoSystemDebugViewer:
             self._dirty_target_arms.clear()
         updates = []
         for arm_name, values in target_values.items():
+            if arm_name not in self.sliders:
+                continue
             for slider, target_input, value_m in zip(
                 self.sliders[arm_name],
                 self.target_inputs[arm_name],
@@ -887,8 +976,6 @@ class MujocoSystemDebugViewer:
                 )
             self.state = next_state
             self._state_slot.publish(next_state)
-            with self._target_lock:
-                self._views_dirty = True
             return next_state
         finally:
             if timing is not None:
@@ -918,19 +1005,6 @@ class MujocoSystemDebugViewer:
         )
         return twist
 
-    def _set_control_mode(self, label: str) -> None:
-        with self._target_lock:
-            self.control_space = (
-                "bending_compatible" if label == "compatible" else "raw_tendon_debug"
-            )
-            if self.control_space == "bending_compatible":
-                projected = {
-                    arm_name: self.backend.layout.bending_models[arm_name].project(values)
-                    for arm_name, values in self.targets.items()
-                }
-                self.set_targets(projected)
-            self._views_dirty = True
-
     def toggle_run(self) -> None:
         if self._running:
             self.pause()
@@ -949,6 +1023,10 @@ class MujocoSystemDebugViewer:
         self.run_button.label.set_text("Run")
 
     def show(self) -> None:
+        self.status_panel.show(block=False)
+        if self.tendon_panel is not None:
+            self.tendon_panel.show(block=False)
+        self._status_gate.reset(self._clock())
         self.timer.start()
         try:
             self.panel.show(block=True)
@@ -956,12 +1034,28 @@ class MujocoSystemDebugViewer:
             self.timer.stop()
 
     def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         self.pause()
         self.timer.stop()
+        self.status_panel.close()
+        if self.tendon_panel is not None:
+            self.tendon_panel.close()
         self.panel.close()
 
+    def _on_control_window_closed(self, _event) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self.pause()
+        self.timer.stop()
+        self.status_panel.close()
+        if self.tendon_panel is not None:
+            self.tendon_panel.close()
+
     def refresh(self) -> None:
-        """Redraw the panel and notify external diagnostic views."""
+        """Refresh controls, read-only windows, and external views."""
 
         self._update_views(force=True)
 
@@ -983,24 +1077,44 @@ class MujocoSystemDebugViewer:
 
     def _update_views(self, *, force: bool = False) -> None:
         with self._target_lock:
-            update_panel = force or self._views_dirty or bool(
-                self._dirty_target_arms
-            ) or self._base_controls_dirty or self._curvature_control_dirty
-            if update_panel:
+            sync_targets = bool(self._dirty_target_arms)
+            update_controls = (
+                force
+                or self._views_dirty
+                or self._base_controls_dirty
+                or self._curvature_control_dirty
+            )
+            if update_controls:
                 self._views_dirty = False
         state = self._state_slot.snapshot()[0]
-        if update_panel:
+        timing = self.runtime_timing
+        if sync_targets:
             self._sync_target_controls()
+        if update_controls:
             self._sync_base_controls()
             self._sync_curvature_control()
-        timing = self.runtime_timing
-        if update_panel:
             with (
                 nullcontext()
                 if timing is None
-                else timing.measure("ui.panel")
+                else timing.measure("ui.controls")
             ):
-                self._update_panel(state=state)
+                self.panel.fig.canvas.draw_idle()
+        now_s = self._clock()
+        if force or self._status_gate.due(now_s):
+            if self.status_panel.is_open():
+                with (
+                    nullcontext()
+                    if timing is None
+                    else timing.measure("ui.status")
+                ):
+                    self._update_status(state=state)
+            if self.tendon_panel is not None and self.tendon_panel.is_open():
+                with (
+                    nullcontext()
+                    if timing is None
+                    else timing.measure("ui.tendon_monitor")
+                ):
+                    self.tendon_panel.update(state)
         with (
             nullcontext()
             if timing is None
@@ -1008,7 +1122,7 @@ class MujocoSystemDebugViewer:
         ):
             self._notify_state_updated(state)
 
-    def _update_panel(
+    def _update_status(
         self,
         *,
         redraw: bool = True,
@@ -1037,11 +1151,8 @@ class MujocoSystemDebugViewer:
             )
             if extra:
                 info_text = f"{info_text}\n\n{extra}"
-        self.panel.update(
-            state,
-            redraw=redraw,
-            info_text=info_text,
-        )
+        if self.status_panel.is_open():
+            self.status_panel.update(info_text, redraw=redraw)
 
     def _manual_diagnostic_text(
         self,
@@ -1069,7 +1180,6 @@ class MujocoSystemDebugViewer:
         lines = [
             f"time: {state.time_s:.3f} s",
             f"mode: {control_space}",
-            f"curvature step: {curvature_step_1_per_m:g} 1/m",
             "base target xyz: "
             + " ".join(f"{value:+.3f}" for value in base_target_pose_rpy[:3]),
             "base actual xyz: "
@@ -1079,6 +1189,8 @@ class MujocoSystemDebugViewer:
             "base actual rpy: "
             + " ".join(f"{value:+.1f}" for value in np.rad2deg(base_actual[3:])),
         ]
+        if control_space == "bending_compatible":
+            lines.insert(2, f"curvature step: {curvature_step_1_per_m:g} 1/m")
         for arm_name, arm in state.arms.items():
             model = self.backend.layout.bending_models[arm_name]
             target_bending = model.estimate(model.project(targets[arm_name]))

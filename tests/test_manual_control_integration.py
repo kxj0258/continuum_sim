@@ -105,6 +105,7 @@ def test_manual_viewer_moves_mobile_base_in_translation_and_rotation() -> None:
         application.loop.backend,
         control_dt_s=0.02,
         n_substeps=20,
+        control_mode="curvature",
     )
     try:
         assert viewer.base_control_enabled is True

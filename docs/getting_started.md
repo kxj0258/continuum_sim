@@ -19,7 +19,8 @@ python -m pip install -e ".[mujoco,dev]"
 手动操作双臂：
 
 ```powershell
-python scripts/run_manual_control.py
+python scripts/run_manual_curvature_control.py
+python scripts/run_manual_tendon_control.py
 ```
 
 运行轨迹跟踪：
@@ -50,7 +51,8 @@ assets/
   engine/          发动机可视和碰撞资产
 scripts/
   run_scenario.py              自动任务入口
-  run_manual_control.py        三窗口手动控制入口
+  run_manual_curvature_control.py  曲率手动控制入口
+  run_manual_tendon_control.py     拉线手动控制入口
   run_all_scenarios.py         批量任务入口
   export_replay_video.py       回放视频导出
   build_mujoco_dual_arm_model.py 机械臂模型生成
@@ -157,7 +159,7 @@ MuJoCo 系统后端读取关节、肌腱、执行器、site、相机和传感器
 
 ### 手动控制
 
-`mujoco_manual_control.yaml` 使用 `idle` 任务和不含发动机的轻量空场景。手动程序直接向两条臂发送肌腱速率命令，并同步控制面板、MuJoCo viewer 和 observer 相机。详见 [双臂手动控制](manual_control.md)。
+`mujoco_manual_control.yaml` 使用 `idle` 任务和不含发动机的轻量空场景。两个手动程序分别提供曲率和拉线控制，并独立显示控制窗口、状态窗口和 MuJoCo viewer；手动路径不启动 observer 相机图像。详见 [双臂手动控制](manual_control.md)。
 
 ### 轨迹跟踪与点伺服
 
@@ -197,13 +199,9 @@ MuJoCo 系统后端读取关节、肌腱、执行器、site、相机和传感器
 
 ## 手动控制界面
 
-`scripts/run_manual_control.py` 构建三个窗口：
+手动控制由 `scripts/run_manual_curvature_control.py` 和 `scripts/run_manual_tendon_control.py` 两个独立入口启动。控制窗口与只读状态窗口分离，拉线长度/拉力窗口默认关闭，observer 相机图像不启动。
 
-- Matplotlib 控制和诊断面板。
-- MuJoCo passive viewer。
-- observer 相机图像窗口。
-
-每条臂的三段均可直接执行 `+kx/-kx/+ky/-ky`。九根肌腱滑块支持弯曲子空间投影。界面实时显示目标/实际曲率、三段末端世界位置，以及执行臂六维力。
+曲率入口只创建每段 `+kx/-kx/+ky/-ky` 控件；拉线入口只创建九根肌腱 Slider/TextBox。实时状态窗口显示目标/实际曲率、三段末端世界位置和执行臂六维力。需要拉线长度与拉力图时使用 `--show-tendon-monitor` 显式开启独立窗口。
 
 ## 仿真时钟
 

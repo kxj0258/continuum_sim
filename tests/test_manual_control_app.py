@@ -4,15 +4,15 @@ from types import SimpleNamespace
 
 import numpy as np
 
+import continuum_sim.visualization.manual_control_app as manual_control_app
 from continuum_sim.visualization.manual_control_app import ManualControlWindows
 from continuum_sim.runtime.concurrency import TimeRateGate
 
 
-def test_manual_windows_schedule_viewer_and_camera_independently() -> None:
+def test_manual_windows_schedule_only_passive_viewer() -> None:
     clock = _Clock()
     windows = ManualControlWindows.__new__(ManualControlWindows)
     windows.viewer_fps = 15.0
-    windows.camera_fps = 10.0
     windows._clock = clock
     windows._simulation_lock = _Lock()
     windows.runtime_timing = None
@@ -22,18 +22,10 @@ def test_manual_windows_schedule_viewer_and_camera_independently() -> None:
     )
     windows._viewer_data = _Data(0.0)
     windows._viewer = _Viewer()
-    windows._camera_worker = _CameraWorker()
-    windows._camera_presenter = _CameraPresenter()
-    windows._camera_frame_version = 0
     windows._active = True
     windows._last_state = None
     windows._viewer_gate = TimeRateGate(
         1.0 / windows.viewer_fps,
-        clock=clock,
-        start_s=0.0,
-    )
-    windows._camera_gate = TimeRateGate(
-        1.0 / windows.camera_fps,
         clock=clock,
         start_s=0.0,
     )
@@ -44,7 +36,7 @@ def test_manual_windows_schedule_viewer_and_camera_independently() -> None:
         windows.update(state)
 
     assert windows._viewer.sync_calls == 3
-    assert windows._camera_worker.submitted == [state, state]
+    assert not hasattr(windows, "_camera_worker")
 
 
 def test_viewer_snapshot_releases_live_data_lock_before_forward_and_sync() -> None:
@@ -63,6 +55,34 @@ def test_viewer_snapshot_releases_live_data_lock_before_forward_and_sync() -> No
     assert windows._viewer_data.time == 4.0
     assert np.array_equal(windows._viewer_data.qpos, [4.0, 5.0])
     assert events == ["lock.enter", "lock.exit", "forward", "viewer.sync"]
+
+
+def test_curvature_entry_fixes_compatible_control_mode(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(
+        manual_control_app,
+        "_run_manual_control",
+        lambda scenario_path, **options: calls.append((scenario_path, options)),
+    )
+
+    manual_control_app.run_manual_curvature_control("scenario.yaml")
+
+    assert calls[0][1]["control_mode"] == "curvature"
+    assert calls[0][1]["show_tendon_monitor"] is False
+
+
+def test_tendon_entry_fixes_raw_control_mode(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(
+        manual_control_app,
+        "_run_manual_control",
+        lambda scenario_path, **options: calls.append((scenario_path, options)),
+    )
+
+    manual_control_app.run_manual_tendon_control("scenario.yaml")
+
+    assert calls[0][1]["control_mode"] == "tendon"
+    assert calls[0][1]["show_tendon_monitor"] is False
 
 
 class _Clock:
@@ -99,23 +119,6 @@ class _Viewer:
         self.sync_calls += 1
         if self.events is not None:
             self.events.append("viewer.sync")
-
-
-class _CameraWorker:
-    def __init__(self) -> None:
-        self.submitted = []
-
-    def submit(self, state) -> None:
-        self.submitted.append(state)
-
-    def consume_frame_after(self, version: int):
-        del version
-        return None
-
-
-class _CameraPresenter:
-    def present_frame(self, frame) -> None:
-        raise AssertionError(f"no frame expected, got {frame!r}")
 
 
 class _Data:

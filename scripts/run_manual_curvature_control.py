@@ -1,4 +1,4 @@
-"""Launch dual-arm manual controls, MuJoCo viewer, and observer camera."""
+"""Launch curvature-only dual-arm manual control and status windows."""
 
 from __future__ import annotations
 
@@ -12,7 +12,9 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from continuum_sim.visualization.manual_control_app import run_manual_control  # noqa: E402
+from continuum_sim.visualization.manual_control_app import (  # noqa: E402
+    run_manual_curvature_control,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -25,16 +27,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Scenario used to compose the MuJoCo model.",
     )
     parser.add_argument("--panel-fps", type=float, default=15.0)
+    parser.add_argument("--status-fps", type=float, default=5.0)
     parser.add_argument("--viewer-fps", type=float, default=15.0)
-    parser.add_argument("--camera-fps", type=float, default=10.0)
     parser.add_argument("--curvature-step", type=float, default=0.5, metavar="1/M")
+    parser.add_argument("--show-tendon-monitor", action="store_true")
     args = parser.parse_args(argv)
-    run_manual_control(
+    run_manual_curvature_control(
         args.scenario,
         panel_fps=args.panel_fps,
+        status_fps=args.status_fps,
         viewer_fps=args.viewer_fps,
-        camera_fps=args.camera_fps,
         curvature_step_1_per_m=args.curvature_step,
+        show_tendon_monitor=args.show_tendon_monitor,
     )
     return 0
 

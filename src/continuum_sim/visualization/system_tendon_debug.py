@@ -57,20 +57,18 @@ def system_tendon_view_data(state: RobotSystemState) -> SystemTendonViewData:
     )
 
 
-class SystemTendonMonitorPanel:
-    """Read-only Matplotlib monitor for named system tendon diagnostics."""
+class SystemStatusPanel:
+    """Lightweight read-only text window for manual-control state."""
 
-    def __init__(self, *, title: str = "continuum_sim tendon monitor") -> None:
+    def __init__(self, *, title: str = "continuum_sim system status") -> None:
         import matplotlib.pyplot as plt
 
         self._plt = plt
-        self.fig = plt.figure(figsize=(15.5, 9.0))
+        self.fig = plt.figure(figsize=(7.0, 7.5))
         manager = getattr(self.fig.canvas, "manager", None)
         if manager is not None:
             manager.set_window_title(title)
-        self.length_ax = self.fig.add_axes((0.06, 0.58, 0.56, 0.34))
-        self.force_ax = self.fig.add_axes((0.68, 0.58, 0.29, 0.34))
-        self.info_ax = self.fig.add_axes((0.68, 0.08, 0.29, 0.43))
+        self.info_ax = self.fig.add_axes((0.04, 0.03, 0.92, 0.94))
         self.info_ax.axis("off")
         self._info_text = self.info_ax.text(
             0.0,
@@ -81,6 +79,61 @@ class SystemTendonMonitorPanel:
             family="monospace",
             fontsize=8.5,
         )
+
+    def update(self, info_text: str, *, redraw: bool = True) -> None:
+        self._info_text.set_text(str(info_text))
+        if redraw:
+            self.fig.canvas.draw_idle()
+
+    def show(self, *, block: bool = False) -> None:
+        if _is_noninteractive_backend(self._plt.get_backend()):
+            return
+        self._plt.show(block=block)
+
+    def is_open(self) -> bool:
+        return bool(self._plt.fignum_exists(self.fig.number))
+
+    def close(self) -> None:
+        self._plt.close(self.fig)
+
+
+class SystemTendonMonitorPanel:
+    """Read-only Matplotlib monitor for named system tendon diagnostics."""
+
+    def __init__(
+        self,
+        *,
+        title: str = "continuum_sim tendon monitor",
+        show_info: bool = True,
+    ) -> None:
+        import matplotlib.pyplot as plt
+
+        self._plt = plt
+        self.fig = plt.figure(figsize=(15.5, 9.0))
+        manager = getattr(self.fig.canvas, "manager", None)
+        if manager is not None:
+            manager.set_window_title(title)
+        self.show_info = bool(show_info)
+        if self.show_info:
+            self.length_ax = self.fig.add_axes((0.06, 0.58, 0.56, 0.34))
+            self.force_ax = self.fig.add_axes((0.68, 0.58, 0.29, 0.34))
+            self.info_ax = self.fig.add_axes((0.68, 0.08, 0.29, 0.43))
+            self.info_ax.axis("off")
+            self._info_text = self.info_ax.text(
+                0.0,
+                1.0,
+                "",
+                va="top",
+                ha="left",
+                family="monospace",
+                fontsize=8.5,
+            )
+        else:
+            self.fig.set_size_inches(14.0, 6.0, forward=True)
+            self.length_ax = self.fig.add_axes((0.06, 0.16, 0.58, 0.76))
+            self.force_ax = self.fig.add_axes((0.70, 0.16, 0.27, 0.76))
+            self.info_ax = None
+            self._info_text = None
         self.last_view_data: SystemTendonViewData | None = None
         self._labels: tuple[str, ...] | None = None
         self._target_bars = None
@@ -98,9 +151,10 @@ class SystemTendonMonitorPanel:
         self.last_view_data = view
         self._draw_lengths(view)
         self._draw_forces(view)
-        self._info_text.set_text(
-            _format_info(view) if info_text is None else str(info_text)
-        )
+        if self._info_text is not None:
+            self._info_text.set_text(
+                _format_info(view) if info_text is None else str(info_text)
+            )
         if redraw:
             self.fig.canvas.draw_idle()
         return view
@@ -109,15 +163,6 @@ class SystemTendonMonitorPanel:
         if _is_noninteractive_backend(self._plt.get_backend()):
             return
         self._plt.show(block=block)
-        if not block:
-            self.flush_events()
-
-    def flush_events(self) -> None:
-        if not self.is_open():
-            return
-        flush = getattr(self.fig.canvas, "flush_events", None)
-        if callable(flush):
-            flush()
 
     def is_open(self) -> bool:
         return bool(self._plt.fignum_exists(self.fig.number))
@@ -265,6 +310,7 @@ def _is_noninteractive_backend(name: str) -> bool:
 
 
 __all__ = [
+    "SystemStatusPanel",
     "SystemTendonMonitorPanel",
     "SystemTendonViewData",
     "system_tendon_view_data",

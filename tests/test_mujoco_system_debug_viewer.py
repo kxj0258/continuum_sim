@@ -181,6 +181,27 @@ def test_curvature_button_marks_input_for_latency_timing() -> None:
     assert viewer._dirty_target_arms == {"executor"}
 
 
+def test_set_targets_uses_backend_limits_without_tendon_widgets() -> None:
+    viewer = MujocoSystemDebugViewer.__new__(MujocoSystemDebugViewer)
+    viewer.targets = {"executor": np.zeros(3, dtype=float)}
+    viewer.sliders = {}
+    viewer._target_limits = {
+        "executor": (
+            np.full(3, -0.002, dtype=float),
+            np.full(3, 0.002, dtype=float),
+        )
+    }
+    viewer._views_dirty = False
+    viewer._dirty_target_arms = set()
+    viewer._target_lock = RLock()
+    viewer._target_slot = LatestValueSlot(_copy_targets(viewer.targets))
+
+    viewer.set_targets({"executor": np.array([0.003, 0.001, -0.003])})
+
+    assert_allclose(viewer.targets["executor"], [0.002, 0.001, -0.002])
+    assert viewer._dirty_target_arms == {"executor"}
+
+
 class _Slider:
     valmin = -20.0
     valmax = 20.0

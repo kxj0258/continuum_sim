@@ -188,6 +188,8 @@ def test_mujoco_config_loads_without_importing_optional_backend() -> None:
     assert config.viewer.sync_interval_steps == 1
     assert config.viewer.realtime is True
     assert config.viewer.realtime_factor == pytest.approx(1.0)
+    assert config.viewer.show_left_ui is False
+    assert config.viewer.show_right_ui is False
     assert config.viewer.camera.lookat == pytest.approx((0.025, 0.0, 0.095))
     assert config.viewer.camera.distance == pytest.approx(0.20)
     assert config.viewer.camera.azimuth == pytest.approx(315.0)

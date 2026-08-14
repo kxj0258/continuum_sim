@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event, Thread
@@ -128,29 +129,39 @@ class SimulationApplication:
             name="continuum-sim-scenario",
             daemon=False,
         )
-        worker.start()
-        try:
-            while not completed.wait(0.01):
+        with _matplotlib_no_raise_context():
+            worker.start()
+            try:
+                while not completed.wait(0.01):
+                    for hook in gui_hooks:
+                        hook.present_pending()
+                    _pump_matplotlib_events()
+                worker.join()
                 for hook in gui_hooks:
-                    hook.present_pending()
-                _pump_matplotlib_events()
-            worker.join()
-            for hook in gui_hooks:
-                hook.present_pending(force=True)
-            if failure_holder:
-                raise failure_holder[0]
-            return result_holder[0]
-        finally:
-            for hook in reversed(gui_hooks):
-                hook.close_presentation()
+                    hook.present_pending(force=True)
+                if failure_holder:
+                    raise failure_holder[0]
+                return result_holder[0]
+            finally:
+                for hook in reversed(gui_hooks):
+                    hook.close_presentation()
+
+
+def _matplotlib_no_raise_context():
+    try:
+        import matplotlib
+
+        return matplotlib.rc_context({"figure.raise_window": False})
+    except Exception:
+        return nullcontext()
 
 
 def _pump_matplotlib_events() -> None:
     try:
-        import matplotlib.pyplot as plt
+        from matplotlib._pylab_helpers import Gcf
 
-        if plt.get_fignums():
-            plt.pause(0.001)
+        for manager in Gcf.get_all_fig_managers():
+            manager.canvas.flush_events()
     except Exception:
         pass
 

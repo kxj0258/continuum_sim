@@ -70,5 +70,7 @@ scenario:
     save_gif: true
     save_mp4: true
     video_mode: live_mujoco
+    video_layout: scene_and_errors
+    video_split_ratio: 0.5
     video_fps: 10
-    video_stride: 10
+    video_stride: 5

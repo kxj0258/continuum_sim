@@ -121,6 +121,8 @@ class MujocoViewerHook:
         viewer = mujoco.viewer.launch_passive(
             self.backend.physics.model,
             data,
+            show_left_ui=self.backend.config.viewer.show_left_ui,
+            show_right_ui=self.backend.config.viewer.show_right_ui,
         )
         place_mujoco_viewer_left()
         return mujoco, viewer, data

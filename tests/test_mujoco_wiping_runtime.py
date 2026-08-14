@@ -613,7 +613,9 @@ def _install_fake_mujoco_viewer(monkeypatch) -> None:
     fake_mujoco.__path__ = []
     fake_viewer_module = types.ModuleType("mujoco.viewer")
     fake_viewer_module.launch_passive = (
-        lambda model, data, key_callback=None: _FakeViewerContext(_FakeViewer())
+        lambda model, data, key_callback=None, **kwargs: _FakeViewerContext(
+            _FakeViewer()
+        )
     )
     fake_mujoco.viewer = fake_viewer_module
     monkeypatch.setitem(sys.modules, "mujoco", fake_mujoco)

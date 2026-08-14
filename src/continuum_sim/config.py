@@ -233,6 +233,8 @@ class MujocoViewerConfig:
     sync_interval_steps: int
     realtime: bool
     realtime_factor: float
+    show_left_ui: bool
+    show_right_ui: bool
     camera: MujocoViewerCameraConfig
     overlays: MujocoViewerOverlayConfig
 
@@ -663,6 +665,8 @@ def _load_mujoco_viewer_config(raw: dict[str, Any]) -> MujocoViewerConfig:
             values.get("realtime_factor", 1.0),
             "viewer.realtime_factor",
         ),
+        show_left_ui=_bool(values, "show_left_ui", default=False),
+        show_right_ui=_bool(values, "show_right_ui", default=False),
         camera=_load_mujoco_viewer_camera_config(values),
         overlays=_load_mujoco_viewer_overlay_config(values),
     )

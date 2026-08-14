@@ -215,6 +215,8 @@ hooks:
 
 MuJoCo Viewer 与实时误差面板同时显示需要以 `--no-headless` 运行批量入口。Windows 下两个窗口会尽力按 Viewer 居左、误差面板居右排列。
 
+共享 MuJoCo 配置的 `viewer.show_left_ui` 和 `viewer.show_right_ui` 控制原生 Viewer 两侧工具栏，默认均为 `false`。自动任务窗口按可用桌面区域左右等宽排列。
+
 ## artifacts
 
 ```yaml
@@ -225,9 +227,15 @@ artifacts:
   save_gif: true
   save_mp4: true
   video_mode: live_mujoco
+  video_layout: scene_and_errors
+  video_split_ratio: 0.5
   video_fps: 10
-  video_stride: 10
+  video_stride: 5
 ```
+
+`video_layout: scene_and_errors` 会在录制线程内将 MuJoCo 离屏画面与任务误差曲线合成为一个视频；擦拭任务额外显示目标力、测量力和力误差。`video_split_ratio` 是 MuJoCo 画面占总宽度的比例，`0.5` 表示左右 1:1。合成视频的总分辨率由机器人配置中的 `rendering.offscreen_width` 和 `rendering.offscreen_height` 决定。
+
+当 `controller_dt_s: 0.02`、`video_stride: 5`、`video_fps: 10` 时，每 `0.1 s` 仿真时间录制一帧并按 10 FPS 编码，视频时长与仿真时间一致。
 
 输出目录：
 

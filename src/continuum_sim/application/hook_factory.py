@@ -56,6 +56,7 @@ def build_runtime_hooks(
     if config.hooks.show_live_task_error_panel:
         hooks_by_name["live_task_error_panel"] = LiveTaskErrorPanelHook(
             stride=config.hooks.live_task_error_panel_stride,
+            show_force=config.task.type == "wiping",
             display_interval_s=max(
                 1.0 / 10.0,
                 config.runtime.controller_dt_s
@@ -137,6 +138,10 @@ def build_runtime_hooks(
             stride=config.artifacts.video_stride,
             width=backend.config.rendering.offscreen_width,
             height=backend.config.rendering.offscreen_height,
+            layout=config.artifacts.video_layout,
+            split_ratio=config.artifacts.video_split_ratio,
+            show_force=config.task.type == "wiping",
+            history_points=config.hooks.live_task_error_panel_history_points,
         )
     if (
         config.backend.type == "mujoco"

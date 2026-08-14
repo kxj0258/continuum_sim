@@ -124,6 +124,10 @@ def save_scenario_artifacts(application, result) -> ScenarioArtifactPaths | None
         "video_status": "disabled" if not video_formats else "pending",
         "observer_video_status": "disabled",
         "video_mode": settings.video_mode if video_formats else None,
+        "video_layout": settings.video_layout if video_formats else None,
+        "video_split_ratio": (
+            settings.video_split_ratio if video_formats else None
+        ),
         "video_frames": None,
         "observer_video_frames": None,
         "model": None if scene_xml is None else str(scene_xml),

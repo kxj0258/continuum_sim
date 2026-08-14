@@ -108,7 +108,7 @@ def _safe_panel_call(panel: object, method_name: str) -> None:
 
 
 class LiveTaskErrorPanelHook:
-    """Compact TCP tracking panel with an adaptive force-control subplot."""
+    """Compact TCP tracking panel with an optional force-control subplot."""
 
     requires_gui_main_thread = True
 
@@ -118,6 +118,7 @@ class LiveTaskErrorPanelHook:
         stride: int = 1,
         history_points: int = 600,
         display_interval_s: float | None = None,
+        show_force: bool = False,
     ) -> None:
         if stride <= 0:
             raise ValueError("LiveTaskErrorPanelHook stride must be positive.")
@@ -128,14 +129,14 @@ class LiveTaskErrorPanelHook:
         self._display_gate = (
             None
             if display_interval_s is None
-            else TimeRateGate(display_interval_s)
+            else TimeRateGate(display_interval_s, fire_immediately=True)
         )
         self._samples = None
         self._sample_version = -1
         self._plt = None
         self._figure = None
         self._axes = None
-        self._show_force = False
+        self._show_force = bool(show_force)
         self._time: list[float] = []
         self._tracking_error: list[float] = []
         self._tracking_tolerance: list[float] = []
@@ -180,19 +181,11 @@ class LiveTaskErrorPanelHook:
         if item is None:
             return
         (state, command), self._sample_version = item
+        if self._figure is None:
+            self._create_figure()
         if command is None:
             return
         metadata = command.metadata
-        if self._figure is None:
-            self._show_force = metadata.get("task_type") == "wiping" or any(
-                key in metadata
-                for key in (
-                    "target_normal_force_n",
-                    "measured_normal_force_n",
-                    "force_error_n",
-                )
-            )
-            self._create_figure()
         self._time.append(float(state.time_s))
         self._tracking_error.append(
             float(metadata.get("executor_error_m", np.nan))
@@ -215,16 +208,18 @@ class LiveTaskErrorPanelHook:
         self._draw()
 
     def _create_figure(self) -> None:
+        import matplotlib
         import matplotlib.pyplot as plt
 
         self._plt = plt
         row_count = 2 if self._show_force else 1
-        self._figure, raw_axes = plt.subplots(
-            row_count,
-            1,
-            figsize=(5.2, 7.2 if self._show_force else 4.8),
-            sharex=self._show_force,
-        )
+        with matplotlib.rc_context({"figure.raise_window": False}):
+            self._figure, raw_axes = plt.subplots(
+                row_count,
+                1,
+                figsize=(5.2, 7.2 if self._show_force else 4.8),
+                sharex=self._show_force,
+            )
         axes = np.atleast_1d(raw_axes).reshape(-1)
         manager = getattr(self._figure.canvas, "manager", None)
         if manager is not None:
@@ -236,7 +231,8 @@ class LiveTaskErrorPanelHook:
         self._axes = tuple(PersistentAxisArtists(axis) for axis in axes)
         self._figure.tight_layout(pad=1.4)
         plt.ion()
-        plt.show(block=False)
+        with matplotlib.rc_context({"figure.raise_window": False}):
+            plt.show(block=False)
         place_matplotlib_figure_right(self._figure)
 
     def _trim(self) -> None:

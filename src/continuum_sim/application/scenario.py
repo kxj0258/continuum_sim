@@ -72,6 +72,7 @@ WIPING_CONTROL_TYPES = (
 NAVIGATION_CONTROL_TYPES = ("whole_body", "navigation_cbf_qp")
 MUJOCO_FEEDBACK_MODES = ("pcc_command", "mujoco_actual")
 VIDEO_MODES = ("replay", "live_mujoco")
+VIDEO_LAYOUTS = ("scene_only", "scene_and_errors")
 WIPING_FORCE_STRATEGY_TYPES = (
     "contact_distance",
     "kinematic_hybrid",
@@ -640,6 +641,8 @@ class ScenarioArtifactConfig:
     video_mode: str = "replay"
     video_fps: int = 20
     video_stride: int | None = None
+    video_layout: str = "scene_only"
+    video_split_ratio: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -821,6 +824,22 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
     video_mode = str(artifact_values.get("video_mode", "replay"))
     if video_mode not in VIDEO_MODES:
         raise ValueError(f"scenario.artifacts.video_mode must be one of {VIDEO_MODES}.")
+    video_layout = str(artifact_values.get("video_layout", "scene_only"))
+    if video_layout not in VIDEO_LAYOUTS:
+        raise ValueError(
+            "scenario.artifacts.video_layout must be one of "
+            f"{VIDEO_LAYOUTS}."
+        )
+    if video_layout == "scene_and_errors" and video_mode != "live_mujoco":
+        raise ValueError(
+            "scenario.artifacts.video_layout='scene_and_errors' requires "
+            "video_mode='live_mujoco'."
+        )
+    video_split_ratio = float(artifact_values.get("video_split_ratio", 0.5))
+    if not np.isfinite(video_split_ratio) or not 0.0 < video_split_ratio < 1.0:
+        raise ValueError(
+            "scenario.artifacts.video_split_ratio must be finite and between 0 and 1."
+        )
     save_gif = bool(artifact_values.get("save_gif", True))
     save_mp4 = bool(artifact_values.get("save_mp4", False))
     mujoco_pcc_diagnostics_stride = int(
@@ -1057,6 +1076,8 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
                 if artifact_values.get("video_stride") is None
                 else int(artifact_values["video_stride"])
             ),
+            video_layout=video_layout,
+            video_split_ratio=video_split_ratio,
         ),
     )
 

@@ -57,6 +57,8 @@ class ManualControlWindows:
         self._viewer = mujoco.viewer.launch_passive(
             self.backend.physics.model,
             self._viewer_data,
+            show_left_ui=self.backend.config.viewer.show_left_ui,
+            show_right_ui=self.backend.config.viewer.show_right_ui,
         )
         _configure_mujoco_viewer(self._viewer, self.backend.config)
         self._sync_viewer()

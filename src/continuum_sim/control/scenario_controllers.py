@@ -510,6 +510,7 @@ class WaypointTrackingController:
                 **controller_metadata,
                 **reachability_metadata,
                 "task_type": "tracking",
+                "waypoint_tolerance_m": self.waypoint_tolerance_m,
                 "waypoint_index": self.active_index,
                 "source_waypoint_index": int(
                     self.source_waypoint_index[self.active_index]
@@ -768,6 +769,7 @@ class TimedTrajectoryTrackingController:
                 **controller_metadata,
                 "task_type": "tracking",
                 "tracking_mode": "time",
+                "waypoint_tolerance_m": self.waypoint_tolerance_m,
                 "trajectory_time_s": min(elapsed, self.trajectory_duration_s),
                 "trajectory_duration_s": self.trajectory_duration_s,
                 "waypoint_index": int(source_index),
@@ -1071,20 +1073,6 @@ class NavigationController:
         return None if best is None else best[1]
 
 
-def _state_with_executor_tool_tcp(state: RobotSystemState) -> RobotSystemState:
-    """Expose the mounted tool TCP as the executor task point when available."""
-
-    arms = state.arms
-    changed = False
-    updated = dict(arms)
-    for name, arm in arms.items():
-        if arm.role != "executor" or arm.tool_pose_world is None:
-            continue
-        updated[name] = replace(arm, tip_pose_world=arm.tool_pose_world)
-        changed = True
-    return state if not changed else replace(state, arms=updated)
-
-
 class WipingController:
     """Direct-tendon wiping path with normal-distance contact regulation."""
 
@@ -1218,10 +1206,9 @@ class WipingController:
         return self._tracking.terminal_reason
 
     def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
-        control_state = _state_with_executor_tool_tcp(state)
-        self._ensure_runtime_approach(control_state)
+        self._ensure_runtime_approach(state)
         executor = next(
-            arm for arm in control_state.arms.values() if arm.role == "executor"
+            arm for arm in state.arms.values() if arm.role == "executor"
         )
         distance = float("nan")
         query = None
@@ -1327,12 +1314,12 @@ class WipingController:
         try:
             if self._tracking_mode == "time":
                 command = self._tracking.compute_command(
-                    control_state,
+                    state,
                     contact=contact_intent,
                 )
             else:
                 command = self._tracking.compute_command(
-                    control_state,
+                    state,
                     advance=not strategy_result.controls_waypoint_advance,
                     contact=contact_intent,
                 )

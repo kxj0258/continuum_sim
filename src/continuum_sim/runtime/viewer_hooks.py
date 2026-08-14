@@ -21,6 +21,7 @@ from continuum_sim.runtime.mujoco_overlay_utils import (
     _draw_mujoco_tracking_overlay,
     _update_follow_camera,
 )
+from continuum_sim.runtime.window_layout import place_mujoco_viewer_left
 from continuum_sim.runtime.mujoco_state_copy import capture_mujoco_dynamic_state
 from continuum_sim.runtime.matplotlib_artists import PersistentAxisArtists
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
@@ -121,6 +122,7 @@ class MujocoViewerHook:
             self.backend.physics.model,
             data,
         )
+        place_mujoco_viewer_left()
         return mujoco, viewer, data
 
     def on_step(
@@ -292,9 +294,9 @@ class MatplotlibSystemViewerHook:
         if target is not None:
             self._target = np.asarray(target, dtype=float).copy()
             self._target_trail.append(self._target)
-        executor = _executor_arm(state)
-        if executor is not None:
-            self._tip_trail.append(executor.tip_pose_world.position.copy())
+        actual = _metadata_point(command.metadata, "executor_actual_world")
+        if actual is not None:
+            self._tip_trail.append(actual)
         self._latest_state = state
 
     def present_pending(self, *, force: bool = False) -> None:

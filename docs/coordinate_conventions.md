@@ -71,13 +71,13 @@ T_W_tcp    = T_W_sensor · T_sensor_tcp
 
 ```text
 tip -> sensor center: 4 mm, 沿局部 +Z
-sensor center -> TCP: 41 mm, 沿局部 +Z
+sensor center -> TCP: 14 mm, 沿局部 +Z
 tip -> TCP: 18 mm
 ```
 
 六维力传感器尺寸为 `15 × 15 × 8 mm`。直径 `18 mm` 的球形擦拭工具与传感器重叠包覆，球体后端与传感器后表面相切，TCP 位于球面最前端。
 
-任务空间擦拭和对应雅可比使用工具 TCP，不使用裸臂 tip。工具偏置产生的线速度项按：
+所有自动任务及其对应雅可比统一使用工具 TCP，不使用裸臂 tip。工具偏置产生的线速度项按：
 
 ```text
 v_tcp = v_tip + omega_tip × r_tip_to_tcp

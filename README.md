@@ -11,6 +11,8 @@
 - 支持发动机网格、入口、探索路径和碰撞控制几何的场景注入。
 - 发动机使用不透明灰银色材质、镜面高光和中性补光；MuJoCo 主窗口与观测臂相机使用同一套场景材质和灯光。
 - 执行臂末端装配 `15 × 15 × 8 mm` 六维力传感器和直径 `18 mm` 的包覆式球形擦拭工具。
+- 所有自动任务统一控制球面 `executor_tool_tcp`，目标生成、控制雅可比、误差记录和 Viewer 覆盖层使用同一个 TCP 坐标点。
+- 交互运行时可在 MuJoCo Viewer 右侧同步显示紧凑 TCP 跟踪误差面板；擦拭任务同时显示法向力与力误差。
 - 擦拭控制直接读取 MuJoCo `force`/`torque` 传感器，提供置零、低通滤波、坐标变换、限幅和重力补偿。
 - 提供独立的曲率/拉线手动控制入口、只读状态窗口和可选拉线监测窗口；手动控制不启动观测臂相机图像。
 - 提供单姿态 64 角点最坏情况分析和 10,000 姿态工作空间编码器精度统计，可导出 CSV、NPZ 与 TCP 误差热力图。
@@ -59,6 +61,8 @@ python scripts/run_scenario.py configs/scenarios/mujoco_tracking.yaml
 ```powershell
 python scripts/run_all_scenarios.py
 ```
+
+批量入口默认无窗口；显示 MuJoCo Viewer 和实时误差面板时添加 `--no-headless`。
 
 ## 场景入口
 

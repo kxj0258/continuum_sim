@@ -44,8 +44,8 @@ scenario:
       samples: 4
       radius_m: 0.018
       placement:
-        center_mode: straight_tip_xy
-        z_mode: straight_tip_minus_radius
+        center_mode: straight_tcp_xy
+        z_mode: straight_tcp_minus_radius
         plane: xy
         yaw_deg: 15.0
       shape:
@@ -59,10 +59,13 @@ scenario:
     tendon_debug: true
     tendon_debug_stride: 5
     show_live_tendon_panel: false
+    show_live_task_error_panel: true
+    live_task_error_panel_stride: 5
+    live_task_error_panel_history_points: 600
     show_live_diagnostics_panel: false
-    show_observer_camera: true
+    show_observer_camera: false
     observer_camera_stride: 1
-    viewer: none
+    viewer: mujoco
     keep_viewer_open: false
   artifacts:
     mujoco_pcc_diagnostics_stride: 10

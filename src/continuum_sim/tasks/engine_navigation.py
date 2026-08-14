@@ -8,6 +8,7 @@ import numpy as np
 
 from continuum_sim.model.base_pose import Pose6D
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
+from continuum_sim.tasks.executor_reference import base_to_straight_executor_tcp_pose
 from continuum_sim.scenes.engine_scene import (
     EngineRegionConfig,
     EngineSceneConfig,
@@ -316,16 +317,16 @@ def resolve_engine_navigation_plan(
     insertion_direction = _unit(path[1] - path[0], "insertion path direction")
     pre_entry_tip = entry_point - spec.pre_entry_standoff_m * insertion_direction
     tip_orientation = _orientation_along_z(insertion_direction)
-    base_to_straight_tip = _base_to_straight_tip_pose(executors[0])
+    base_to_straight_tcp = base_to_straight_executor_tcp_pose(assembly)
 
     pre_entry_tip_pose = Pose6D(
         position=pre_entry_tip,
         quat=tip_orientation.quat,
     )
-    pre_entry_base_pose = pre_entry_tip_pose.compose(base_to_straight_tip.inverse())
+    pre_entry_base_pose = pre_entry_tip_pose.compose(base_to_straight_tcp.inverse())
     insertion_base_poses = tuple(
         Pose6D(position=point, quat=tip_orientation.quat).compose(
-            base_to_straight_tip.inverse()
+            base_to_straight_tcp.inverse()
         )
         for point in insertion_waypoints
     )
@@ -801,15 +802,6 @@ def _resample_polyline(points: np.ndarray, spacing_m: float) -> np.ndarray:
             for index in range(1, intervals + 1)
         )
     return np.asarray(result, dtype=float)
-
-
-def _base_to_straight_tip_pose(executor) -> Pose6D:
-    length = float(sum(segment.length for segment in executor.spatial_arm.params.segments))
-    straight_tip = Pose6D(
-        position=np.array([0.0, 0.0, length], dtype=float),
-        quat=np.array([1.0, 0.0, 0.0, 0.0], dtype=float),
-    )
-    return executor.mount_pose.compose(straight_tip)
 
 
 def _orientation_along_z(direction: np.ndarray) -> Pose6D:

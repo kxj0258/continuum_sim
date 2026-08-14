@@ -37,6 +37,14 @@ python scripts/run_manual_tendon_control.py
 python scripts/run_all_scenarios.py
 ```
 
+批量入口默认关闭交互窗口。需要同时显示 MuJoCo Viewer 和右侧实时误差面板时使用：
+
+```powershell
+python scripts/run_all_scenarios.py --no-headless
+```
+
+所有非空闲主任务均以执行臂球面 `executor_tool_tcp` 作为目标生成、控制和误差计算点。
+
 ## 单臂和双臂
 
 场景通过 `scenario.arm_mode` 选择装配：

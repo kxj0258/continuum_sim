@@ -191,10 +191,13 @@ hooks:
   recorder: true
   tendon_debug: true
   tendon_debug_stride: 5
-  show_live_tendon_panel: true
+  show_live_tendon_panel: false
+  show_live_task_error_panel: true
+  live_task_error_panel_stride: 5
+  live_task_error_panel_history_points: 600
   show_live_force_panel: false
-  show_live_diagnostics_panel: true
-  show_observer_camera: true
+  show_live_diagnostics_panel: false
+  show_observer_camera: false
   observer_camera_stride: 1
   viewer: mujoco
   keep_viewer_open: false
@@ -203,10 +206,14 @@ hooks:
 - `recorder`：记录系统状态、命令和任务诊断。
 - `tendon_debug`：输出肌腱诊断采样。
 - `show_live_tendon_panel`：肌腱状态窗口。
+- `show_live_task_error_panel`：紧凑 TCP 跟踪误差窗口；力控任务自动增加目标力、实测力和力误差曲线。
+- `live_task_error_panel_stride`、`live_task_error_panel_history_points`：面板采样步长和保留点数。
 - `show_live_force_panel`：擦拭力窗口。
 - `show_live_diagnostics_panel`：控制层诊断窗口。
 - `show_observer_camera`：观测臂相机窗口。
 - `viewer`：`none`、`matplotlib` 或 `mujoco`。
+
+MuJoCo Viewer 与实时误差面板同时显示需要以 `--no-headless` 运行批量入口。Windows 下两个窗口会尽力按 Viewer 居左、误差面板居右排列。
 
 ## artifacts
 

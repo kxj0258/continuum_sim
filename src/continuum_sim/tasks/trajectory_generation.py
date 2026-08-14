@@ -8,8 +8,8 @@ from typing import Any
 
 import numpy as np
 
-from continuum_sim.kinematics.pcc import forward_kinematics
 from continuum_sim.model.robot_assembly import RobotAssemblyConfig
+from continuum_sim.tasks.executor_reference import straight_executor_tcp_world_pose
 from continuum_sim.tasks.dmp_trajectory import DiscreteDMP, load_demonstration
 
 
@@ -41,8 +41,8 @@ class TrajectorySpec:
     type: str
     samples: int
     radius_m: float = 0.025
-    center_mode: str = "straight_tip_xy"
-    z_mode: str = "straight_tip_minus_radius"
+    center_mode: str = "straight_tcp_xy"
+    z_mode: str = "straight_tcp_minus_radius"
     plane: str = "xy"
     yaw_deg: float = 0.0
     offset_xyz_m: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=float))
@@ -85,8 +85,8 @@ class TrajectorySpec:
             type=trajectory_type,
             samples=samples,
             radius_m=float(merged.get("radius_m", 0.025)),
-            center_mode=str(merged.get("center_mode", "straight_tip_xy")),
-            z_mode=str(merged.get("z_mode", "straight_tip_minus_radius")),
+            center_mode=str(merged.get("center_mode", "straight_tcp_xy")),
+            z_mode=str(merged.get("z_mode", "straight_tcp_minus_radius")),
             plane=str(merged.get("plane", "xy")),
             yaw_deg=float(merged.get("yaw_deg", 0.0)),
             offset_xyz_m=_vector3(
@@ -124,10 +124,10 @@ def generate_trajectory_waypoints(
 ) -> np.ndarray:
     """Generate world-frame executor waypoints from a scenario trajectory spec."""
 
-    straight_tip = _straight_executor_tip_world(assembly)
+    straight_tcp = straight_executor_tcp_world_pose(assembly).position
     if spec.type == "dmp":
         return _dmp_trajectory(spec)
-    center = _resolve_center(spec, straight_tip)
+    center = _resolve_center(spec, straight_tcp)
     in_plane_u, in_plane_v, axial = _plane_basis(spec.plane, spec.yaw_deg)
     if spec.type == "circle":
         points = _circle(_required_positive(spec.radius_m, "trajectory.radius_m"), spec.samples)
@@ -174,7 +174,7 @@ def prepend_tracking_approach(
     *,
     samples: int,
 ) -> TrackingWaypointPlan:
-    """Prepend a quintic straight-tip approach without duplicating the first path point."""
+    """Prepend a quintic straight-TCP approach without duplicating the first path point."""
 
     waypoints = np.asarray(waypoints_world, dtype=float)
     if waypoints.ndim != 2 or waypoints.shape[1] != 3 or waypoints.shape[0] == 0:
@@ -187,7 +187,7 @@ def prepend_tracking_approach(
             approach_mask=np.zeros(waypoints.shape[0], dtype=bool),
             source_waypoint_index=np.arange(waypoints.shape[0], dtype=int),
         )
-    start = _straight_executor_tip_world(assembly)
+    start = straight_executor_tcp_world_pose(assembly).position
     progress = np.linspace(0.0, 1.0, samples, endpoint=False)
     blend = progress**3 * (10.0 - 15.0 * progress + 6.0 * progress**2)
     approach = start[None, :] + blend[:, None] * (waypoints[0] - start)[None, :]
@@ -205,39 +205,27 @@ def prepend_tracking_approach(
     )
 
 
-def _straight_executor_tip_world(assembly: RobotAssemblyConfig) -> np.ndarray:
-    names = [arm.name for arm in assembly.enabled_arms if arm.role == "executor"]
-    if len(names) != 1:
-        raise ValueError("Trajectory generation requires exactly one enabled executor arm.")
-    arm = assembly.arms[names[0]]
-    local_tip = forward_kinematics(
-        np.zeros(arm.spatial_arm.params.q_size, dtype=float),
-        arm.spatial_arm.params,
-    ).tip_pose[:3, 3]
-    return assembly.base.initial_pose.compose(arm.mount_pose).transform_point(local_tip)
-
-
-def _resolve_center(spec: TrajectorySpec, straight_tip: np.ndarray) -> np.ndarray:
-    if spec.center_mode == "straight_tip_xy":
-        center = straight_tip.copy()
-    elif spec.center_mode == "straight_tip":
-        center = straight_tip.copy()
+def _resolve_center(spec: TrajectorySpec, straight_tcp: np.ndarray) -> np.ndarray:
+    if spec.center_mode == "straight_tcp_xy":
+        center = straight_tcp.copy()
+    elif spec.center_mode == "straight_tcp":
+        center = straight_tcp.copy()
     elif spec.center_mode == "explicit":
         if spec.center_xyz_m is None:
             raise ValueError("trajectory.center_xyz_m is required for explicit center_mode.")
         center = spec.center_xyz_m.copy()
     else:
         raise ValueError(f"Unsupported trajectory.center_mode {spec.center_mode!r}.")
-    if spec.center_mode == "straight_tip_xy":
-        center[2] = _resolve_z(spec, straight_tip, center)
+    if spec.center_mode == "straight_tcp_xy":
+        center[2] = _resolve_z(spec, straight_tcp, center)
     elif spec.z_mode != "center":
-        center[2] = _resolve_z(spec, straight_tip, center)
+        center[2] = _resolve_z(spec, straight_tcp, center)
     return center + spec.offset_xyz_m
 
 
-def _resolve_z(spec: TrajectorySpec, straight_tip: np.ndarray, center: np.ndarray) -> float:
-    if spec.z_mode == "straight_tip_minus_radius":
-        return float(straight_tip[2] - _reference_scale(spec))
+def _resolve_z(spec: TrajectorySpec, straight_tcp: np.ndarray, center: np.ndarray) -> float:
+    if spec.z_mode == "straight_tcp_minus_radius":
+        return float(straight_tcp[2] - _reference_scale(spec))
     if spec.z_mode == "center":
         return float(center[2])
     if spec.z_mode == "explicit":

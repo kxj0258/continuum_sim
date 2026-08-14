@@ -613,6 +613,9 @@ class ScenarioHookConfig:
     keep_viewer_open: bool
     show_live_tendon_panel: bool = False
     live_tendon_panel_stride: int = 1
+    show_live_task_error_panel: bool = False
+    live_task_error_panel_stride: int = 5
+    live_task_error_panel_history_points: int = 600
     show_live_force_panel: bool = False
     live_force_panel_stride: int = 1
     live_force_panel_history_points: int = 300
@@ -1002,6 +1005,15 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             keep_viewer_open=bool(hook_values.get("keep_viewer_open", True)),
             show_live_tendon_panel=bool(hook_values.get("show_live_tendon_panel", False)),
             live_tendon_panel_stride=int(hook_values.get("live_tendon_panel_stride", 1)),
+            show_live_task_error_panel=bool(
+                hook_values.get("show_live_task_error_panel", False)
+            ),
+            live_task_error_panel_stride=int(
+                hook_values.get("live_task_error_panel_stride", 5)
+            ),
+            live_task_error_panel_history_points=int(
+                hook_values.get("live_task_error_panel_history_points", 600)
+            ),
             show_live_force_panel=bool(hook_values.get("show_live_force_panel", False)),
             live_force_panel_stride=int(hook_values.get("live_force_panel_stride", 1)),
             live_force_panel_history_points=int(

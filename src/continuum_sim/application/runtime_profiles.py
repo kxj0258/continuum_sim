@@ -17,6 +17,7 @@ def with_windowless_batch_profile(config: ScenarioConfig) -> ScenarioConfig:
             viewer="none",
             keep_viewer_open=False,
             show_live_tendon_panel=False,
+            show_live_task_error_panel=False,
             show_live_force_panel=False,
             show_live_diagnostics_panel=False,
             show_observer_camera=False,

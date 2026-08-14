@@ -66,9 +66,9 @@ class _TrackingOverlayState:
         ):
             self.target_trail.append(target)
             self.target_trail_kinds.append(target_kind)
-        executor = _executor_arm(state)
-        if executor is not None:
-            self.tip_trail.append(executor.tip_pose_world.position.copy())
+        actual = _metadata_point(command.metadata, "executor_actual_world")
+        if actual is not None:
+            self.tip_trail.append(actual)
         observer_roi = _metadata_point(command.metadata, "visual_servo_roi_world")
         if observer_roi is None:
             observer_roi = _metadata_point(
@@ -384,12 +384,10 @@ def _draw_error_vector_overlay_scene(
         if kind == "base":
             start = state.base.pose.position.copy()
         else:
-            executor = _executor_arm(state)
-            start = None if executor is None else executor.tip_pose_world.position.copy()
+            start = overlay_state.tip_trail[-1] if overlay_state.tip_trail else None
     else:
         target = overlay_state.target_trail[-1] if overlay_state.target_trail else None
-        executor = _executor_arm(state)
-        start = None if executor is None else executor.tip_pose_world.position.copy()
+        start = overlay_state.tip_trail[-1] if overlay_state.tip_trail else None
     if start is None or target is None:
         return
     points = np.asarray([start, target], dtype=float)

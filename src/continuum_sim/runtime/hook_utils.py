@@ -153,17 +153,14 @@ def tip_target_error_vector(
     state: RobotSystemState,
     metadata: dict[str, object],
 ) -> np.ndarray | None:
-    """Return executor tip-to-target error vector from common metadata keys."""
+    """Return executor TCP-to-target error vector from command metadata."""
 
-    executor = executor_arm(state)
-    if executor is None:
-        return None
+    del state
     target = metadata_point(metadata, "executor_target_world")
-    if target is None:
-        target = metadata_point(metadata, "engine_navigation_active_target_m")
-    if target is None:
+    actual = metadata_point(metadata, "executor_actual_world")
+    if target is None or actual is None:
         return None
-    return target - executor.tip_pose_world.position
+    return target - actual
 
 
 def executor_arm(state: RobotSystemState):

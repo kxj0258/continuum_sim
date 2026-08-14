@@ -190,11 +190,11 @@ class StateRecorderHook:
         target = command.metadata.get("executor_target_world")
         if target is not None:
             self.target_position_m.append(np.asarray(target, dtype=float).copy())
-            executor = _executor_arm(state)
+            actual = command.metadata.get("executor_actual_world")
             self.target_actual_position_m.append(
                 np.full(3, np.nan, dtype=float)
-                if executor is None
-                else executor.tip_pose_world.position.copy()
+                if actual is None
+                else np.asarray(actual, dtype=float).copy()
             )
             self.target_engine_local_path_name.append(
                 str(command.metadata.get("engine_navigation_local_path_name", ""))

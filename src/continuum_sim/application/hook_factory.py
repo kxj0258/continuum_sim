@@ -6,6 +6,7 @@ from continuum_sim.runtime.completion_hooks import ControllerCompletionHook
 from continuum_sim.runtime.diagnostic_hooks import TendonDiagnosticHook
 from continuum_sim.runtime.live_panel_hooks import (
     LiveDiagnosticsPanelHook,
+    LiveTaskErrorPanelHook,
     LiveTendonPanelHook,
     LiveWipingForcePanelHook,
 )
@@ -52,6 +53,16 @@ def build_runtime_hooks(
             ),
             history_points=config.hooks.live_force_panel_history_points,
         )
+    if config.hooks.show_live_task_error_panel:
+        hooks_by_name["live_task_error_panel"] = LiveTaskErrorPanelHook(
+            stride=config.hooks.live_task_error_panel_stride,
+            display_interval_s=max(
+                1.0 / 10.0,
+                config.runtime.controller_dt_s
+                * config.hooks.live_task_error_panel_stride,
+            ),
+            history_points=config.hooks.live_task_error_panel_history_points,
+        )
     if config.hooks.show_live_force_panel:
         hooks_by_name["live_force_panel"] = LiveWipingForcePanelHook(
             stride=config.hooks.live_force_panel_stride,
@@ -82,12 +93,16 @@ def build_runtime_hooks(
             observer_camera.camera.name,
         )
     )
+    observer_camera_feedback_required = (
+        config.task.observer_control_mode == "visual_servo"
+    )
     if (
         config.backend.type == "mujoco"
         and observer_camera is not None
         and observer_camera.camera is not None
         and (
-            config.hooks.show_observer_camera
+            observer_camera_feedback_required
+            or config.hooks.show_observer_camera
             or bool(observer_camera_video_paths)
         )
     ):

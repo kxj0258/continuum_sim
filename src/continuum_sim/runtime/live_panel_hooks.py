@@ -16,6 +16,7 @@ from continuum_sim.runtime.hook_utils import (
     tip_target_error_vector as _tip_target_error_vector,
 )
 from continuum_sim.runtime.matplotlib_artists import PersistentAxisArtists
+from continuum_sim.runtime.window_layout import place_matplotlib_figure_right
 from continuum_sim.system.types import RobotSystemCommand, RobotSystemState
 
 
@@ -104,6 +105,244 @@ def _safe_panel_call(panel: object, method_name: str) -> None:
         method()
     except Exception:
         pass
+
+
+class LiveTaskErrorPanelHook:
+    """Compact TCP tracking panel with an adaptive force-control subplot."""
+
+    requires_gui_main_thread = True
+
+    def __init__(
+        self,
+        *,
+        stride: int = 1,
+        history_points: int = 600,
+        display_interval_s: float | None = None,
+    ) -> None:
+        if stride <= 0:
+            raise ValueError("LiveTaskErrorPanelHook stride must be positive.")
+        if history_points <= 0:
+            raise ValueError("LiveTaskErrorPanelHook history_points must be positive.")
+        self.stride = int(stride)
+        self.history_points = int(history_points)
+        self._display_gate = (
+            None
+            if display_interval_s is None
+            else TimeRateGate(display_interval_s)
+        )
+        self._samples = None
+        self._sample_version = -1
+        self._plt = None
+        self._figure = None
+        self._axes = None
+        self._show_force = False
+        self._time: list[float] = []
+        self._tracking_error: list[float] = []
+        self._tracking_tolerance: list[float] = []
+        self._target_force: list[float] = []
+        self._measured_force: list[float] = []
+        self._force_error: list[float] = []
+
+    def on_reset(self, state: RobotSystemState) -> None:
+        self._samples = LatestValueSlot((state, None))
+        self._sample_version = -1
+        for values in (
+            self._time,
+            self._tracking_error,
+            self._tracking_tolerance,
+            self._target_force,
+            self._measured_force,
+            self._force_error,
+        ):
+            values.clear()
+        if self._display_gate is not None:
+            self._display_gate.reset(state.time_s)
+
+    def on_step(
+        self,
+        state: RobotSystemState,
+        command: RobotSystemCommand,
+        step_index: int,
+    ) -> None:
+        due = (
+            self._display_gate.due(state.time_s)
+            if self._display_gate is not None
+            else step_index % self.stride == 0
+        )
+        if due and self._samples is not None:
+            self._samples.publish((state, command))
+
+    def present_pending(self, *, force: bool = False) -> None:
+        del force
+        if self._samples is None:
+            return
+        item = self._samples.consume_after(self._sample_version)
+        if item is None:
+            return
+        (state, command), self._sample_version = item
+        if command is None:
+            return
+        metadata = command.metadata
+        if self._figure is None:
+            self._show_force = metadata.get("task_type") == "wiping" or any(
+                key in metadata
+                for key in (
+                    "target_normal_force_n",
+                    "measured_normal_force_n",
+                    "force_error_n",
+                )
+            )
+            self._create_figure()
+        self._time.append(float(state.time_s))
+        self._tracking_error.append(
+            float(metadata.get("executor_error_m", np.nan))
+        )
+        self._tracking_tolerance.append(
+            float(metadata.get("waypoint_tolerance_m", np.nan))
+        )
+        self._target_force.append(
+            float(metadata.get("target_normal_force_n", np.nan))
+        )
+        self._measured_force.append(
+            _finite_metadata_float(
+                metadata,
+                "measured_normal_force_n",
+                fallback_key="estimated_normal_force_n",
+            )
+        )
+        self._force_error.append(float(metadata.get("force_error_n", np.nan)))
+        self._trim()
+        self._draw()
+
+    def _create_figure(self) -> None:
+        import matplotlib.pyplot as plt
+
+        self._plt = plt
+        row_count = 2 if self._show_force else 1
+        self._figure, raw_axes = plt.subplots(
+            row_count,
+            1,
+            figsize=(5.2, 7.2 if self._show_force else 4.8),
+            sharex=self._show_force,
+        )
+        axes = np.atleast_1d(raw_axes).reshape(-1)
+        manager = getattr(self._figure.canvas, "manager", None)
+        if manager is not None:
+            manager.set_window_title("continuum_sim live task errors")
+        self._figure.patch.set_facecolor("#f5f7fa")
+        for axis in axes:
+            axis.set_facecolor("#fbfcfe")
+            axis.grid(True, color="#c7ced8", alpha=0.45, linewidth=0.7)
+        self._axes = tuple(PersistentAxisArtists(axis) for axis in axes)
+        self._figure.tight_layout(pad=1.4)
+        plt.ion()
+        plt.show(block=False)
+        place_matplotlib_figure_right(self._figure)
+
+    def _trim(self) -> None:
+        excess = len(self._time) - self.history_points
+        if excess <= 0:
+            return
+        for values in (
+            self._time,
+            self._tracking_error,
+            self._tracking_tolerance,
+            self._target_force,
+            self._measured_force,
+            self._force_error,
+        ):
+            del values[:excess]
+
+    def _draw(self) -> None:
+        if self._axes is None or self._figure is None:
+            return
+        for axis in self._axes:
+            axis.begin_frame()
+        time_s = np.asarray(self._time, dtype=float)
+        if self._show_force:
+            force_axis, tracking_axis = self._axes
+            target_force = np.asarray(self._target_force, dtype=float)
+            measured_force = np.asarray(self._measured_force, dtype=float)
+            force_error = np.asarray(self._force_error, dtype=float)
+            force_axis.plot(
+                time_s,
+                target_force,
+                color="#59636f",
+                linestyle="--",
+                linewidth=1.2,
+                label="target force",
+            )
+            force_axis.plot(
+                time_s,
+                measured_force,
+                color="#168aad",
+                linewidth=1.8,
+                label="measured force",
+            )
+            force_axis.plot(
+                time_s,
+                force_error,
+                color="#d1495b",
+                linewidth=1.4,
+                label="force error",
+            )
+            force_axis.axhline(0.0, color="#59636f", linewidth=0.8)
+            force_axis.set(
+                title=f"Force tracking | error {_last_finite(self._force_error):.3f} N",
+                ylabel="force [N]",
+            )
+            force_axis.legend(loc="upper right", fontsize=8, framealpha=0.9)
+        else:
+            tracking_axis = self._axes[0]
+        tracking_error_mm = 1000.0 * np.asarray(self._tracking_error, dtype=float)
+        tolerance_mm = 1000.0 * np.asarray(self._tracking_tolerance, dtype=float)
+        tracking_axis.plot(
+            time_s,
+            tracking_error_mm,
+            color="#6f42c1",
+            linewidth=2.0,
+            label="TCP position error",
+        )
+        if np.any(np.isfinite(tolerance_mm)):
+            tracking_axis.plot(
+                time_s,
+                tolerance_mm,
+                color="#59636f",
+                linestyle="--",
+                linewidth=1.0,
+                label="waypoint tolerance",
+            )
+        tracking_axis.set(
+            title=(
+                "TCP tracking error | current "
+                f"{1000.0 * _last_finite(self._tracking_error):.2f} mm"
+            ),
+            xlabel="time [s]",
+            ylabel="error [mm]",
+        )
+        tracking_axis.legend(loc="upper right", fontsize=8, framealpha=0.9)
+        for axis in self._axes:
+            axis.relim()
+            axis.autoscale_view()
+            axis.end_frame()
+        self._figure.canvas.draw_idle()
+
+    def should_stop(self, state: RobotSystemState, step_index: int) -> bool:
+        del state, step_index
+        return False
+
+    def on_finish(self, state: RobotSystemState) -> None:
+        del state
+
+    def close_presentation(self) -> None:
+        if self._plt is not None and self._figure is not None:
+            try:
+                self._plt.ioff()
+                self._plt.close(self._figure)
+            except Exception:
+                pass
+        self._figure = None
+        self._axes = None
 
 
 class LiveWipingForcePanelHook:
@@ -783,7 +1022,7 @@ class LiveDiagnosticsPanelHook:
                 annotate=(index == 0),
             )
 
-        axes[0].plot(time_s, 1000.0 * np.asarray(self._tracking_error), label="tip error")
+        axes[0].plot(time_s, 1000.0 * np.asarray(self._tracking_error), label="TCP error")
         axes[0].plot(
             time_s,
             1000.0 * np.asarray(self._task_reference_jump),
@@ -791,9 +1030,9 @@ class LiveDiagnosticsPanelHook:
         )
         tip_error_xyz = np.asarray(self._tip_error_xyz, dtype=float)
         if tip_error_xyz.ndim == 2 and tip_error_xyz.shape[1] == 3:
-            axes[0].plot(time_s, 1000.0 * tip_error_xyz[:, 0], label="tip err x", alpha=0.45)
-            axes[0].plot(time_s, 1000.0 * tip_error_xyz[:, 1], label="tip err y", alpha=0.45)
-            axes[0].plot(time_s, 1000.0 * tip_error_xyz[:, 2], label="tip err z", alpha=0.45)
+            axes[0].plot(time_s, 1000.0 * tip_error_xyz[:, 0], label="TCP err x", alpha=0.45)
+            axes[0].plot(time_s, 1000.0 * tip_error_xyz[:, 1], label="TCP err y", alpha=0.45)
+            axes[0].plot(time_s, 1000.0 * tip_error_xyz[:, 2], label="TCP err z", alpha=0.45)
         axes[0].set(title="Layer 1: task reference", xlabel="time [s]", ylabel="error [mm]")
         axes[0].legend(loc="upper left", fontsize=8)
 
@@ -1250,6 +1489,7 @@ def _last_vector(values: list[np.ndarray]) -> str:
 
 __all__ = [
     "LiveDiagnosticsPanelHook",
+    "LiveTaskErrorPanelHook",
     "LiveTendonPanelHook",
     "LiveWipingForcePanelHook",
 ]

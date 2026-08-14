@@ -19,6 +19,7 @@ from continuum_sim.control.scenario_controllers import (
     WipingController,
     ZeroSystemController,
 )
+from continuum_sim.control.executor_task_frame import ExecutorToolTcpController
 from continuum_sim.control.staged_engine_navigation import (
     StagedEngineNavigationController,
 )
@@ -119,6 +120,8 @@ def build_controller(
             scene_query,
             task_plan,
         )
+    if config.task.type != "idle":
+        controller = ExecutorToolTcpController(controller)
     return ControllerBuildResult(
         controller=controller,
         observer_camera_target_world=observer_camera_target_world,

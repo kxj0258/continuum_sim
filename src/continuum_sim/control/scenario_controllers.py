@@ -1074,7 +1074,7 @@ class NavigationController:
 
 
 class WipingController:
-    """Direct-tendon wiping path with normal-distance contact regulation."""
+    """Track wiping tangentially while regulating measured normal force."""
 
     def __init__(
         self,
@@ -1097,7 +1097,16 @@ class WipingController:
         normal_force_gain: float = 0.0,
         force_proxy_stiffness_n_m: float = 600.0,
         force_feedback_mode: str = "proxy_distance",
-        max_normal_velocity_m_s: float = 0.03,
+        max_normal_velocity_m_s: float = 0.008,
+        force_velocity_gain_m_s_per_n: float = 0.003,
+        force_deadband_n: float = 0.05,
+        contact_force_threshold_n: float = 0.15,
+        contact_release_threshold_n: float = 0.08,
+        contact_stable_steps: int = 5,
+        contact_seek_velocity_m_s: float = 0.003,
+        max_penetration_m: float = 0.005,
+        safety_retract_steps: int = 40,
+        contact_loss_tolerance_steps: int = 20,
         force_control_weight: float = 20.0,
         max_contact_force_n: float | None = None,
         force_strategy: WipingForceStrategy | None = None,
@@ -1176,12 +1185,77 @@ class WipingController:
         self.normal_force_gain = float(normal_force_gain)
         self.force_proxy_stiffness_n_m = float(force_proxy_stiffness_n_m)
         self.force_feedback_mode = str(force_feedback_mode)
+        if (
+            self.control_type == "hybrid_force_position"
+            and self.force_feedback_mode == "proxy_distance"
+        ):
+            raise ValueError(
+                "hybrid_force_position requires measured normal-force feedback; "
+                "proxy_distance would reintroduce penetration-based control."
+            )
         self.max_normal_velocity_m_s = float(max_normal_velocity_m_s)
         if (
             not np.isfinite(self.max_normal_velocity_m_s)
             or self.max_normal_velocity_m_s <= 0.0
         ):
             raise ValueError("max_normal_velocity_m_s must be positive and finite.")
+        self.force_velocity_gain_m_s_per_n = float(
+            force_velocity_gain_m_s_per_n
+        )
+        if (
+            not np.isfinite(self.force_velocity_gain_m_s_per_n)
+            or self.force_velocity_gain_m_s_per_n <= 0.0
+        ):
+            raise ValueError(
+                "force_velocity_gain_m_s_per_n must be positive and finite."
+            )
+        self.force_deadband_n = float(force_deadband_n)
+        self.contact_force_threshold_n = float(contact_force_threshold_n)
+        self.contact_release_threshold_n = float(contact_release_threshold_n)
+        for name, value in (
+            ("force_deadband_n", self.force_deadband_n),
+            ("contact_force_threshold_n", self.contact_force_threshold_n),
+            ("contact_release_threshold_n", self.contact_release_threshold_n),
+        ):
+            if not np.isfinite(value) or value < 0.0:
+                raise ValueError(f"{name} must be non-negative and finite.")
+        if self.contact_release_threshold_n > self.contact_force_threshold_n:
+            raise ValueError(
+                "contact_release_threshold_n cannot exceed "
+                "contact_force_threshold_n."
+            )
+        self.contact_stable_steps = int(contact_stable_steps)
+        self.contact_loss_tolerance_steps = int(contact_loss_tolerance_steps)
+        if self.contact_stable_steps <= 0:
+            raise ValueError("contact_stable_steps must be positive.")
+        if self.contact_loss_tolerance_steps <= 0:
+            raise ValueError("contact_loss_tolerance_steps must be positive.")
+        self.contact_seek_velocity_m_s = float(contact_seek_velocity_m_s)
+        if (
+            not np.isfinite(self.contact_seek_velocity_m_s)
+            or self.contact_seek_velocity_m_s <= 0.0
+            or self.contact_seek_velocity_m_s > self.max_normal_velocity_m_s
+        ):
+            raise ValueError(
+                "contact_seek_velocity_m_s must be positive, finite, and no "
+                "greater than max_normal_velocity_m_s."
+            )
+        self.max_penetration_m = float(max_penetration_m)
+        if not np.isfinite(self.max_penetration_m) or self.max_penetration_m <= 0.0:
+            raise ValueError("max_penetration_m must be positive and finite.")
+        self.safety_retract_steps = int(safety_retract_steps)
+        if self.safety_retract_steps <= 0:
+            raise ValueError("safety_retract_steps must be positive.")
+        if (
+            self.safety_retract_steps
+            * self.max_normal_velocity_m_s
+            * float(controller_dt_s)
+            < self.max_penetration_m
+        ):
+            raise ValueError(
+                "safety_retract_steps must command at least max_penetration_m "
+                "of outward travel."
+            )
         self.force_control_weight = float(force_control_weight)
         if not np.isfinite(self.force_control_weight) or self.force_control_weight <= 0.0:
             raise ValueError("force_control_weight must be positive and finite.")
@@ -1194,15 +1268,24 @@ class WipingController:
         self.force_limit_exceeded = False
         self.phase = "approach"
         self.controller_dt_s = float(controller_dt_s)
+        self._normal_control_state = "approach"
+        self._contact_stable_count = 0
+        self._contact_loss_count = 0
+        self._force_safety_active = False
+        self._force_safety_retract_count = 0
+        self._force_safety_stop = False
+        self._force_safety_reason = ""
         self._executor_name = _single_role_name(assembly, "executor")
         self._kinematics_mode = solver_config.kinematics_mode
 
     @property
     def done(self) -> bool:
-        return self._tracking.done
+        return self._force_safety_stop or self._tracking.done
 
     @property
     def terminal_reason(self) -> str:
+        if self._force_safety_stop:
+            return self._force_safety_reason
         return self._tracking.terminal_reason
 
     def compute_command(self, state: RobotSystemState) -> RobotSystemCommand:
@@ -1276,15 +1359,14 @@ class WipingController:
                 controller_dt_s=self.controller_dt_s,
             )
         )
-        force_control_velocity = self._force_control_velocity_mps(
-            contact_error,
-            force_error,
+        force_control_velocity = self._normal_control_velocity_mps(
+            force_error_n=force_error,
+            distance_m=distance,
+            measured_force_n=measured_force,
         )
         force_control_enabled = bool(
             self.control_type == "hybrid_force_position"
             and self.phase == "contact"
-            and np.isfinite(force_control_velocity)
-            and abs(force_control_velocity) > 1.0e-12
         )
         contact_intent = ContactTaskIntent(
             surface_normal_world=(
@@ -1307,6 +1389,9 @@ class WipingController:
         )
         original_waypoint = self._tracking.waypoints_world[waypoint_index].copy()
         waypoint_correction_applied = self.phase == "contact" and not force_control_enabled
+        waypoint_advance_enabled = not strategy_result.controls_waypoint_advance
+        if self.control_type == "hybrid_force_position" and self.phase == "contact":
+            waypoint_advance_enabled = self._normal_control_state == "force_track"
         if waypoint_correction_applied:
             self._tracking.waypoints_world[waypoint_index] = (
                 strategy_result.corrected_waypoint
@@ -1320,7 +1405,7 @@ class WipingController:
             else:
                 command = self._tracking.compute_command(
                     state,
-                    advance=not strategy_result.controls_waypoint_advance,
+                    advance=waypoint_advance_enabled,
                     contact=contact_intent,
                 )
         finally:
@@ -1341,18 +1426,38 @@ class WipingController:
                 "force_error_n": force_error,
                 "normal_force_gain": self.normal_force_gain,
                 "force_proxy_stiffness_n_m": self.force_proxy_stiffness_n_m,
+                "force_velocity_gain_m_s_per_n": (
+                    self.force_velocity_gain_m_s_per_n
+                ),
+                "force_deadband_n": self.force_deadband_n,
                 "force_feedback_mode": self.force_feedback_mode,
                 "max_normal_velocity_m_s": self.max_normal_velocity_m_s,
+                "contact_force_threshold_n": self.contact_force_threshold_n,
+                "contact_release_threshold_n": self.contact_release_threshold_n,
+                "contact_seek_velocity_m_s": self.contact_seek_velocity_m_s,
+                "contact_stable_count": self._contact_stable_count,
+                "contact_loss_count": self._contact_loss_count,
+                "wiping_normal_control_state": self._normal_control_state,
+                "normal_distance_control_enabled": not force_control_enabled,
                 "force_control_velocity_mps": force_control_velocity,
                 "force_control_enabled": force_control_enabled,
+                "wiping_waypoint_advance_enabled": waypoint_advance_enabled,
                 "wiping_waypoint_correction_applied": waypoint_correction_applied,
                 "max_contact_force_n": self.max_contact_force_n,
                 "force_limit_exceeded": self.force_limit_exceeded,
+                "max_penetration_m": self.max_penetration_m,
+                "penetration_limit_exceeded": bool(
+                    np.isfinite(distance) and distance < -self.max_penetration_m
+                ),
+                "force_safety_active": self._force_safety_active,
+                "force_safety_retract_count": self._force_safety_retract_count,
+                "safety_retract_steps": self.safety_retract_steps,
+                "force_safety_stop": self._force_safety_stop,
+                "force_safety_reason": self._force_safety_reason,
                 "contact_distance_m": distance,
                 "contact_error_m": contact_error,
                 "contact_established": bool(
-                    np.isfinite(contact_error)
-                    and abs(contact_error) <= self.contact_tolerance_m
+                    self._normal_control_state == "force_track"
                 ),
                 "waypoint_advanced": bool(
                     command.metadata.get("waypoint_advanced", False)
@@ -1378,33 +1483,103 @@ class WipingController:
                     float(np.dot(wrench.force_world_n, contact_normal_world)),
                 )
                 return force, "tool_wrench_sensor"
-            return proxy_force_n, "proxy_distance_fallback"
+            return float("nan"), "tool_wrench_sensor_unavailable"
         if self.force_feedback_mode in ("measured_contact_force", "external"):
             external = state.metadata.get("measured_normal_force_n")
             if external is not None and np.isfinite(float(external)):
                 return max(0.0, float(external)), self.force_feedback_mode
-            return proxy_force_n, "proxy_distance_fallback"
+            return float("nan"), f"{self.force_feedback_mode}_unavailable"
         return proxy_force_n, "proxy_distance"
 
-    def _force_control_velocity_mps(
+    def _normal_control_velocity_mps(
         self,
-        contact_error_m: float,
+        force_error_n: float,
+        *,
+        distance_m: float,
+        measured_force_n: float,
+    ) -> float:
+        if self.control_type != "hybrid_force_position" or self.phase != "contact":
+            self._normal_control_state = self.phase
+            self._contact_stable_count = 0
+            self._contact_loss_count = 0
+            return 0.0
+        if self._force_safety_active:
+            return self._safety_retract_velocity_mps()
+        if not np.isfinite(measured_force_n):
+            return self._start_safety_retract("normal_force_feedback_unavailable")
+        penetration_exceeded = bool(
+            np.isfinite(distance_m) and distance_m < -self.max_penetration_m
+        )
+        force_exceeded = bool(
+            self.max_contact_force_n is not None
+            and np.isfinite(measured_force_n)
+            and measured_force_n > self.max_contact_force_n
+        )
+        if force_exceeded or penetration_exceeded:
+            return self._start_safety_retract(
+                "max_contact_force_exceeded"
+                if force_exceeded
+                else "max_penetration_exceeded"
+            )
+
+        if self._normal_control_state not in ("contact_seek", "force_track"):
+            self._normal_control_state = "contact_seek"
+            self._contact_stable_count = 0
+            self._contact_loss_count = 0
+        if self._normal_control_state == "contact_seek":
+            if (
+                np.isfinite(measured_force_n)
+                and measured_force_n >= self.contact_force_threshold_n
+            ):
+                self._contact_stable_count += 1
+            else:
+                self._contact_stable_count = 0
+            if self._contact_stable_count < self.contact_stable_steps:
+                return -self.contact_seek_velocity_m_s
+            self._normal_control_state = "force_track"
+            self._contact_loss_count = 0
+
+        if (
+            not np.isfinite(measured_force_n)
+            or measured_force_n <= self.contact_release_threshold_n
+        ):
+            self._contact_loss_count += 1
+        else:
+            self._contact_loss_count = 0
+        if self._contact_loss_count >= self.contact_loss_tolerance_steps:
+            self._normal_control_state = "contact_seek"
+            self._contact_stable_count = 0
+            self._contact_loss_count = 0
+            return -self.contact_seek_velocity_m_s
+        return self._force_tracking_velocity_mps(force_error_n)
+
+    def _start_safety_retract(self, reason: str) -> float:
+        self._normal_control_state = "safety_retract"
+        self._force_safety_active = True
+        self._force_safety_reason = reason
+        self._force_safety_retract_count = 0
+        return self._safety_retract_velocity_mps()
+
+    def _safety_retract_velocity_mps(self) -> float:
+        self._force_safety_retract_count += 1
+        if self._force_safety_retract_count >= self.safety_retract_steps:
+            self._force_safety_stop = True
+        return self.max_normal_velocity_m_s
+
+    def _force_tracking_velocity_mps(
+        self,
         force_error_n: float,
     ) -> float:
-        if not np.isfinite(contact_error_m):
+        if not np.isfinite(force_error_n):
             return 0.0
-        distance_term = contact_error_m / max(self.controller_dt_s, 1.0e-12)
-        force_term = 0.0
-        if np.isfinite(force_error_n) and self.force_proxy_stiffness_n_m > 0.0:
-            force_term = -(
-                self.normal_force_gain
-                * force_error_n
-                / self.force_proxy_stiffness_n_m
-                / max(self.controller_dt_s, 1.0e-12)
-            )
+        effective_error = np.sign(force_error_n) * max(
+            0.0,
+            abs(force_error_n) - self.force_deadband_n,
+        )
+        force_velocity = -self.force_velocity_gain_m_s_per_n * effective_error
         return float(
             np.clip(
-                distance_term + force_term,
+                force_velocity,
                 -self.max_normal_velocity_m_s,
                 self.max_normal_velocity_m_s,
             )

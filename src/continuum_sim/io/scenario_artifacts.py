@@ -718,6 +718,38 @@ def _flatten_result(application, result) -> dict[str, np.ndarray]:
             getattr(recorder, "wiping_dynamic_active", ()),
             dtype=bool,
         )
+        arrays["wiping_normal_control_state"] = np.asarray(
+            getattr(recorder, "wiping_normal_control_state", ()),
+            dtype=str,
+        )
+        arrays["normal_distance_control_enabled"] = np.asarray(
+            getattr(recorder, "normal_distance_control_enabled", ()),
+            dtype=bool,
+        )
+        arrays["force_control_velocity_mps"] = np.asarray(
+            getattr(recorder, "force_control_velocity_mps", ()),
+            dtype=float,
+        )
+        arrays["force_control_enabled"] = np.asarray(
+            getattr(recorder, "force_control_enabled", ()),
+            dtype=bool,
+        )
+        arrays["wiping_waypoint_advance_enabled"] = np.asarray(
+            getattr(recorder, "wiping_waypoint_advance_enabled", ()),
+            dtype=bool,
+        )
+        arrays["force_safety_active"] = np.asarray(
+            getattr(recorder, "force_safety_active", ()),
+            dtype=bool,
+        )
+        arrays["force_safety_reason"] = np.asarray(
+            getattr(recorder, "force_safety_reason", ()),
+            dtype=str,
+        )
+        arrays["penetration_limit_exceeded"] = np.asarray(
+            getattr(recorder, "penetration_limit_exceeded", ()),
+            dtype=bool,
+        )
         arrays["task_phase"] = np.asarray(recorder.task_phase, dtype=str)
         for arm_name in sorted(result.states[-1].arms):
             prefix = f"arm_{arm_name}"

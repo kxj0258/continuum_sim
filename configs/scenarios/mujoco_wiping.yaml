@@ -70,14 +70,20 @@ scenario:
     surface_normal_world: [-1.0, 0.0, 0.0]
     target_contact_distance_m: -0.0025
     contact_tolerance_m: 0.002
-    target_normal_force_n: 1.5
-    normal_force_gain: 0.04
+    target_normal_force_n: 10.0
     force_feedback_mode: tool_wrench_sensor
-    force_proxy_stiffness_n_m: 600.0
-    max_normal_velocity_m_s: 0.03
+    force_velocity_gain_m_s_per_n: 0.005
+    force_deadband_n: 0.05
+    contact_force_threshold_n: 0.15
+    contact_release_threshold_n: 0.08
+    contact_stable_steps: 5
+    contact_seek_velocity_m_s: 0.003
+    max_normal_velocity_m_s: 0.015
+    max_penetration_m: 0.005
+    safety_retract_steps: 40
     force_control_weight: 80.0
-    max_contact_force_n: 5.0
-    contact_loss_tolerance_steps: 100
+    max_contact_force_n: 15.0
+    contact_loss_tolerance_steps: 10
     scene_avoidance:
       enabled: true
       executor_mode: disabled
@@ -86,17 +92,17 @@ scenario:
       engine_influence_distance_m: 0.010
       engine_avoidance_gain: 5.0
     tracking_control:
-      approach_samples: 10
+      approach_samples: 5
       tracking_mode: waypoint
       max_steps_per_waypoint: 500
       feedforward_speed_mps: 0.0
     wiping_path:
       surface_id: board_surface
       patch_id: center_patch
-      center_m: [0.0375, 0.005, 0.115]
+      center_m: [0.0375, 0.005, 0.125]
       width_m: 0.040
       height_m: 0.025
-      line_count: 5
+      line_count: 3
       samples_per_line: 5
       approach_reference: first_contact
       approach_offset_m: 0.005

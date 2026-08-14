@@ -584,7 +584,15 @@ class ScenarioTaskConfig:
     target_normal_force_n: float = 0.0
     force_proxy_stiffness_n_m: float = 600.0
     force_feedback_mode: str = "proxy_distance"
-    max_normal_velocity_m_s: float = 0.03
+    max_normal_velocity_m_s: float = 0.008
+    force_velocity_gain_m_s_per_n: float = 0.003
+    force_deadband_n: float = 0.05
+    contact_force_threshold_n: float = 0.15
+    contact_release_threshold_n: float = 0.08
+    contact_stable_steps: int = 5
+    contact_seek_velocity_m_s: float = 0.003
+    max_penetration_m: float = 0.005
+    safety_retract_steps: int = 40
     force_control_weight: float = 20.0
     max_contact_force_n: float | None = None
     contact_loss_tolerance_steps: int = 20
@@ -1000,8 +1008,24 @@ def load_scenario_config(path: str | Path) -> ScenarioConfig:
             ),
             force_feedback_mode=force_feedback_mode,
             max_normal_velocity_m_s=float(
-                task_values.get("max_normal_velocity_m_s", 0.03)
+                task_values.get("max_normal_velocity_m_s", 0.008)
             ),
+            force_velocity_gain_m_s_per_n=float(
+                task_values.get("force_velocity_gain_m_s_per_n", 0.003)
+            ),
+            force_deadband_n=float(task_values.get("force_deadband_n", 0.05)),
+            contact_force_threshold_n=float(
+                task_values.get("contact_force_threshold_n", 0.15)
+            ),
+            contact_release_threshold_n=float(
+                task_values.get("contact_release_threshold_n", 0.08)
+            ),
+            contact_stable_steps=int(task_values.get("contact_stable_steps", 5)),
+            contact_seek_velocity_m_s=float(
+                task_values.get("contact_seek_velocity_m_s", 0.003)
+            ),
+            max_penetration_m=float(task_values.get("max_penetration_m", 0.005)),
+            safety_retract_steps=int(task_values.get("safety_retract_steps", 40)),
             force_control_weight=float(task_values.get("force_control_weight", 20.0)),
             max_contact_force_n=_optional_float(task_values.get("max_contact_force_n")),
             contact_loss_tolerance_steps=int(

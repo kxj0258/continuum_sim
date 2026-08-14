@@ -71,6 +71,14 @@ class StateRecorderHook:
     admittance_velocity_m_s: list[float] = field(default_factory=list)
     dynamic_normal_correction_m: list[float] = field(default_factory=list)
     wiping_dynamic_active: list[bool] = field(default_factory=list)
+    wiping_normal_control_state: list[str] = field(default_factory=list)
+    normal_distance_control_enabled: list[bool] = field(default_factory=list)
+    force_control_velocity_mps: list[float] = field(default_factory=list)
+    force_control_enabled: list[bool] = field(default_factory=list)
+    wiping_waypoint_advance_enabled: list[bool] = field(default_factory=list)
+    force_safety_active: list[bool] = field(default_factory=list)
+    force_safety_reason: list[str] = field(default_factory=list)
+    penetration_limit_exceeded: list[bool] = field(default_factory=list)
     task_phase: list[str] = field(default_factory=list)
     engine_navigation_phase: list[str] = field(default_factory=list)
     engine_navigation_terminal_reason: list[str] = field(default_factory=list)
@@ -130,6 +138,14 @@ class StateRecorderHook:
         self.admittance_velocity_m_s.clear()
         self.dynamic_normal_correction_m.clear()
         self.wiping_dynamic_active.clear()
+        self.wiping_normal_control_state.clear()
+        self.normal_distance_control_enabled.clear()
+        self.force_control_velocity_mps.clear()
+        self.force_control_enabled.clear()
+        self.wiping_waypoint_advance_enabled.clear()
+        self.force_safety_active.clear()
+        self.force_safety_reason.clear()
+        self.penetration_limit_exceeded.clear()
         self.task_phase.clear()
         self.engine_navigation_phase.clear()
         self.engine_navigation_terminal_reason.clear()
@@ -377,6 +393,30 @@ class StateRecorderHook:
             )
             self.wiping_dynamic_active.append(
                 bool(command.metadata.get("wiping_dynamic_system_controller_active", False))
+            )
+            self.wiping_normal_control_state.append(
+                str(command.metadata.get("wiping_normal_control_state", ""))
+            )
+            self.normal_distance_control_enabled.append(
+                bool(command.metadata.get("normal_distance_control_enabled", False))
+            )
+            self.force_control_velocity_mps.append(
+                float(command.metadata.get("force_control_velocity_mps", np.nan))
+            )
+            self.force_control_enabled.append(
+                bool(command.metadata.get("force_control_enabled", False))
+            )
+            self.wiping_waypoint_advance_enabled.append(
+                bool(command.metadata.get("wiping_waypoint_advance_enabled", False))
+            )
+            self.force_safety_active.append(
+                bool(command.metadata.get("force_safety_active", False))
+            )
+            self.force_safety_reason.append(
+                str(command.metadata.get("force_safety_reason", ""))
+            )
+            self.penetration_limit_exceeded.append(
+                bool(command.metadata.get("penetration_limit_exceeded", False))
             )
             self.task_phase.append(str(command.metadata.get("wiping_phase", "")))
 

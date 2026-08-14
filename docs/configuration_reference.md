@@ -155,8 +155,24 @@ force_strategy:
 surface_normal_world: [-1.0, 0.0, 0.0]
 target_normal_force_n: 1.5
 force_feedback_mode: tool_wrench_sensor
+force_velocity_gain_m_s_per_n: 0.003
+force_deadband_n: 0.05
+contact_force_threshold_n: 0.15
+contact_release_threshold_n: 0.08
+contact_stable_steps: 5
+contact_seek_velocity_m_s: 0.003
+max_normal_velocity_m_s: 0.008
+max_penetration_m: 0.005
 max_contact_force_n: 5.0
+safety_retract_steps: 40
+contact_loss_tolerance_steps: 10
 ```
+
+`hybrid_force_position` 在接近阶段使用三维位置控制；进入接触阶段后，法向位置/穿透量控制会被关闭，仅保留切向轨迹跟踪和法向力速度控制。`target_contact_distance_m` 在力跟踪阶段只用于诊断，不再作为法向控制目标。
+
+接触阶段先以 `contact_seek_velocity_m_s` 低速向内搜索。当测得法向力连续 `contact_stable_steps` 个控制周期不低于 `contact_force_threshold_n` 后，进入纯力跟踪。法向速度由 `force_velocity_gain_m_s_per_n`、`force_deadband_n` 和 `max_normal_velocity_m_s` 共同决定。
+
+当法向力连续 `contact_loss_tolerance_steps` 个周期不高于 `contact_release_threshold_n` 时，控制器返回接触搜索。传感器失效、法向力超过 `max_contact_force_n` 或穿透量超过 `max_penetration_m` 时，以最大法向速度回撤 `safety_retract_steps` 个控制周期，然后终止任务。
 
 `tool_wrench_sensor` 从执行臂末端六维力传感器读取力和力矩。控制器把传感器力转换到世界坐标，并将其投影到 `surface_normal_world`，得到擦拭法向力。
 

@@ -209,6 +209,17 @@ def _build_wiping_controller(config, assembly, scene_query, task_plan):
         force_proxy_stiffness_n_m=config.task.force_proxy_stiffness_n_m,
         force_feedback_mode=config.task.force_feedback_mode,
         max_normal_velocity_m_s=config.task.max_normal_velocity_m_s,
+        force_velocity_gain_m_s_per_n=(
+            config.task.force_velocity_gain_m_s_per_n
+        ),
+        force_deadband_n=config.task.force_deadband_n,
+        contact_force_threshold_n=config.task.contact_force_threshold_n,
+        contact_release_threshold_n=config.task.contact_release_threshold_n,
+        contact_stable_steps=config.task.contact_stable_steps,
+        contact_seek_velocity_m_s=config.task.contact_seek_velocity_m_s,
+        max_penetration_m=config.task.max_penetration_m,
+        safety_retract_steps=config.task.safety_retract_steps,
+        contact_loss_tolerance_steps=config.task.contact_loss_tolerance_steps,
         force_control_weight=config.task.force_control_weight,
         max_contact_force_n=config.task.max_contact_force_n,
         force_strategy=build_wiping_force_strategy(config, assembly),
